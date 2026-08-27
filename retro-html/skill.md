@@ -42,7 +42,7 @@ description: Use when the user explicitly asks to make an existing HTML page loo
 - 虹色罫線(`<hr size color noshade>`風)のセル・境界装飾
 - マウスカーソル追従のキラキラエフェクト(`mousemove`でstar要素を生成しfadeさせる)
 - 「いらっしゃいませ」→「ようこそ我が聖域へ」的な表現に変更
-- 「上長」→「主（ぬし）」「騎士」等の表現を検討
+- 役職→「主（ぬし）」「騎士」等の表現を検討
 - †や★などの装飾記号を増やす
 - 「〜だったりします」「〜なのです」等の当時の語尾を追加
 - 「闇」「光」「魂」等の厨二ワードを適所に配置
