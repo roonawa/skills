@@ -100,6 +100,7 @@ deployment:
 手動確認が必要な項目は省略せず、完了報告時に対象・確認内容・（可能であれば）再現手順とともにリスト化する。
 
 成果物ファイルは`.html`で保存し、フォーマットの詳細は [references/output-templates.md](references/output-templates.md) に従う。
+また、成果物は社内で共有するため、Claude Codeのアーティファクト機能は使わず、htmlファイルのままフォルダ内に保存する。
 
 ## Common Mistakes
 
