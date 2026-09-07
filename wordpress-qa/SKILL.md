@@ -1,6 +1,6 @@
 ---
 name: wordpress-qa
-description: Use when the project is a WordPress-based website (corporate site, LP, recruiting site, small EC) and QA scope, checklists, or Playwright/CI test design are needed before release — including judgment calls on what's safe to automate versus what needs manual review.
+description: Use when the project is a WordPress-based website (corporate site, LP, recruiting site, small EC) and pre-release QA is needed — deciding what to automate vs. check manually, designing Playwright/CI tests, running WordPress-specific security checks (wp-login/wp-admin/XML-RPC exposure, user enumeration), SEO/Analytics/Accessibility checks, or producing QA checklists, automation plans, bug reports, or release checklists.
 ---
 
 # WordPress QA
@@ -30,6 +30,21 @@ WordPressサイト（コーポレートサイト、LP、採用サイト、小規
 2. **全てを自動化しようとしない** — 判定条件が明確で反復実行に価値があるものだけ自動化する。デザイン品質・文言品質・UX・ブランド表現・業務判断は常に手動
 3. **CI/CDでは高速チェックを優先する** — 短時間・高検出率・変更影響を受けにくいものをCIに置く。頻繁に壊れるVisual RegressionはQA工程で行う
 
+### 時間がない場面でも省略しないこと
+
+省略してよいのは成果物のHTML化（QA分析結果・チェックリスト等のドキュメント作成）だけであり、対象項目がQuick Reference表のどこに該当するか（自動化可否）を判定すること自体は省略しない。「時間がない」「コードだけ欲しい」は、この判定を飛ばしてユーザーの要求をそのままテストケースに変換してよい理由にはならない。
+
+| 言い訳 | 実際にすべきこと |
+|---|---|
+| 「リリース直前で時間がない、コードだけ先に書いて」 | 対象項目の自動化可否だけは一言で判定してから書く（例:「フォーム送信はQuick Reference上Playwright/QA対象」）。HTML成果物は後回しでよいが判定は省略しない |
+| 「分析やチェックリストは後でいい」 | HTML出力を後回しにするのは可。ただしQuick Reference表との照合（内部判断）は省略しない |
+| 「ユーザーがコードだけ欲しいと言っている」 | 依頼形式がコードのみでも、手動必須の項目（reCAPTCHAのBot判定、メール受信確認など）を自動テストに含めてよい理由にはならない |
+
+Red Flags — 以下のいずれかをしていたら、コードを書く前に立ち止まる:
+- 自動化可否判定をせず、ユーザーの要求をそのままテストケースに変換している
+- 手動確認が必要な項目（デザイン品質・UX・reCAPTCHA判定精度・メール受信確認等）を自動テストに含めようとしている
+- 「後で観点を整理すればいい」と思いながらコードから書き始めている
+
 ## Quick Reference: 自動化判断
 
 | カテゴリ | 自動化できる項目 | 手動必須の項目 |
@@ -38,11 +53,13 @@ WordPressサイト（コーポレートサイト、LP、採用サイト、小規
 | ナビゲーション | リンク存在・リンク切れ | リンク先内容の妥当性 |
 | フォーム | 表示・バリデーション・送信可否 | メール受信確認（環境依存） |
 | SEO | title/description/canonical/h1/OGP/sitemap/robots.txt/lang属性の**存在** | 内容の妥当性・SEO効果 |
-| Security | wp-login/wp-admin/xmlrpc.php露出、Directory Listing、HTTPS、セキュリティヘッダの**存在** | ヘッダ設定内容の妥当性レビュー |
+| Security | wp-login/wp-admin/xmlrpc.php露出、ユーザー名列挙、機密ファイル露出、バージョン露出（generatorタグ含む）、Directory Listing、HTTPS、セキュリティヘッダ・nonce（CSRFトークン）の**存在**（対象URL等の詳細は下記参照） | ヘッダ設定内容の妥当性レビュー、検出された既知脆弱性情報の対応要否判断、管理者アカウント設定（ユーザー名・2FA）レビュー、ブルートフォース対策の設定確認（本番への連続ログイン試行は行わない） |
 | Analytics | GA4/GTMタグの**存在**、測定ID | 計測仕様の妥当性 |
 | reCAPTCHA | スクリプト読込・ウィジェット表示 | Bot判定精度（Google側判定に依存するため完全自動化不可） |
 | Responsive | 横スクロール・要素欠落・レイアウト崩れ（スクリーンショット比較） | 余白感・文字サイズ・視認性などデザイン品質 |
 | Accessibility | alt属性・label関連付け・コントラスト（axe-core） | 読みやすさ・スクリーンリーダー利用感 |
+| Performance | ページロード時間の閾値超過検知、未最適化画像の検知 | 体感速度・UX上の許容範囲判断 |
+| Operation | コア/プラグイン/テーマのバージョン取得 | 更新要否の判断、バックアップ・監視体制のレビュー |
 
 判断ルール:
 - **CIへ配置**: 実行時間が短い／結果判定が明確／頻繁な実行に価値がある／誤検知が少ない
@@ -99,8 +116,7 @@ deployment:
 
 手動確認が必要な項目は省略せず、完了報告時に対象・確認内容・（可能であれば）再現手順とともにリスト化する。
 
-成果物ファイルは`.html`で保存し、フォーマットの詳細は [references/output-templates.md](references/output-templates.md) に従う。
-また、成果物は社内で共有するため、Claude Codeのアーティファクト機能は使わず、htmlファイルのままフォルダ内に保存する。
+成果物は社内で共有するため、Claude Codeのアーティファクト機能は使わず、`.html`ファイルのままフォルダ内に保存する（フォーマットはWorkflowで参照した[references/output-templates.md](references/output-templates.md)に従う）。
 
 ## Common Mistakes
 
@@ -109,3 +125,5 @@ deployment:
 - **スクリーンショット比較だけで品質保証したと判断する** — Visual Regressionは表示崩れの検知はできるが、デザイン品質・余白感・文字サイズの妥当性は別途手動確認が必要
 - **人間判断が必要な項目を自動判定扱いする** — デザイン品質・文言品質・UX・ブランド表現・業務判断・reCAPTCHAのBot判定精度は自動化対象に含めない
 - **CIに時間のかかる／環境依存のチェックを混ぜる** — Visual RegressionやUX確認はQA工程に置き、CIは高速チェックに専念させる
+- **Securityをwp-login/wp-admin露出だけで確認したつもりになる** — ユーザー名列挙（`/wp-json/wp/v2/users`、`?author=1`）や機密ファイル露出（readme.html、wp-config.php等）、バージョン露出もWordPress特有のリスクとして確認する
+- **ブルートフォース対策の確認と称して本番サイトに連続ログイン試行を仕掛ける** — 確認するのは対策（プラグイン導入等）の設定有無であり、実際に連続試行して負荷をかけたりアカウントをロックしたりしない

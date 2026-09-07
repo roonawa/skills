@@ -143,6 +143,13 @@ test.describe('お問い合わせフォーム', () => {
     await contact.submitEmpty();
     await expect(contact.errorMessage).toBeVisible();
   });
+
+  test('nonce（CSRFトークン）フィールドが存在する', async ({ page }) => {
+    const contact = new ContactPage(page);
+    await contact.goto();
+    const nonce = page.locator('input[name*="nonce" i]');
+    await expect(nonce).toHaveCount(1);
+  });
 });
 ```
 
@@ -228,9 +235,40 @@ test('HTTPからHTTPSへリダイレクトされる', async ({ request }) => {
   expect([301, 302, 308]).toContain(response.status());
   expect(response.headers()['location']).toMatch(/^https:/);
 });
+
+test('/wp-json/wp/v2/users でユーザー名が列挙できない', async ({ request }) => {
+  const response = await request.get('/wp-json/wp/v2/users');
+  expect(response.status()).not.toBe(200);
+});
+
+test('?author=1 でユーザー名列挙用のリダイレクトが発生しない', async ({ request }) => {
+  const response = await request.get('/?author=1', { maxRedirects: 0 });
+  expect([403, 404]).toContain(response.status());
+});
+
+test('readme.html が公開されていない、または版数情報を含まない', async ({ request }) => {
+  const response = await request.get('/readme.html');
+  if (response.status() === 200) {
+    const body = await response.text();
+    expect(body).not.toMatch(/Version\s+\d+\.\d+/);
+  }
+});
+
+test('wp-config.php に直接アクセスできない', async ({ request }) => {
+  const response = await request.get('/wp-config.php');
+  expect(response.status()).not.toBe(200);
+});
+
+test('generatorタグでWordPressバージョンが露出していない', async ({ page }) => {
+  await page.goto('/');
+  const generator = await page.locator('meta[name="generator"]').getAttribute('content');
+  expect(generator ?? '').not.toMatch(/WordPress\s+\d+\.\d+/);
+});
 ```
 
-`SITE_ORIGIN`はプロジェクトごとのドメインに置き換える（推測で仮ドメインを作らない。SKILL.md Inputの`project.url`を使う）。
+`SITE_ORIGIN`はプロジェクトごとのドメインに置き換える（推測で仮ドメインを作らない。SKILL.md Inputの`project.url`を使う）。上記はいずれも検出のみが目的で、既知脆弱性の深刻度判断・対応要否は手動レビューに回す。
+
+**やらないこと**: ログイン試行を連続実行してブルートフォース対策の実効性を検証するテストは書かない（対象サイトへの負荷やアカウントロックの原因になるため）。対策の導入有無は設定レビュー（手動）で確認する。
 
 ### Analytics
 
@@ -278,6 +316,10 @@ Build, Lint, Syntax Check, Broken Link, HTTP Status, JavaScript Error, SEO基本
 ### CI対象外（QA工程で実施）
 
 Visual Regression, UX確認, デザインレビュー, 誤字脱字
+
+### スコープ外（Playwright/CIでは扱わない）
+
+Performance計測（Lighthouse CI等の専用ツールで実施）、Operation（コア/プラグイン更新方針・バックアップ/監視体制の確認。wp-cliや管理画面で実施）
 
 ### CI失敗条件
 
