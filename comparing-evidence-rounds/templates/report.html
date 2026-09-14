@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{TITLE}}</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --surface: #ffffff; --surface-sunken: #eef1f5; --border: #d9dfe7;
+    --ink: #1b2333; --ink-muted: #5c6472; --accent: #2f4c7a; --accent-soft: #e7edf6;
+    --good: #2e7d4f; --good-soft: #e4f1e9; --bad: #a6342a; --bad-soft: #f5e4e1;
+    --warn: #96631b; --warn-soft: #f6ecd9;
+    --shadow: 0 1px 2px rgba(27,35,51,.06), 0 8px 24px rgba(27,35,51,.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg:#12161d; --surface:#1a2029; --surface-sunken:#212833; --border:#303948;
+      --ink:#e7eaf0; --ink-muted:#9aa5b4; --accent:#8caadd; --accent-soft:#223349;
+      --good:#79d6a5; --good-soft:#1d3327; --bad:#e0897c; --bad-soft:#3a2321;
+      --warn:#e0b268; --warn-soft:#3a2f17; --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg:#12161d; --surface:#1a2029; --surface-sunken:#212833; --border:#303948;
+    --ink:#e7eaf0; --ink-muted:#9aa5b4; --accent:#8caadd; --accent-soft:#223349;
+    --good:#79d6a5; --good-soft:#1d3327; --bad:#e0897c; --bad-soft:#3a2321;
+    --warn:#e0b268; --warn-soft:#3a2f17; --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.35);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: "游ゴシック体","Yu Gothic Medium",YuGothic,"Hiragino Kaku Gothic ProN","Noto Sans JP","Segoe UI",sans-serif;
+    font-size: 15.5px; line-height: 1.8; -webkit-font-smoothing: antialiased;
+  }
+  .page { max-width: 1100px; margin: 0 auto; padding: 2.5rem 1.5rem 5rem; }
+
+  header.doc { border-bottom: 1px solid var(--border); padding-bottom: 1.75rem; margin-bottom: 2rem; }
+  .eyebrow {
+    display: inline-block; font-size: .72rem; font-weight: 700; letter-spacing: .14em;
+    color: var(--accent); background: var(--accent-soft); padding: .28rem .65rem; border-radius: 3px; margin-bottom: .9rem;
+  }
+  h1.doc-title { font-size: 1.7rem; font-weight: 700; line-height: 1.45; margin: 0 0 1rem; text-wrap: balance; }
+  .meta-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(180px,1fr)); gap: .8rem 1.5rem; }
+  .meta-item .k { font-size: .72rem; color: var(--ink-muted); letter-spacing: .04em; margin-bottom: .15rem; }
+  .meta-item .v { font-size: .93rem; font-weight: 600; }
+
+  .summary-row { display: grid; grid-template-columns: repeat(auto-fit,minmax(140px,1fr)); gap: .8rem; margin: 1.6rem 0 0; }
+  .summary-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: .8rem 1rem; box-shadow: var(--shadow); }
+  .summary-card .round-label { font-size: .72rem; color: var(--ink-muted); margin-bottom: .35rem; }
+  .summary-card .counts { display: flex; gap: .6rem; align-items: baseline; }
+  .summary-card .n { font-family: "SFMono-Regular","SF Mono",Consolas,monospace; font-weight: 700; font-size: 1.1rem; }
+  .summary-card .n.good { color: var(--good); } .summary-card .n.bad { color: var(--bad); } .summary-card .n.muted { color: var(--ink-muted); }
+  .summary-card .l { font-size: .7rem; color: var(--ink-muted); }
+
+  section.screen { margin: 2.6rem 0; }
+  h2.screen-title {
+    display: flex; align-items: baseline; gap: .6rem; font-size: 1.2rem; font-weight: 700;
+    margin: 0 0 1.1rem; padding-bottom: .55rem; border-bottom: 2px solid var(--accent);
+  }
+  h2.screen-title .count { font-size: .78rem; font-weight: 600; color: var(--ink-muted); }
+
+  .testcase { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1.1rem 1.2rem 1.3rem; box-shadow: var(--shadow); margin-bottom: 1.2rem; }
+  .testcase-head { display: flex; justify-content: space-between; align-items: baseline; gap: .6rem; margin-bottom: .9rem; flex-wrap: wrap; }
+  .testcase-name { font-weight: 700; font-size: 1rem; }
+  .testcase-note { font-size: .82rem; color: var(--ink-muted); }
+
+  .rounds-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 1rem; }
+  .round-card { border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: var(--surface-sunken); }
+  .round-card .round-head { display: flex; justify-content: space-between; align-items: center; padding: .5rem .7rem; font-size: .78rem; }
+  .round-card .round-head .round-name { font-weight: 700; }
+  .pill { display: inline-block; font-size: .68rem; font-weight: 700; padding: .1rem .5rem; border-radius: 999px; letter-spacing: .03em; }
+  .pill.ok { background: var(--good-soft); color: var(--good); }
+  .pill.ng { background: var(--bad-soft); color: var(--bad); }
+  .pill.pending { background: var(--warn-soft); color: var(--warn); }
+  .round-card .shot-wrap { background: var(--surface); border-top: 1px solid var(--border); max-height: 420px; overflow: auto; }
+  .round-card img { display: block; width: 100%; height: auto; }
+  .round-card img + img { border-top: 4px solid var(--bg); }
+  .round-card .no-shot { padding: 2.2rem 1rem; text-align: center; color: var(--ink-muted); font-size: .82rem; }
+  .round-card .round-note { padding: .5rem .7rem; font-size: .78rem; color: var(--ink-muted); border-top: 1px solid var(--border); }
+
+  footer.doc { margin-top: 3rem; padding-top: 1.2rem; border-top: 1px solid var(--border); font-size: .78rem; color: var(--ink-muted); }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="doc">
+    <span class="eyebrow">修正エビデンス報告</span>
+    <h1 class="doc-title">{{TITLE}}</h1>
+    <div class="meta-grid">
+      <div class="meta-item"><div class="k">提出先</div><div class="v">{{CUSTOMER}}</div></div>
+      <div class="meta-item"><div class="k">作成日</div><div class="v">{{GENERATED_AT}}</div></div>
+      <div class="meta-item"><div class="k">対象画面数</div><div class="v">{{SCREEN_COUNT}}</div></div>
+      <div class="meta-item"><div class="k">テストラウンド数</div><div class="v">{{ROUND_COUNT}}</div></div>
+    </div>
+    <div class="summary-row">
+      {{SUMMARY_CARDS}}
+    </div>
+  </header>
+
+  {{BODY}}
+
+</div>
+</body>
+</html>

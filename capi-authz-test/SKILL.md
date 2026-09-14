@@ -26,7 +26,9 @@ description: 信州大学キャンパス情報システムのリニューアル�
 - テストアカウントそのものの発行・管理：別途用意されたものを前提とする
 - 監査ログ（誰が何を参照・更新したかの記録）が正しく残るかの検証：`セキュリティインシデント対策案.md`の`AuditLogInstrumentation`の対象であり、認可の可否そのものとは別軸
 
-**REQUIRED SUB-SKILL: capi-saml-login** — テスト環境はPT環境を前提とする。PTでは`loginByLocal`が`use-local: false`のため常に失敗し、**学生・大学院生・教員・職員の4ロールはSAML（OneLogin）経由のログインが必須**。これらのロールのCookie・CSRFトークン取得は`capi-saml-login`に委譲する。求人情報（ROLE_JOBOB）・一般市民（ROLE_CITIZEN）・企業担当（ROLE_KIGYOU）は専用mutation（`loginForJobob`等）がSAMLと無関係に動作するため、このスキル単独（ステップ5）でログインできる。
+**REQUIRED SUB-SKILL: capi-saml-login** — テスト環境はPT環境を前提とする。PTでは`loginByLocal`が`use-local: false`のため常に失敗し、**学生・大学院生・教員・職員の4ロールはSAML（OneLogin）経由のログインが必須**。求人情報（ROLE_JOBOB）・一般市民（ROLE_CITIZEN）・企業担当（ROLE_KIGYOU）は専用mutation（`loginForJobob`等）がSAMLと無関係に動作するため、このスキル単独（ステップ5）でログインできる。
+
+**⚠️ 環境上の既知の制約（2026-09-09確認）**：`capi-saml-login`が発行するセッションの種類は、nginxが`/saml2/**`をどのアプリへ転送しているかに依存する。**現在のPT環境は既存`backend/api`側へ転送しており、`campus_session`（campus専用APIのJWT実トークン）ではなく`JSESSIONID`（Spring Securityセッション）が発行される。** このためGraphQL直叩き（モードB。本スキルの前提）に必要な`campus_session`が取得できず、**学生・大学院生・教員・職員の4ロールについては、nginxの転送設定がcampus専用API側へ切り替わるまで、このスキルを実行できない。** 求人情報・一般市民・企業担当の3ロールは影響を受けず、現状のPT環境でも実行できる。この制約の解消状況は`capi-saml-login`側で管理する。
 
 ## Core Pattern
 
@@ -137,8 +139,8 @@ digraph testcase_design {
 
 テスト環境はPT環境とする。PTは`use-local: false`のため、ロールによってログイン経路が2つに分かれる。
 
-- **学生・大学院生・教員・職員**：`loginByLocal`はPTで常に失敗する（`use-local: false`）。`capi-saml-login`（SAML／OneLogin経由）でCookie・CSRFトークンを取得する
-- **求人情報（ROLE_JOBOB）・一般市民（ROLE_CITIZEN）・企業担当（ROLE_KIGYOU）**：`loginForJobob`／`loginForCitizen`／`loginForKigyou`は`use-local`フラグと無関係に動作するため、このスキル単独でログインできる（下記リクエスト例と同様の形）
+- **学生・大学院生・教員・職員**：`loginByLocal`はPTで常に失敗する（`use-local: false`）。`capi-saml-login`のモードB（SAML／OneLogin経由でstorageStateを取得後、`campus_session`のCookie値を取り出し`getLoginStatus`でCSRFトークンを別途取得する）を使う。**モードBは、nginxが`/saml2/**`をcampus専用API側へ転送している場合にのみ成立する**（2026-09-09時点のPT環境では未成立。`capi-saml-login`のステータスを先に確認する）
+- **求人情報（ROLE_JOBOB）・一般市民（ROLE_CITIZEN）・企業担当（ROLE_KIGYOU）**：`loginForJobob`／`loginForCitizen`／`loginForKigyou`は`use-local`フラグにもnginxの転送経路にも依存せず動作するため、このスキル単独でログインできる（下記リクエスト例と同様の形）
 
 **リクエスト構造の参考例（`backend/campus`の実装・`CampusSeiseki.graphqls`/`CampusLogin.graphqls`から引用。dev環境での実機確認結果＝正しい実装の期待値として使う）**：
 
@@ -253,6 +255,7 @@ curl -i -c cookie.txt -X POST https://<PT環境ホスト>/campus-login/graphql \
 5. **拒否の判定を「空応答」または「何らかのエラー」で行い、`FORBIDDEN`と他の例外型を区別しない**：認可拒否以外の例外はスタックトレースが応答に露出する既知の課題があるため、想定外のエラー型は実装側の別の不具合を疑う
 6. **`別紙A`の現状棚卸し（ほぼ全て未対応）を「あるべき姿」と誤解する**：`別紙A`は修正前の実測値であり、新版が目指すべき状態はマトリックスにしかない
 7. **PT環境で`loginByLocal`を学生・大学院生・教員・職員に使おうとして失敗し、実装側の不具合と誤解する**：PTは`use-local: false`のためこの4ロールは`capi-saml-login`（SAML／OneLogin経由）が必須。求人情報・一般市民・企業担当は専用mutationでそのままログインできる
+11. **`capi-saml-login`のモードBがnginxの転送経路に依存することを知らず、4ロール分のテストが失敗するのを実装の不具合と誤解する**：`campus_session`が発行されるかは、nginxが`/saml2/**`をcampus専用API側へ転送しているかに依存する（2026-09-09時点のPT環境では未転送で`JSESSIONID`のみ発行）。実行前に`capi-saml-login`側の状況を確認する
 8. **汎用APIを複数画面担当者が重複してテストする**：ステップ3の重複確認を省略すると、同じ操作に対するテストが画面ごとに乱立する
 9. **品質契約（failsIfChanged）を書けないテストをそのまま採用する**：ステータスコードの有無だけの緩い判定は、境界を実際に検知できない
 10. **同一ロールを一枚岩として扱い、`studentType`等の属性差を見落とす**：ROLE_STUDENTでも学部学生／大学院生／非正規生で期待値が異なる情報区分がある。ロール名だけでテストケースを1つに決め打ちしない
