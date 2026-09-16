@@ -55,6 +55,15 @@ Playwrightのテストコードを実行すると、テスト自身が本物の�
 
 設定されていない場合、実行しても何も撮れずに終わる。実行前に指摘し、追加を提案する。
 
+### 撮影ヘルパーが満たすべき共通ルール
+
+共通テンプレートの撮影ヘルパー（`captureScreenshot`等）は、以下の2点を必ず満たす。個別のテストコードで省略しない。
+
+- **ヘッダーを非表示にした状態で撮影する**：スクリーンショット直前に画面上部の固定ヘッダー（ナビゲーション等）を隠してから撮影する（例：対象要素に`display: none`を当ててから撮る、またはヘッダー分をクリップする）
+- **あらゆる操作の後に0.2秒待機する**：クリック・入力・タブ切替等、UIを変化させる操作の直後は`page.waitForTimeout(200)`等で0.2秒待ってから次の処理（次の操作／スクリーンショット撮影）に進む。ダイアログの開閉時等、opacityの切り替わりの途中でUIが正しく表示されない状態のまま操作・撮影を進めてしまうことがあるため
+
+これらは撮影ヘルパーに一度組み込めば全テストへ自動的に適用されるべき挙動であり、テストケースごとに個別実装しない。
+
 ## ステップ2 テスト実行
 
 `npx playwright test <対象spec>`等で実行する。実行結果（pass/fail）と、レポート（HTML reporter等）・成果物の出力先を確認する。
@@ -86,34 +95,21 @@ digraph failure_triage {
 
 収集したスクリーンショットをReadツールで開き、以下を確認する。確認せずに次工程へ進まない。
 
-- 上端・下端まで写っているか（途中で切れていないか）
 - 証明したい要素が実際に写っているか
-- el-dialog（Element Plusダイアログ）等、`overflow: scroll`を持つ要素は全体が展開された状態か（下記ヘルパー参照）
+- **UIが実機と同じ見た目になっているか**（ダイアログの位置がずれていないか、オーバーレイが半透明に見える・画面の一部にしか描かれていない等の崩れが無いか）
+- **ヘッダーが写り込んでいないか**（撮影ヘルパーのヘッダー非表示が効いているかの確認）
+- **opacityの遷移途中の中間状態で撮れていないか**（ダイアログ等が半透明・アニメーション中のまま止まっている場合は、操作後0.2秒待機が効いていない可能性がある）
+- （el-dialog等、`overflow: auto/scroll`を持つ要素で内部に隠れている続きがある場合はそれでよい。下記「無理に全体を1枚へ収めようとしない」参照）
 
-### el-dialog全体撮影ヘルパー
+### 無理に全体を1枚へ収めようとしない（重要・過去の失敗）
 
-内部`.el-dialog__body`が`max-height + overflow:scroll`を持つため、ナイーブな撮影では上部のみしか写らない。テストコード側で以下を`page.evaluate()`し、`scrollHeight`に合わせてビューポートを広げてから撮影する。
+過去、「ページ全体・ダイアログ全体を必ず1枚のスクリーンショットへ収める」ことを優先するあまり、以下のいずれかを行っていた時期があったが、**いずれも実機と異なる崩れた見た目のエビデンスを生み、撮影直後の目視確認を徹底していれば防げたはずの不良エビデンスを量産していた**。今後は行わないこと。
 
-```javascript
-window.__prepCapture = () => {
-  const dialog = document.querySelector('.el-dialog');
-  if (!dialog) return null;
-  document.documentElement.style.overflow = 'visible';
-  document.body.style.overflow = 'visible';
-  let p = dialog.parentElement;
-  while (p && p !== document.body) {
-    p.style.position = 'static'; p.style.overflow = 'visible';
-    p.style.maxHeight = 'none'; p.style.height = 'auto';
-    p.style.transform = 'none'; p.style.zIndex = 'auto';
-    p = p.parentElement;
-  }
-  dialog.style.position = 'static'; dialog.style.transform = 'none';
-  dialog.style.maxHeight = 'none'; dialog.style.overflow = 'visible';
-  const body = dialog.querySelector('.el-dialog__body');
-  if (body) { body.style.maxHeight = 'none'; body.style.overflow = 'visible'; }
-  return { w: dialog.scrollWidth, h: dialog.scrollHeight };
-};
-```
+- **禁止1: ダイアログ等が開いた状態で`page.screenshot({ fullPage: true })`を使う。** Element Plusのダイアログ・オーバーレイ（`.el-overlay`/`.el-dialog`）は`position: fixed`で実装されている。Chromiumのfull-page撮影はページを仮想的に引き伸ばして1枚に収めるが、`position: fixed`要素はその引き伸ばしに正しく追従できず、**元のビューポート1画面分の帯にしか描画されない**。結果、その帯の外側では本来オーバーレイの下に隠れているはずのページ本体がそのまま透けて見え、「ダイアログが半透明に見える」「UIがずれている」という崩れたエビデンスになる。ダイアログ等が開いている間は`fullPage`を使わず、現在のビューポートのまま（＝実機で実際に見えている内容そのまま）撮影すること。
+- **禁止2: ダイアログの`scrollHeight`に合わせて`page.setViewportSize()`でビューポートを一時的に拡張してから撮影する。** ダイアログ自身の位置やオーバーレイの高さはレンダリング時点のビューポートに基づいて決まるため、リサイズ後にCSSの再計算がレイアウトへ正しく追従せず、ダイアログの位置がずれる・オーバーレイが画面の一部にしか描画されない等、禁止1と同種の崩れが起きる。
+- **禁止3: `document.documentElement.style.overflow`や祖先要素の`position`/`transform`/`z-index`をJSで強制的に書き換えてから撮影する（旧版の`window.__prepCapture`）。** ダイアログの中央寄せ・オーバーレイの重なりはこれらのCSSプロパティに依存しているため、書き換えた時点で実機とは別物のレイアウトになる。
+
+**正しい方針**: ダイアログ等が開いている間の撮影は常に「現在のビューポートのまま」（`fullPage`指定なし・ビューポートリサイズなし・CSS書き換えなし）で行う。内部が`overflow:auto/scroll`で続きが隠れている場合、それを1枚で全部見せようとする必要は無い。それが実機でユーザーが実際に目にする見た目であり、無理に全体を見せようとして崩れたエビデンスを作るより、実機相当の見た目のまま部分的に記録するほうが正しい。`frontend/campus/templates/evidence.ts`の`captureScreenshot`（ダイアログが開いていれば自動的にfullPageを使わない）・`captureDialogFullHeight`（名前は歴史的経緯で残っているが、現在はリサイズせず現在のビューポートのまま撮影する）を参照。
 
 ## ステップ6 完全性ゲート（非自明な分岐）
 
@@ -141,3 +137,5 @@ window.__prepCapture = () => {
 3. **収集先を都度変えて成果物が混在・上書きされる**：複数回の実行結果が区別できなくなる
 4. **撮影直後の目視確認を省略する**：内容が崩れている・意図と違うスクリーンショットをそのままエビデンスとして扱ってしまう
 5. **配布前に機微情報の写り込みを確認しない**：テストアカウントの個人情報等がスクリーンショットに写り込んだままzip化・受け渡ししてしまう
+6. **ヘッダーを非表示にせず撮影する**：撮影ヘルパーにヘッダー非表示の処理が入っていないと、全スクリーンショットに固定ヘッダーが写り込んだまま量産されてしまう
+7. **操作後の0.2秒待機を省略する**：ダイアログの開閉等、opacityの切り替わり中にスクリーンショットを撮ってしまい、実機とは異なる中間状態（半透明・アニメーション途中）のまま記録してしまう
