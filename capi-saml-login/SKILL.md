@@ -11,6 +11,8 @@ PT環境は`loginByLocal`が`use-local: false`により常に失敗するため�
 
 このスキルは「SAML開始→OneLoginログインフォーム→リダイレクト→セッション発行」の一連のブラウザ遷移をPlaywrightで自動化し、後続スキル（`campus-playwright`／`capi-authz-test`）が使える形で認証済みセッションを受け渡す。
 
+**環境体制の変更（2026-09-16、`campus-playwright`と共通の前提）**：PT環境の向き先が変更され、以後PT環境はcampus専用API移行後の**新版**を指す（旧版・移行前の記録対象はST環境）。この変更に伴い、`campus-playwright`の通常の記録作業（ST環境）は`use-local: true`の`loginByLocal`系操作で完結するようになり、本スキルは通常の記録作業では不要になった（詳細・テストアカウントは`campus-playwright`スキルの「環境体制の変更」「ST環境テストアカウント」を参照。ここでは重複記載しない）。**本スキルが実際に必要になるのは、`capi-authz-test`（常にPT＝新版を対象とする）と、`campus-playwright`がPT環境（新版）に対して新旧比較を実行する際に対象ロールがSAMLでしかログインできないと判明した場合の2ケースに限られる。**
+
 **最重要の前提**：この経路で発行されるCookieは**その時点でnginxが`/saml2/**`をどのアプリへ転送しているかで変わる**。名前を決め打ちにしない（後述「発行されるCookieは経路で変わる」）。
 
 ## When to Use
@@ -40,22 +42,26 @@ PT環境で**実際に動作確認済み**の実装が既にある。新規に�
 
 | nginxが`/saml2/**`を転送する先 | 発行されるCookie | 認証方式 | 使い道 |
 |---|---|---|---|
-| 既存 `backend/api`（**2026-09-09時点のPT環境はこちら**） | `JSESSIONID` | Spring Securityセッション | ブラウザ実操作テスト（`campus-playwright`） |
-| campus専用API `backend/campus` | `campus_session`（httpOnly / Secure / SameSite=Strict / Path=/） | JWT実トークン（`CampusSessionCookies`） | GraphQL直叩き（`capi-authz-test`） |
+| 既存 `backend/api`（2026-09-09時点のPT環境はこちら。**2026-09-16に下記へ切り替わったことを実機確認済み**） | `JSESSIONID` | Spring Securityセッション | （移行前の一時的な状態。現在は下記が既定） |
+| campus専用API `backend/campus`（**2026-09-16以降の既定**） | `campus_session`（httpOnly / Secure / SameSite=Strict / Path=/） | JWT実トークン（`CampusSessionCookies`） | GraphQL直叩き（`capi-authz-test`）、および`campus-playwright`のPT側新旧比較でSAMLが必要な場合 |
 
-**実機確認済みの事実（2026-09-09）**：PT環境で`/saml2/authenticate/campus`経由ログイン後の`storageState`に`campus_session`は存在せず、`allcweb2.local.ailesys.co.jp`ドメインのCookieは`JSESSIONID`のみ。それでも認証必須ページ（`/campus/portal`）へ到達できている。
+**実機確認済みの事実（2026-09-09時点。当時の状態）**：PT環境で`/saml2/authenticate/campus`経由ログイン後の`storageState`に`campus_session`は存在せず、`allcweb2.local.ailesys.co.jp`ドメインのCookieは`JSESSIONID`のみだった。それでも認証必須ページ（`/campus/portal`）へは到達できていた。
+
+**2026-09-16に解消確認**：web02のnginxが`/saml2/**`をcampus専用API側（`backend/campus`）へ転送するよう切り替わっており、SAMLログイン後の`storageState`に`campus_session`が含まれることを実機確認済み。**ただしnginxの転送設定は今後も変わりうるため、実行前に上記いずれの経路になっているか（`storageState`に`campus_session`が含まれるか）を都度確認すること。決め打ちにしない。**
 
 **したがって**：
-- **`campus_session`の有無でログイン成否を判定してはならない**。判定は「campus本体のオリジンに戻り、かつ`/login`系以外の画面に着地したか」で行う（後述）
+- **`campus_session`の有無だけでログイン成否を判定してはならない**（発行されないケースが起こりうる前提を維持する）。判定は「campus本体のオリジンに戻り、かつ`/login`系以外の画面に着地したか」で行う（後述）
 - Cookie名を決め打ちで抽出するのではなく、`page.context().storageState()`でコンテキスト全体を保存して受け渡す。移行の進捗でCookieが入れ替わっても壊れない
 
 ## 2つの受け渡しモード
 
-### モードA：storageState（既定。`campus-playwright`向け）
+### モードA：storageState（`campus-playwright`のPT側新旧比較向け）
 
 ブラウザ実操作でテストする場合はこちら。`page.context().storageState({ path })`でロールごとにJSONへ保存し、`playwright.config.ts`の`storageState`／spec内の`test.use()`で読み込む。
 
 **CSRFトークンの個別取得は不要**。画面自身がアプリ起動時に取得・保持するため。
+
+**2026-09-16以降、`campus-playwright`の通常の記録作業（ST環境）はこのモードを使わない**（ST環境は`use-local: true`のため`loginByLocal`系操作で完結する）。このモードが必要になるのは、`campus-playwright`がPT環境（新版）に対して新旧比較を実行する際、実機確認の結果特定ロールがSAMLでしかログインできないと判明した場合に限る（`campus-playwright`スキルのステップ8参照）。
 
 ### モードB：Cookie値＋CSRFトークン（`capi-authz-test`のGraphQL直叩き向け）
 
@@ -102,7 +108,7 @@ digraph saml_login_result {
 
 **「OneLoginに留まった」と「/loginへ戻された」を切り分けることが要点**。前者はテストコード側（セレクタ・資格情報）の問題、後者はサーバ側（SAML設定・アカウント連携）の問題で、対処がまったく違う。エラーメッセージにこの切り分けを書き込んでおくと、次に踏んだ人が迷わない。
 
-## 環境固有の設定（PT環境）
+## 環境固有の設定（PT環境＝2026-09-16以降の新版環境）
 
 | 項目 | 値・理由 |
 |---|---|
@@ -128,3 +134,4 @@ digraph saml_login_result {
 10. **想定外の画面（MFA・規約同意・パスワード変更要求等）で要素を推測してクリックを続ける**：意図しない状態変更（パスワード変更の誤発火等）を招く。スクリーンショットを残して中断し、人に判断を仰ぐ
 11. **productionの実IdP（Shibboleth）にも同じ自動化がそのまま使えると誤解する**：セレクタもフロー段数も異なりうる
 12. **storageStateを有効期限を考慮せず長時間使い回す**：セッション切れによる失敗を認可の不具合と誤診断しないよう、テスト実行のたびにsetupから流すか有効期限を確認する
+13. **2026-09-16の環境体制の変更（ST＝旧版・PT＝新版）を知らず、`campus-playwright`の通常の記録作業（ST環境）でも本スキルが必須だと誤解する**：ST環境は`use-local: true`のため`loginByLocal`系操作で完結し、本スキルは不要。本スキルが必要なのは`capi-authz-test`（常にPT＝新版）と、`campus-playwright`のPT側新旧比較でSAMLが必須と判明した場合に限る

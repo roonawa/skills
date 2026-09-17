@@ -22,7 +22,7 @@ capi-changesが完了した画面は、`capi-authz-test`（認可検証）と`ca
 - 各サブスキル自体の検証基準・承認手順の変更：本スキルは呼び出し順序と成果物の橋渡し・統合のみを担う
 
 **REQUIRED SUB-SKILL: capi-authz-test** — ロール別・行レベルの認可検証本体（ステップ1）。
-**REQUIRED SUB-SKILL: campus-playwright** — 新旧比較回帰の実行本体（ステップ3。ステップ2の反映結果次第でマニフェスト更新〜再承認〜テストコード生成の再実行を伴う）。
+**REQUIRED SUB-SKILL: campus-playwright** — 新旧比較回帰の実行本体（ステップ3。ステップ2の反映結果次第でマニフェスト更新〜セルフチェック再実施〜テストコード生成の再実行を伴う）。
 **REQUIRED SUB-SKILL: capturing-playwright-evidence** — `campus-playwright`が実行したテスト結果のエビデンス収集（ステップ4）。
 
 `capi-saml-login`は上記2スキルがログインを要する場面でそれぞれ内部的に要求するサブスキルであり、本スキルから直接呼び出すことはしない（各スキルの`When to Use`の対象外節・REQUIRED SUB-SKILL宣言に従う）。
@@ -31,7 +31,7 @@ capi-changesが完了した画面は、`capi-authz-test`（認可検証）と`ca
 
 **Before**：担当者が画面ごとに「`capi-authz-test`を回す」「`campus-playwright`を回す」を別々のタイミング・別々の担当者で実施する。認可の既知不具合（`campus-playwright`マニフェストの`excluded`）が今回のリリースで解消されたのか、リリース優先で先送りされたのかを`campus-playwright`側は知る手段が無く、`excluded`のまま放置される（解消済みなのに検証されない）か、逆に承認記録なしに現状挙動が`operations`へ紛れ込む。認可検証の不具合一覧（`coverage/authz/*.json`）と画面回帰のエビデンス（`evidence/`）も別々の場所に残り、「この画面は検証完了」と画面単位で言える状態を誰も保証できない。
 
-**After**：画面情報を受け取ったら、まず`capi-authz-test`を対象操作について完走させる。その結果（不具合の解消/未解消）を`campus-playwright`マニフェストの`excluded`／`acceptedRisks`判断へ反映し、変更があれば開発者承認を得たうえで画面回帰（`campus-playwright`ステップ9の新旧比較）を実行する。両スキルの成果物を画面単位フォルダへ統合し、完全性ゲートで抜け漏れを検知してから完了報告する。
+**After**：画面情報を受け取ったら、まず`capi-authz-test`を対象操作について完走させる。その結果（不具合の解消/未解消）を`campus-playwright`マニフェストの`excluded`／`acceptedRisks`判断へ反映し、変更があればセルフチェック（`campus-playwright`ステップ7相当）を完了したうえで画面回帰（`campus-playwright`ステップ9の新旧比較）を実行する。両スキルの成果物を画面単位フォルダへ統合し、完全性ゲートで抜け漏れを検知してから完了報告する。
 
 **具体例（成績入力画面 `SeisekiInput.vue`）**：`campus-playwright`のマニフェストには、担当授業・登録期間外でも成績を書き込めてしまう既知不具合（`campus-api_設計書.md`5章#7、`capi-authz-test`のCore Patternで扱う不具合そのもの）が`excluded`（`reason: known-authz-bug`）として記載されている。本スキルでは、まず`capi-authz-test`のテストケース`AZ-102`（担当外授業への書き込みが拒否されるか）を実行し、①`成功`（拒否される＝解消済み）なら`excluded`を`operations`へ格上げする変更を提案、②`失敗`（許可されてしまう＝未解消）で、かつリリース優先の方針が承認されているなら`acceptedRisks`へ承認記録付きで追加、③方針が未承認ならその項目を`excluded`のまま維持し画面回帰の実行を保留して開発者へ差し戻す——という三分岐（ステップ2）で判断する。
 
@@ -70,7 +70,7 @@ capi-changesが完了した画面は、`capi-authz-test`（認可検証）と`ca
 | `coverage/screens/<ScreenId>.json`（`campus-playwright`の着手前ベースラインマニフェスト）が既に存在する | `campus-playwright`（着手前のベースライン記録）を先に実施するよう案内し、本スキルは停止する |
 | 対象画面のcapi-changesがPT環境に完了済みである | `capi-authz-test`・`campus-playwright`ステップ9の新旧比較のいずれも実行対象が存在しないため、完了を待つよう案内して停止する |
 
-前提を満たしたら、マニフェストの`operations`／`reports`一覧（画面が呼ぶ操作・帳票エンドポイントの一覧。承認済みマニフェストに確定済み）に加えて、`excluded`のうち`reason: known-authz-bug`に該当するエントリの対象操作（`target`欄）も対象操作一覧へ含め、`capi-authz-test`ステップ0（対象操作の特定）の入力としてそのまま渡す。
+前提を満たしたら、マニフェストの`operations`／`reports`一覧（画面が呼ぶ操作・帳票エンドポイントの一覧。セルフチェック済みマニフェストに確定済み）に加えて、`excluded`のうち`reason: known-authz-bug`に該当するエントリの対象操作（`target`欄）も対象操作一覧へ含め、`capi-authz-test`ステップ0（対象操作の特定）の入力としてそのまま渡す。
 
 **`excluded(known-authz-bug)`の対象操作を漏らさないこと**：この種のエントリが指す操作は、正常系の記録が無い（`operations`/`reports`のどちらにも登場しない）書き込み系操作であることがある（例：担当外授業への書き込みを拒否できていない`createTblBuseiseki`が、担当内書き込みの正常系シナリオ自体は別途用意されていない場合）。`operations`／`reports`だけを機械的に拾うと、まさにステップ2で判断が必要なその操作が対象一覧から漏れ、ステップ1（`capi-authz-test`実行）でも検証されないまま`hasCase`が永久に「No」になる。`excluded`の`known-authz-bug`エントリは必ず個別に拾い出し、対象操作一覧へ明示的に加える。
 
@@ -81,7 +81,7 @@ capi-changesが完了した画面は、`capi-authz-test`（認可検証）と`ca
 `capi-authz-test`のステップ0〜9を、ステップ0で渡した対象操作一覧に絞って完走させる。ログインは同スキルのREQUIRED SUB-SKILLである`capi-saml-login`に委譲される（本スキルから直接操作しない）。
 
 - 不具合が見つかっても`capi-authz-test`ステップ8の方針どおりその場で修正しない。`status`を失敗として記録し、ステップ9の不具合一覧に含めたまま次へ進む
-- `capi-authz-test`の完了条件（対象操作すべてに`coverage/authz/<操作名>.json`が存在し、テストケース・分岐対応がレビュー承認済み）を満たしたことを確認してからステップ2へ進む
+- `capi-authz-test`の完了条件（対象操作すべてに`coverage/authz/<操作名>.json`が存在し、テストケース・分岐対応がステップ7のセルフチェックを完了している）を満たしたことを確認してからステップ2へ進む
 
 ## ステップ2 認可検証結果のマニフェストへの反映判断（非自明な分岐）
 
@@ -94,10 +94,10 @@ digraph reflect_authz_result {
     notReady [label="未実施：capi-authz-test側の\n完了条件を満たしていないため\nステップ1へ戻る", shape=box];
 
     resolved [label="statusが成功\n（拒否される＝解消済み）か？", shape=diamond];
-    toOperations [label="excludedからoperations/reportsへ\n移動する変更を提案し、\ncampus-playwright側の\nレビュー承認(ステップ7)を得る", shape=box];
+    toOperations [label="excludedからoperations/reportsへ\n移動する変更を提案し、\ncampus-playwright側の\nセルフチェック(ステップ7)を完了する", shape=box];
 
     riskDecision [label="リリース優先で\n是正を別フェーズに回す\n承認済みの方針か？\n（担当者個人の判断では決めない）", shape=diamond];
-    toAcceptedRisks [label="acceptedRisksへ追加\n（decidedBy/decidedDate必須）。\ncampus-playwrightの\nレビュー承認(ステップ7)を得て\n通常のシナリオとして含める", shape=box];
+    toAcceptedRisks [label="acceptedRisksへ追加\n（decidedBy/decidedDate必須）。\ncampus-playwrightの\nセルフチェック(ステップ7)を完了して\n通常のシナリオとして含める", shape=box];
     holdEntry [label="excludedのまま維持し、\n当該操作を含む画面回帰の実行を保留。\n開発者へ差し戻し\n完了報告に未完了として記載", shape=box];
 
     entry -> hasCase;
@@ -111,7 +111,9 @@ digraph reflect_authz_result {
 ```
 
 **要点**：
-- `toOperations`・`toAcceptedRisks`のいずれも、マニフェスト変更は`campus-playwright`ステップ7相当のレビュー承認を経てから反映する。本スキルが承認を代行して即時反映してはならない
+- `hasCase`／`resolved`の判定対象は、当該操作の`coverage/authz/<操作名>.json`内の`testCases`のうち`resolvesKnownIssue: true`が付与されたエントリに限る（`capi-authz-test`ステップ6参照）。該当エントリが複数ある場合、全件の`status`が確定済みであることを`hasCase`の条件とし、全件が成功（拒否）であることを`resolved`の条件とする（1件でも失敗があれば未解消として`riskDecision`へ進む）。`resolvesKnownIssue`が付与されたエントリが1件も無い操作は、対応する認可テストが未設計とみなしステップ1（`capi-authz-test`）へ差し戻す
+- 実データ不足によるテスト未確定（`capi-authz-test`側で「未実施（テストデータ準備不可）」等の理由付きで報告された場合）も`hasCase`は`No`としてステップ1へ差し戻す。`capi-authz-test`側は実データが見当たらない場合まずテストデータを用意する方針のため、この差し戻しは通常一時的なもので足踏みにはならない。テストデータ準備自体が困難と報告された場合は、その理由を伴う`No`として本スキルの完了報告（保留扱い）に明記する
+- `toOperations`・`toAcceptedRisks`のいずれも、マニフェスト変更は`campus-playwright`ステップ7相当のセルフチェックを完了してから反映する。セルフチェックはチェックリスト全項目の充足を機械的に確認する工程であり、開発者の承認待ちは発生しないがフルオートメーションを理由に省略してはならない
 - `holdEntry`（保留）に該当する項目がある画面は、その操作を含む範囲についてステップ3（新旧比較）を実行しない。他の操作に保留が無ければ、保留対象を除いた範囲でステップ3へ進めてよい
 - `toOperations`／`toAcceptedRisks`に決まった項目は、`campus-playwright`ステップ8（テストコード生成）でその項目のテストコードが未生成の場合は生成し直す必要がある（マニフェストが変わった以上、対応するテストコードも追従させる）
 
@@ -119,7 +121,7 @@ digraph reflect_authz_result {
 
 ステップ2で`holdEntry`に該当しなかった範囲について、`campus-playwright`ステップ9「新旧比較を伴う実行」（`allcampus`〈ST〉→`allcampus-regression`〈PT〉の順、同一テストコード）を実施する。
 
-- ステップ2でマニフェストを更新した場合は、`campus-playwright`ステップ7（再承認）→ステップ8（該当シナリオのテストコード生成・更新）→ステップ9（実行）を該当エントリについて再実行する
+- ステップ2でマニフェストを更新した場合は、`campus-playwright`ステップ7（再セルフチェック）→ステップ8（該当シナリオのテストコード生成・更新）→ステップ9（実行）を該当エントリについて再実行する
 - `test.skip()`・アサーション緩和でPT側だけを通す対応は`campus-playwright`のCommon Mistakesどおり禁止。失敗は隠さず報告する
 
 ## ステップ4 capturing-playwright-evidence によるエビデンス収集
@@ -170,7 +172,7 @@ digraph reflect_authz_result {
 1. **`capi-authz-test`の結果を待たずに`campus-playwright`の新旧比較を先に実行してしまう**：既知不具合の是正状況が未確定のまま回帰を通すと、`acceptedRisks`の承認記録なしに現状挙動が既成事実化してしまう
 2. **`capi-authz-test`の結果（解消/未解消）を`campus-playwright`マニフェストへ反映せず放置する**：`excluded`/`acceptedRisks`が実態と食い違ったまま次フェーズへ進んでしまい、次に見た担当者が誤った前提で判断する
 3. **前提確認（ステップ0）を省略し、ベースライン（`coverage/screens/<ScreenId>.json`）が無い画面でオーケストレーションを開始してしまう**：比較対象のテストコードが無く、新旧比較そのものが実行できない
-4. **マニフェスト変更（`excluded`→`operations`/`acceptedRisks`への移動）を、`campus-playwright`ステップ7相当の開発者承認を経ずに反映してしまう**：本スキルは橋渡しを担うだけであり、承認そのものを代行してはならない
+4. **マニフェスト変更（`excluded`→`operations`/`acceptedRisks`への移動）を、`campus-playwright`ステップ7相当のセルフチェックを経ずに反映してしまう**：セルフチェックはフルオートメーションの一部として省略してよい工程ではなく、チェックリスト全項目の充足確認を飛ばすと抜け漏れに誰も気づけなくなる
 5. **保留（`holdEntry`）に該当する項目があるにもかかわらず、画面全体を「検証完了」として報告してしまう**：一部の操作が是正未承認のまま保留になっていることを埋もれさせず、部分完了として明記する
 6. **認可検証結果と画面回帰エビデンスを別々の場所に残したまま完了報告する**：完全性ゲート（ステップ5）を省略すると、画面単位で「両方揃って検証完了」と言える状態を後から誰も確認できなくなる
 7. **各サブスキル自身の判定基準（`capi-authz-test`の拒否判定、`campus-playwright`の記録深度判定等）を、オーケストレーションの都合で緩めてしまう**：本スキルは順序と橋渡しのみを担い、各サブスキルの検証ロジックは変更しない
@@ -180,7 +182,7 @@ digraph reflect_authz_result {
 
 - ステップ0の前提（ベースライン存在・capi-changes完了）を満たしている
 - `capi-authz-test`が対象操作について完走し、同スキルの完了条件（不具合一覧確定を含む）を満たしている
-- 既知不具合の反映判断（ステップ2）が全エントリについて完了し、`toOperations`/`toAcceptedRisks`は開発者承認を得ている
+- 既知不具合の反映判断（ステップ2）が全エントリについて完了し、`toOperations`/`toAcceptedRisks`はセルフチェック（`campus-playwright`ステップ7相当）を完了している
 - 保留（`holdEntry`）に該当する項目がある場合、その旨と対象操作が完了報告に明記されている
 - 保留を除く範囲で`campus-playwright`ステップ9（新旧比較）が完了している
 - `capturing-playwright-evidence`によるエビデンス収集・完全性ゲートを通過している
