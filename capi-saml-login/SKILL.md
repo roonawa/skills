@@ -68,8 +68,12 @@ PT環境で**実際に動作確認済み**の実装が既にある。新規に�
 **このモードはnginxが`/saml2/**`をcampus専用APIへ転送している場合にのみ成立する**（`campus_session`が発行されない環境では取得できない）。前提が満たされているかを先に確認すること。
 
 1. storageStateから`campus_session`のCookie値を取り出す
-2. そのCookieを付けて`getLoginStatus`クエリを実行し、レスポンスの`csrfToken`を取得する（CSRFトークンはリダイレクトURLにも`Set-Cookie`にも載らず、このクエリでのみ得られる。`認証トークン設計書.md`6.1節）
+2. そのCookieを付けて`getLoginStatus`クエリを**`campus-login`エンドポイントへ**実行し、レスポンスの`csrfToken`を取得する（CSRFトークンはリダイレクトURLにも`Set-Cookie`にも載らず、このクエリでのみ得られる。`認証トークン設計書.md`6.1節）
+   - **`getLoginStatus`は`campus-api`には存在しない**（`resources/graphql/login/CampusLogin.graphqls`の操作であり、許可リストマニフェストも`campus-login.json`側にしか無い）。`campus-api`へ投げると`success:false`が返り、セッション失効と見分けがつかない誤診断につながる（2026-09-17に実際に発生）
+   - 許可リストを強制する環境では`extensions.documentId`が必須。`campus-login.json`から`getLoginStatus`のdocumentIdを解決して付与する
 3. mutation実行時は取得値を**`X-CSRF-Token`ヘッダー**に載せる（`CampusCsrfTokens.HEADER_NAME`。queryには不要）
+
+**storageStateの寿命は数時間**である（2026-09-17実測：午前に取得したセッションが同日午後には`success:false`／`userCode:anonymous`になった）。**テスト実行・エビデンス撮影の直前にsetupを流し直す**のが前提で、前回の実行で作った`.auth`を使い回さない。失効したまま使うと、画面がログイン画面へ落ちたまま処理が進み「操作が1件も発生しなかった」という誤った観測を生む。
 
 ## 実行手順
 
@@ -119,6 +123,22 @@ digraph saml_login_result {
 | 認証情報 | `~/pw/.env`（`E2E_CREDENTIALS_FILE`で上書き）。`STUDENT_ID/PASSWORD`、`FACULTY_ID/PASSWORD`、`STAFF_ID/PASSWORD`、`GRADUATE_STUDENT_ID/PASSWORD`、`HISEIKI_STUDENT_ID/PASSWORD` |
 
 **共有テストアカウントは壊れることがある**：`GRADUATE_STUDENT_ID`はOneLogin側でパスワードが期限切れになり（2026-09-09実機確認：`Your password has expired.`の新パスワード設定画面で停止）、campus本体へ到達できない状態だった。共有アカウントのパスワード変更は勝手に行わず、**そのロールのsetupだけを環境変数フラグ（例：`E2E_GRADUATE_ENABLED=1`）付きで`skip`し、他ロールのテストを巻き込んで落とさない**。skipの理由・確認日・復旧手順をコメントに残す。
+
+**skipフラグは古くなる**：上記のようなフラグ付きskipは、アカウントが復旧しても誰も外さないまま残る。2026-09-17時点では`E2E_GRADUATE_ENABLED=1` / `E2E_CITIZEN_ENABLED=1`を渡すだけで大学院生・一般市民ともログインできた。**skip理由に書かれた日付が古い場合は、まずフラグを立てて実際に試す**（コードを直す必要はない）。
+
+### ログイン失敗は一時的なことがある（資格情報の腐敗と即断しない）
+
+2026-09-17、職員（`STAFF_PT_ID`）のSAMLログインが**両リポジトリ合わせて7回連続で失敗**（OneLoginのパスワード入力段に留まり、エラーメッセージも表示されない）したが、**同日の後刻に同じ資格情報で成功した**。保存されていたパスワードは終始正しかった。
+
+この症状で「保存パスワードが古い」と結論づける前に、次の順で確認する。
+
+| 確認 | 方法 |
+|---|---|
+| 以前は成功していたか | 同アカウントの`.auth/<role>.json`の**更新日時**を見る。前日等に`campus_session`付きで生成できていれば、恒久的なブロックではない |
+| 同じコードパスで他ロールは通るか | 他ロールが同じ`loginAsRole`で成功していれば、セレクタ・手順の問題ではない |
+| OneLoginが何を表示しているか | パスワード送信後の**画面テキストを採取する**（アサーションの前に`body`のinnerTextとスクリーンショットを取る）。「パスワード期限切れ」「ロック」「MFA」なら表示されるので、何も表示されないなら一時的事象を疑う |
+
+失敗が続く場合は、**試行を繰り返さずに時間を置く**（連続失敗はIdP側のロックアウトを招きうる）。報告は「未実施（要再試行）」とし、「テストアカウント制約で恒久的に不可」と断定しない。
 
 ## Common Mistakes
 

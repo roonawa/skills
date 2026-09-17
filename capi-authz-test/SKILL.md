@@ -30,6 +30,21 @@ description: 信州大学キャンパス情報システムのリニューアル�
 
 **⚠️ 環境上の既知の制約（2026-09-09確認・2026-09-16解消確認）**：`capi-saml-login`が発行するセッションの種類は、nginxが`/saml2/**`をどのアプリへ転送しているかに依存する。2026-09-09時点のPT環境は既存`backend/api`側へ転送しており`campus_session`が発行されなかったが、**2026-09-16にweb02のnginxがcampus専用API側へ切り替わっていることを実機確認した**（SAMLログイン後のstorageStateに`campus_session`が含まれることを確認）。実行前には`capi-saml-login`側で最新状況を再確認すること（環境設定は変わりうる）。
 
+## ハーネスと成果物の所在（着手時に最初に確認する）
+
+**本スキルは常にPT環境（新版）を対象とするため、ハーネスと成果物の正はPT側リポジトリに置く。**
+
+| 対象 | 正の場所 |
+|---|---|
+| 認可テストハーネス | `D:\allcampus-regression\allcampus-regression\backend\campus\tools\authz-test-harness` |
+| テストケースYAML | 同ディレクトリの `test-cases/*.yaml` |
+| マニフェスト（ステップ6） | `D:\allcampus-regression\allcampus-regression\frontend\campus\coverage\authz\` |
+| SAMLロールのstorageState | `D:\allcampus-regression\allcampus-regression\frontend\campus\e2e\.auth\` |
+
+**記録側リポジトリ（`C:\Users\roonawa\allcampus`）にも同名のハーネスのコピーが存在することがあるが、古い版である可能性が高い。** 2026-09-17、そちらを先に見たために「documentId未対応」「`getLoginStatus`のエンドポイント誤り」が既に直っていることに気づかず、同等の実装を書き起こす重複作業が発生した。**着手時に両方の`src/`のファイル一覧を比較し、新しい側を正とする**（`src/persistedDocuments.ts`が無い側が古い）。片方だけに修正を入れて混在させないこと。
+
+**ロール単位の後追い実行ができる**：テストアカウントが一時的に使えずブロックしたロールは、復旧後に`--role <ロール名>`（カンマ区切り可）で**そのロールのケースだけ**を追加実行できる。他ロールの書き込み系ケース（メール送信を伴うもの）を巻き込んで全件再実行しない。マニフェスト（ステップ6）は複数レポートを統合し、同じケースIDは後の実行結果で上書きして生成する（最新1ファイルだけを見ると、追試で対象外だったケースが「未実施」に戻る）。
+
 **ハーネスの既知のバグは修正済み（2026-09-16）**：`backend/campus/tools/authz-test-harness`は当初、GraphQLリクエストに許可リスト（persisted queries）の`extensions.documentId`を付与しておらず、PT環境等（`campus.graphql.persisted-queries.enforce=true`）で一律拒否されていた。`src/persistedDocuments.ts`を新設し、コミット済みマニフェスト（`backend/campus/src/main/resources/graphql/persisted/*.json`）から操作名でdocumentIdを自動解決する形で修正済み。経緯・修正内容の詳細は`documents/不具合/authz-test-harnessが許可リストdocumentIdに未対応のバグ.md`を参照。**この修正はマニフェストという正規の情報源から解決する形で実装されている点が重要。** 対象データの実在を確認せず内部ID形式（`GraphQlId`のパック形式）を逆算して自作のIDを構成する、といった手法は、たとえテストの都合であっても行ってはならない（正のケースの検証に実データが必要で見当たらない場合は、ステップ4の方針に従い正規の手段でテストデータを用意する。用意すること自体が困難な事情がある場合に限り、その旨を明記して未実施のまま報告する）。
 
 ## Core Pattern
@@ -179,6 +194,15 @@ curl -i -c cookie.txt -X POST https://<PT環境ホスト>/campus-login/graphql \
 - Cookieなし／不正なCSRFトークンでのmutation実行は`FORBIDDEN`（実行前に拒否、スキーマ検証にも到達しない）
 - ログイン失敗時は`Set-Cookie`が発行されない
 - 未認証でcampus-apiを叩くと401（SAML経路は302のままだが、campus-apiのGraphQLエンドポイントは401に固定されている）
+
+### エンドポイントと環境の実測事項（2026-09-17）
+
+| 事項 | 内容 |
+|---|---|
+| `getLoginStatus`のエンドポイント | **`campus-login`**（`resources/graphql/login/CampusLogin.graphqls`の操作）。`campus-api`側には存在せず、許可リストマニフェストにも無い。モードBのCSRFトークン取得をcampus-apiへ投げると`success:false`になる |
+| PT環境の証明書 | **期限切れ**（`CERT_HAS_EXPIRED`）。Nodeの`fetch`はそのままでは接続できない。テスト実行専用に`NODE_TLS_REJECT_UNAUTHORIZED=0`を`.env`で指定する（Playwrightの`ignoreHTTPSErrors: true`と同じ扱い）。**CAを信頼ストアへ追加しても解決しない**（証明書自体が期限切れ）。恒久対応はPT環境の証明書更新であり、報告に含める |
+| ログインmutationのdocumentId | 許可リストに同じ操作名で**複数版が登録されている**ことがある（`failureReason`を含む版／含まない版）。失敗理由を報告に出せる版を選ぶ |
+| 旧API（`/api`）の稼働 | **PT環境（新版）でも旧APIエンドポイントが配信されており、`campus_session` Cookieで参照系クエリが実行できる**（2026-09-17実測）。`campus-api_設計書.md`5章#2（身上・氏名住所の汎用CRUD mutationが認可なしで他学生の子行を乗っ取れる）は、画面が旧APIを呼ばなくなっても**旧エンドポイント側に当該mutationが残って到達可能であれば未解消**である。#2の解消判定では必ず旧エンドポイント側の到達可否・認可ガードの有無を確認対象に含める（他学生のレコードへの書き込みを試す検証は共有環境の他人のデータを破壊しうるため行わず、開発側へ確認を依頼する） |
 
 ## ステップ6 認可テスト・マニフェスト作成
 
