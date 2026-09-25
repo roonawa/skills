@@ -124,10 +124,10 @@ capi-changesが完了した画面は、`capi-authz-test`（認可検証）と`ca
 
 ### リポジトリと環境の対応（実パス）
 
-| 区分 | リポジトリ | 実パス | 環境 | baseURL | env |
+| 区分 | リポジトリ | 環境 | baseURL | env |
 |---|---|---|---|---|---|
-| 旧版（移行前） | `allcampus` | `C:\Users\roonawa\allcampus` | ST | `https://allcweb3.local.ailesys.co.jp/campus/` | `.env.st` |
-| 新版（移行後） | `allcampus-regression` | `D:\allcampus-regression\allcampus-regression` | PT | `https://allcweb2.local.ailesys.co.jp/campus/` | `.env.pt` |
+| 旧版（移行前） | `allcampus` | ST | `https://allcweb3.local.ailesys.co.jp/campus/` | `.env.st` |
+| 新版（移行後） | `allcampus-regression` | PT | `https://allcweb2.local.ailesys.co.jp/campus/` | `.env.pt` |
 
 **`allcampus-regression`はホームディレクトリ配下に無い**（別ドライブにある）。ホームディレクトリだけを検索して「リポジトリが存在しない」と断定してはならない。2026-09-17にこの誤断定により、新版リポジトリ側に既に存在していた修正（認可ハーネスの許可リスト対応等）を旧版リポジトリのコピーを見ながら再実装する重複作業が発生した。**共有のハーネス・テンプレートを触る前に、両リポジトリの同名ファイルを必ず比較し、どちらが正（canonical）かを先に決める。**
 
@@ -139,13 +139,13 @@ capi-changesが完了した画面は、`capi-authz-test`（認可検証）と`ca
 |---|---|---|
 | `coverage/authz/` | `allcampus-regression` | 認可JSON・ROLLUP・ゲート記録はallcampus-regression側にのみ存在する |
 | `coverage/screens/` | どちらでも同じ | 全ファイルが`diff -q`で同一 |
-| `templates/`・`playwright.config.ts` | **`allcampus`（C:）** | C:が上位集合。`loginAsRoleLocal`・`loginAsKigyou`（`auth.ts`）、`captureFailureScreenshot`（`evidence.ts`）、`manifestNewOperationName`・`authDirNameForTarget`（`manifestOperations.ts`）はC:にしか無く、D:にしか無い関数は0件。`playwright.config.ts`もC:のみが`E2E_TARGET`/`E2E_BASE_URL`による環境切替と`setup`/`setup-pt`プロジェクトを持つ |
+| `templates/`・`playwright.config.ts` | **`allcampus`** | `allcampus`が上位集合。`loginAsRoleLocal`・`loginAsKigyou`（`auth.ts`）、`captureFailureScreenshot`（`evidence.ts`）、`manifestNewOperationName`・`authDirNameForTarget`（`manifestOperations.ts`）は`allcampus`側にしか無く、`allcampus-regression`側にしか無い関数は0件。`playwright.config.ts`も`allcampus`側のみが`E2E_TARGET`/`E2E_BASE_URL`による環境切替と`setup`/`setup-pt`プロジェクトを持つ |
 
 **一律にallcampus-regressionで上書きしてはならない。** ステップ3の「同じテストコードをST→PTへ流す」機構、`newOperationName: null`の「新版では待たない」分岐、失敗時スクリーンショットは、いずれもC:側にしかない実装に依存している。比較して新しい側を採り、**どちらを採ったかと理由を記録する**。
 
 前提を満たしたら、マニフェストの`operations`／`reports`一覧（画面が呼ぶ操作・帳票エンドポイントの一覧。セルフチェック済みマニフェストに確定済み）に加えて、`excluded`のうち`reason: known-authz-bug`に該当するエントリの対象操作（`target`欄）も対象操作一覧へ含め、`capi-authz-test`ステップ0（対象操作の特定）の入力としてそのまま渡す。
 
-**`excluded(known-authz-bug)`の対象操作を漏らさないこと**：この種のエントリが指す操作は、正常系の記録が無い（`operations`/`reports`のどちらにも登場しない）書き込み系操作であることがある（例：担当外授業への書き込みを拒否できていない`createTblBuseiseki`が、担当内書き込みの正常系シナリオ自体は別途用意されていない場合）。`operations`／`reports`だけを機械的に拾うと、まさにステップ2で判断が必要なその操作が対象一覧から漏れ、ステップ1（`capi-authz-test`実行）でも検証されないまま`hasCase`が永久に「No」になる。`excluded`の`known-authz-bug`エントリは必ず個別に拾い出し、対象操作一覧へ明示的に加える。
+**`excluded(known-authz-bug)`の対象操作を漏らさないこと**：この種のエントリが指す操作は、正常系の記録が無い（`operations`/`reports`のどちらにも登場しない）書き込み系操作であることがある（例：担当外授業への書き込みを拒否できていない`createTblBuseiseki`が、担当内書き込みの正常系シナリオ自体は別途用意されていない場合）。`operations`／`reports`だけを機械的に拾うと、まさにステップ2で判断が必要なその操作が対象一覧から漏れ、ステップ1（`capi-authz-test`実行）でも検証されないまま`hasCase`が永久に「No」になる。`excluded`の`known-authz-bug`エントリは必ず個別に拾い出し、対象操作一覧へ明示的に加える.
 
 これにより、`別紙D1_画面別_呼び出されるAPI一覧.csv`を画面から辿り直す手間を省略できる。
 
@@ -509,7 +509,7 @@ KK-003のように**エビデンスは揃っているのに照合は成立して
 10. **ステップ5で`capi-regression-test`のステップ1〜3（対象確定・記録取得）まで独立に実行し、記録を二重に取得してしまう**：対象確定はステップ0、新旧の記録取得はステップ3・4で既に完了している。`capi-regression-test`側で再度記録を取り直すと、取得タイミングのズレにより本来存在しない差異（テストデータの状態変化等）を誤検知するおそれがある
 11. **完了報告を口頭の要約だけで済ませ、エビデンスフォルダへのリンクや不具合報告書のパスを示さない**：受け取った担当者が実ファイルにたどり着けず、確認のたびにフォルダ構成を都度探索させることになる。ステップ7では両方のパスを必ず明記する
 12. **エビデンスの完全性を画面単位のファイル数合計で判定する**：別ケースで増えたファイルに欠落が吸収され、「ある画面の全ケースでPT側のスクリーンショットが0枚」という状態を「揃った」と誤報告する（2026-09-17に実際に発生）。判定はケース単位×環境単位で行う（ステップ6）
-13. **リポジトリの所在をホームディレクトリだけ探して「存在しない」と断定する**：`allcampus-regression`は別ドライブ（`D:\`）にある。断定した結果、新版リポジトリ側に既にあった修正を旧版のコピーを見ながら再実装する重複作業が発生した。共有ハーネス・テンプレートを触る前に両リポジトリの同名ファイルを比較し、どちらが正かを先に決める（ステップ0）
+13. **リポジトリの所在をホームディレクトリだけ探して「存在しない」と断定する**：`allcampus-regression`は別ドライブにある可能性も考慮する。断定した結果、新版リポジトリ側に既にあった修正を旧版のコピーを見ながら再実装する重複作業が発生した。共有ハーネス・テンプレートを触る前に両リポジトリの同名ファイルを比較し、どちらが正かを先に決める（ステップ0）
 14. **テストコードの捕捉条件・期待値を「旧版のリテラルを新版の値に置き換える」形で新版対応する**：置き換えた瞬間に旧版（ST）実行が壊れ、新旧比較そのものが成立しなくなる。実行対象（旧版／新版）で解決を切り替える形にする（ステップ0の前提・ステップ3の実行前チェック）
 15. **新版（PT）で全ケースを流してから失敗原因を探す**：捕捉機構の不一致・セッション失効のような単一原因が全ケースを巻き込んで落とすため、原因の異なる失敗が混ざって切り分けに時間を取られる。1ケースで5点（捕捉切り替え／リクエストボディの操作識別方法／**期待値の切り替え**／セッション鮮度／**環境の残置データ**）を確認してから全ケースを流す（ステップ3）
 16. **【最重要】捕捉条件だけを新版対応にし、期待値（応答の読み出し）を旧版のまま残したまま実行して、その失敗を「Payload差分＝意図した差分」に分類する**：捕捉が通るぶん「応答は受け取れているのに値が読めない」形で失敗するため、一見すると仕様差の証拠に見える。しかし実体は**テストコードの不備**であり、この状態では**新版の画面表示を1件も検証していない**。2026-09-18に新版13ケース全失敗をこう分類しかけ、利用者の指摘で発覚した。ステップ5の判定順序（テストコードの不備→環境要因→意図した差分→要確認）を必ず先頭から通し、「新版が全件／大半失敗」はまずテストコードの不備を疑う（ステップ3・5）
