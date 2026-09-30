@@ -243,6 +243,15 @@ class GanttTest(unittest.TestCase):
         a = aggregate(raw(), TODAY)
         self.assertEqual(a["gantt_range"], {"start": "2026-09-02", "end": "2026-11-25"})
 
+    def test_warning_names_skipped_and_missing_boards_with_reason(self):
+        r = raw()
+        r["skipped"] = [{"name": "CS部_保守関連", "reason": "HTTP 500"}]
+        r["missing_boards"] = ["CS部_企画/内部"]
+        w = " ".join(aggregate(r, TODAY)["warnings"])
+        self.assertIn("CS部_保守関連", w)
+        self.assertIn("HTTP 500", w)
+        self.assertIn("CS部_企画/内部", w)
+
 
 if __name__ == "__main__":
     unittest.main()

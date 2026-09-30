@@ -46,6 +46,13 @@ class RenderTest(unittest.TestCase):
         r["missing_boards"] = ["CS部_企画/内部"]
         self.assertIn("欠けあり", render(aggregate(r, TODAY)))
 
+    def test_banner_names_the_missing_board(self):
+        r = raw()
+        r["skipped"] = [{"name": "CS部_保守関連", "reason": "HTTP 500"}]
+        h = render(aggregate(r, TODAY))
+        self.assertIn("CS部_保守関連", h)
+        self.assertIn("HTTP 500", h)
+
     def test_gantt_bar_present(self):
         h = build([T("a", due_date="2026-10-20")])
         self.assertIn('class="bar', h)

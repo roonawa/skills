@@ -123,12 +123,7 @@ def _completions(agg):
 def render(agg):
     counts = agg["action"]["counts"]
     cards = "".join("<span>%s <b>%d</b></span>" % (_e(KIND_LABEL[k]), counts[k]) for k in KINDS)
-    banner = ""
-    if agg["incomplete"]:
-        banner += '<div class="banner">欠けあり：取得できなかったボードがあります。数字は全体ではありません。</div>'
-    for w in agg["warnings"]:
-        if "欠けあり" not in w:
-            banner += '<div class="banner">%s</div>' % _e(w)
+    banner = "".join('<div class="banner">%s</div>' % _e(w) for w in agg["warnings"])
     return ('<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>CS部 タスク状況 %s</title>'
             "<style>%s</style></head><body><h1>CS部 タスク状況（基準日 %s）</h1>%s"
             '<h2>1. 要対応（棚卸し候補）</h2><div class="cards">%s<span>実数（重複除く） <b>%d</b></span></div>'

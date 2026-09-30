@@ -1,7 +1,7 @@
 import unittest
 
 import _helpers  # noqa: F401
-from chub_client import ChubHttpError
+from chub_client import ChubError, ChubHttpError
 from fetch import BOARDS, fetch_all
 
 
@@ -66,6 +66,19 @@ class FetchTest(unittest.TestCase):
         raw = fetch_all(c, log=lambda *_: None)
         self.assertEqual([s["name"] for s in raw["skipped"]], ["CS部_保守関連"])
         self.assertEqual([p["name"] for p in raw["projects"]], ["CS部"])
+
+    def test_500_and_non_json_on_a_board_are_skipped_others_continue(self):
+        c = FakeClient(routes(), fail={BASE + "/p1/tasks": ChubHttpError(500, "HTTP 500"),
+                                       BASE + "/p2": ChubError("レスポンスが JSON ではありません")})
+        raw = fetch_all(c, log=lambda *_: None)
+        self.assertEqual(sorted(s["name"] for s in raw["skipped"]), ["CS部", "CS部_保守関連"])
+        self.assertEqual(raw["projects"], [])
+
+    def test_401_and_429_on_a_board_stop_the_run(self):
+        for status in (401, 429):
+            c = FakeClient(routes(), fail={BASE + "/p1": ChubHttpError(status, str(status))})
+            with self.assertRaises(ChubHttpError):
+                fetch_all(c, log=lambda *_: None)
 
     def test_403_on_list_is_fatal(self):
         c = FakeClient(routes(), fail={BASE: ChubHttpError(403, "403")})

@@ -1,4 +1,4 @@
-from chub_client import ChubHttpError
+from chub_client import ChubError, ChubHttpError
 
 BOARDS = ("CS部", "CS部_保守関連", "CS部_企画/内部")
 _BASE = "/api/plugin/task-manager/projects"
@@ -25,11 +25,15 @@ def fetch_all(client, log=print):
             detail = client.get("%s/%s" % (_BASE, p["id"]))
             tasks = client.get("%s/%s/tasks" % (_BASE, p["id"]), {"show_completed": "true"})
         except ChubHttpError as e:
-            if e.status == 403:
-                skipped.append({"name": p["name"], "reason": "403"})
-                log("警告: 「%s」は権限がなく飛ばしました" % p["name"])
-                continue
-            raise
+            if e.status in (401, 429):
+                raise
+            skipped.append({"name": p["name"], "reason": "HTTP %d" % e.status})
+            log("警告: 「%s」は取得できず飛ばしました（HTTP %d）" % (p["name"], e.status))
+            continue
+        except ChubError as e:
+            skipped.append({"name": p["name"], "reason": str(e)})
+            log("警告: 「%s」は取得できず飛ばしました（%s）" % (p["name"], e))
+            continue
         items = ((tasks.get("data") or {}).get("tasks")) or []
         ntasks += len(items)
         out.append({"id": p["id"], "name": p["name"],

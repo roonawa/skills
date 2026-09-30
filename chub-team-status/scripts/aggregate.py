@@ -236,7 +236,9 @@ def aggregate(raw, today, stale_days=14):
     live = [t for t in tasks if not _is_excluded(t)]
     incomplete = bool(raw.get("skipped") or raw.get("missing_boards"))
     if incomplete:
-        warnings.append("欠けあり: 取得できなかったボードがあります")
+        parts = ["%s（%s）" % (x["name"], x["reason"]) for x in raw.get("skipped") or []]
+        parts += ["%s（見つからない）" % b for b in raw.get("missing_boards") or []]
+        warnings.append("欠けあり: 取得できなかったボード: " + "、".join(parts))
     action = _action(live, today, stale_days)
     gantt, gantt_range = _gantt(live, today)
     return {
