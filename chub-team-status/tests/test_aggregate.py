@@ -146,5 +146,103 @@ class IncompleteTest(unittest.TestCase):
         self.assertFalse(aggregate(raw(), TODAY)["incomplete"])
 
 
+class WorkloadTest(unittest.TestCase):
+    def test_counts_and_maintenance_excluded(self):
+        ts = [T("a"), T("b", status_category="open", status_name="未着手"),
+              T("c", status_name="詰まり", due_date="2026-01-01"),
+              T("d", due_date="2026-10-05"),
+              T("e", status_category="done")]
+        m = T("m")
+        a = aggregate(raw(plan=ts, maint=[m]), TODAY)
+        w = {r["name"]: r for r in a["workload"]}["甲"]
+        self.assertEqual(w["open"], 4)
+        self.assertEqual(w["not_started"], 1)
+        self.assertEqual(w["stuck"], 1)
+        self.assertEqual(w["in_progress"], 2)
+        self.assertEqual(w["overdue"], 1)
+        self.assertEqual(w["soon"], 1)
+
+
+class CompletionsTest(unittest.TestCase):
+    def test_eight_weeks_monday_start(self):
+        # 基準日 2026-09-30(水)。今週の月曜は 2026-09-28
+        done_this = T("a", status_category="done", completed_at="2026-09-29 09:00:00")
+        done_old = T("b", status_category="done", completed_at="2026-08-05 09:00:00")   # 8週窓の外
+        done_edge = T("c", status_category="done", completed_at="2026-08-10 09:00:00")  # 最古の週(月曜)
+        a = aggregate(raw(plan=[done_this, done_old, done_edge]), TODAY)
+        c = a["completions"]
+        self.assertEqual(len(c["weeks"]), 8)
+        self.assertEqual(c["weeks"][-1], "2026-09-28")
+        self.assertEqual(c["weeks"][0], "2026-08-10")
+        self.assertEqual(c["total"][-1], 1)
+        self.assertEqual(c["total"][0], 1)
+        self.assertEqual(sum(c["total"]), 2)
+        self.assertEqual(sum(c["by_assignee"]["甲"]), 2)
+
+    def test_maintenance_not_counted(self):
+        m = T("m", status_category="done", completed_at="2026-09-29 09:00:00")
+        self.assertEqual(sum(aggregate(raw(maint=[m]), TODAY)["completions"]["total"]), 0)
+
+
+class DealsTest(unittest.TestCase):
+    def test_stage_counts_other_and_excluded(self):
+        s = {"1": "製造", "2": "見積提出済み（※受注したら…）", "3": "保留中", "4": "謎"}
+        ts = [T("a"), T("b", section_id=2), T("c", section_id=3), T("d", section_id=4),
+              T("e", custom_field_values=cf(kubun="失注"))]
+        d = aggregate(raw(main=ts, sections=s), TODAY)["deals"]
+        counts = {x["stage"]: x["count"] for x in d["stages"]}
+        self.assertEqual(counts["製造"], 1)
+        self.assertEqual(counts["見積提出済み"], 1)
+        self.assertEqual(counts["（段階なし・その他）"], 1)
+        self.assertEqual(d["excluded_count"], 2)
+        self.assertEqual([x["stage"] for x in d["stages"]][-1], "（段階なし・その他）")
+
+    def test_gate_violations_listed(self):
+        s = {"1": "製造"}
+        d = aggregate(raw(main=[T("a")], sections=s), TODAY)["deals"]
+        self.assertEqual([e["id"] for e in d["gate_violations"]], ["a"])
+
+
+class GanttTest(unittest.TestCase):
+    def bar(self, t):
+        a = aggregate(raw(plan=[t]), TODAY)
+        return a["gantt"][0]["tasks"][0], a
+
+    def test_left_is_start_or_created_right_is_due(self):
+        b, a = self.bar(T("a", start_date="2026-09-10", due_date="2026-10-20"))
+        self.assertEqual((b["left"], b["right"], b["color"], b["dotted"]), ("2026-09-10", "2026-10-20", "normal", False))
+        b, _ = self.bar(T("b", start_date=None, created_at="2026-09-05 08:00:00", due_date="2026-10-20"))
+        self.assertEqual(b["left"], "2026-09-05")
+
+    def test_overdue_extends_to_today_and_is_red(self):
+        b, _ = self.bar(T("a", due_date="2026-09-20"))
+        self.assertEqual((b["right"], b["color"]), ("2026-09-30", "overdue"))
+
+    def test_no_due_is_dotted_to_today(self):
+        b, _ = self.bar(T("a", due_date=None))
+        self.assertEqual((b["right"], b["color"], b["dotted"]), ("2026-09-30", "nodue", True))
+
+    def test_stuck_is_orange(self):
+        b, _ = self.bar(T("a", status_name="詰まり"))
+        self.assertEqual(b["color"], "stuck")
+
+    def test_done_in_range_shown_out_of_range_hidden(self):
+        inr = T("a", status_category="done", completed_at="2026-09-20 10:00:00", due_date="2026-09-25")
+        out = T("b", status_category="done", completed_at="2026-05-01 10:00:00")
+        a = aggregate(raw(plan=[inr, out]), TODAY)
+        got = [x["id"] for g in a["gantt"] for x in g["tasks"]]
+        self.assertEqual(got, ["a"])
+        self.assertEqual(a["gantt"][0]["tasks"][0]["right"], "2026-09-20")
+        self.assertEqual(a["gantt"][0]["tasks"][0]["color"], "done")
+
+    def test_maintenance_and_excluded_not_in_gantt(self):
+        a = aggregate(raw(maint=[T("m")], main=[T("l", custom_field_values=cf(kubun="失注"))]), TODAY)
+        self.assertEqual(a["gantt"], [])
+
+    def test_range(self):
+        a = aggregate(raw(), TODAY)
+        self.assertEqual(a["gantt_range"], {"start": "2026-09-02", "end": "2026-11-25"})
+
+
 if __name__ == "__main__":
     unittest.main()

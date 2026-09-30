@@ -127,6 +127,101 @@ def _action(tasks, today, stale_days):
             "by_assignee": ordered, "total_unique": len(flagged)}
 
 
+def _workload(tasks, today):
+    rows = {}
+    for t in tasks:
+        if t["board"] == BOARD_MAINT or not _is_open(t):
+            continue
+        r = rows.setdefault(t["assignee"], {"assignee": t["assignee"], "name": t["assignee_name"],
+                                            "open": 0, "not_started": 0, "in_progress": 0, "stuck": 0,
+                                            "overdue": 0, "soon": 0})
+        r["open"] += 1
+        if t["status_name"] == "詰まり":
+            r["stuck"] += 1
+        elif t["status_category"] == "open":
+            r["not_started"] += 1
+        else:
+            r["in_progress"] += 1
+        if t["due"]:
+            if t["due"] < today:
+                r["overdue"] += 1
+            elif t["due"] <= today + timedelta(days=14):
+                r["soon"] += 1
+    for r in rows.values():
+        if not r["assignee"]:
+            r["name"] = NO_ASSIGNEE
+    return sorted(rows.values(), key=lambda r: (-r["open"], r["name"]))
+
+
+def _completions(tasks, today):
+    monday = today - timedelta(days=today.weekday())
+    weeks = [monday - timedelta(days=7 * i) for i in range(7, -1, -1)]
+    total, by = [0] * 8, {}
+    for t in tasks:
+        c = t["completed"]
+        if t["board"] == BOARD_MAINT or not c:
+            continue
+        idx = (c - weeks[0]).days // 7
+        if 0 <= idx < 8:
+            total[idx] += 1
+            by.setdefault(t["assignee_name"], [0] * 8)[idx] += 1
+    return {"weeks": [w.isoformat() for w in weeks], "total": total, "by_assignee": by}
+
+
+def _deals(live, excluded, gate_entries):
+    counts = {s: 0 for s in STAGES}
+    other = 0
+    for t in live:
+        if t["board"] != BOARD_MAIN:
+            continue
+        st = _stage(t["section"])
+        if st:
+            counts[st] += 1
+        else:
+            other += 1
+    stages = [{"stage": s, "count": counts[s]} for s in STAGES] + [{"stage": OTHER_STAGE, "count": other}]
+    return {"stages": stages, "gate_violations": gate_entries,
+            "excluded_count": len([t for t in excluded if t["board"] == BOARD_MAIN])}
+
+
+def _gantt(tasks, today):
+    start, end = today - timedelta(weeks=4), today + timedelta(weeks=8)
+    groups = {}
+    for t in tasks:
+        if t["board"] == BOARD_MAINT:
+            continue
+        done = not _is_open(t)
+        left = t["start"] or t["created"]
+        if not left:
+            continue
+        if done:
+            if not t["completed"] or not (start <= t["completed"] <= end):
+                continue
+            right, color, dotted = t["completed"], "done", False
+        elif not t["due"]:
+            right, color, dotted = today, "nodue", True
+        elif t["due"] < today:
+            right, color, dotted = today, "overdue", False
+        else:
+            right, color, dotted = t["due"], "normal", False
+        if not done and t["status_name"] == "詰まり":
+            color = "stuck"
+        g = groups.setdefault(t["assignee"], {"assignee": t["assignee"],
+                                              "name": t["assignee_name"] if t["assignee"] else NO_ASSIGNEE,
+                                              "tasks": [], "_open": 0})
+        if not done:
+            g["_open"] += 1
+        g["tasks"].append({"id": t["id"], "title": t["title"], "left": left.isoformat(),
+                           "right": max(left, right).isoformat(), "color": color, "dotted": dotted})
+    ordered = sorted((g for k, g in groups.items() if k), key=lambda g: (-g["_open"], g["name"]))
+    if "" in groups:
+        ordered.append(groups[""])
+    for g in ordered:
+        g.pop("_open")
+        g["tasks"].sort(key=lambda x: (x["right"], x["title"]))
+    return ordered, {"start": start.isoformat(), "end": end.isoformat()}
+
+
 def aggregate(raw, today, stale_days=14):
     tasks, warnings, unknown_sections = [], [], 0
     for p in raw["projects"]:
@@ -142,9 +237,14 @@ def aggregate(raw, today, stale_days=14):
     incomplete = bool(raw.get("skipped") or raw.get("missing_boards"))
     if incomplete:
         warnings.append("欠けあり: 取得できなかったボードがあります")
+    action = _action(live, today, stale_days)
+    gantt, gantt_range = _gantt(live, today)
     return {
         "today": today.isoformat(), "stale_days": stale_days, "incomplete": incomplete,
         "warnings": warnings, "excluded_count": len(excluded),
-        "action": _action(live, today, stale_days),
-        "workload": [], "gantt": [], "deals": {}, "completions": {},
+        "action": action,
+        "workload": _workload(live, today),
+        "gantt": gantt, "gantt_range": gantt_range,
+        "deals": _deals(live, excluded, action["by_kind"]["gate"]),
+        "completions": _completions(live, today),
     }
