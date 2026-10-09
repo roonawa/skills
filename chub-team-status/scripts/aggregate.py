@@ -1,3 +1,4 @@
+import re
 from datetime import date, datetime, timedelta, timezone
 
 BOARD_MAIN = "CS部"
@@ -52,7 +53,7 @@ def _normalize(board, sections, t):
     known = sid in sections
     section = sections.get(sid, t.get("section_name") or "")
     return {
-        "id": t.get("id"), "title": t.get("title") or "", "board": board,
+        "id": t.get("id"), "project_id": t.get("project_id"), "title": t.get("title") or "", "board": board,
         "section": section, "section_known": known or bool(t.get("section_name")),
         "assignee": t.get("assignee") or "",
         "assignee_name": t.get("assignee_display_name") or t.get("assignee") or NO_ASSIGNEE,
@@ -93,11 +94,21 @@ def _iso(d):
     return d.isoformat() if d else None
 
 
+def _project_label(title, board):
+    """抱えているプロジェクト名。タイトル先頭の「◯◯：」を案件名とし、無ければボード名で束ねる。"""
+    m = re.match(r"\s*([^：:]{1,30})[：:]", title or "")
+    if m and m.group(1).strip():
+        return m.group(1).strip()
+    return "CS部" if board == BOARD_MAIN else board.replace("CS部_", "")
+
+
 def _entry(t, flags, today):
-    return {"id": t["id"], "title": t["title"], "board": t["board"], "section": t["section"],
+    return {"id": t["id"], "project_id": t.get("project_id"), "title": t["title"], "board": t["board"],
+            "section": t["section"], "project": _project_label(t["title"], t["board"]),
             "assignee": t["assignee"], "assignee_name": t["assignee_name"], "status": t["status_name"],
             "due": _iso(t["due"]), "updated": _iso(t["updated"]),
             "days_overdue": (today - t["due"]).days if "overdue" in flags else None,
+            "days_since_update": (today - t["updated"]).days if t["updated"] else None,
             "flags": flags}
 
 
@@ -125,6 +136,44 @@ def _action(tasks, today, stale_days):
         ordered.append(groups[""])
     return {"counts": {k: len(v) for k, v in by_kind.items()}, "by_kind": by_kind,
             "by_assignee": ordered, "total_unique": len(flagged)}
+
+
+def _members(tasks, today, stale_days):
+    """定例会議用。未完了タスクをメンバー別に、プロジェクト・期限切れ・詰まり・動きなしへ分ける。
+    担当なしはメンバーとは別枠（unassigned）に出す。"""
+    groups, free = {}, []
+    for t in tasks:
+        if not _is_open(t):
+            continue
+        f = _flags(t, today, stale_days)
+        e = _entry(t, f, today)
+        if not t["assignee"]:
+            free.append(e)
+            continue
+        g = groups.setdefault(t["assignee"], {"assignee": t["assignee"], "name": t["assignee_name"], "open": 0,
+                                              "projects": {}, "overdue": [], "stuck": [], "stale": [],
+                                              "nodue": []})
+        g["open"] += 1
+        g["projects"].setdefault(e["project"], []).append(e)
+        for k in ("overdue", "stuck", "stale"):
+            if k in f:
+                g[k].append(e)
+        if not t["due"] and t["board"] != BOARD_MAINT:
+            g["nodue"].append(e)
+    members = []
+    for g in groups.values():
+        g["projects"] = sorted(
+            ({"name": n, "count": len(es), "tasks": sorted(es, key=lambda e: e["title"])}
+             for n, es in g["projects"].items()),
+            key=lambda p: (-p["count"], p["name"]))
+        g["overdue"].sort(key=lambda e: (-(e["days_overdue"] or 0), e["title"]))
+        g["stuck"].sort(key=lambda e: (e["updated"] or "", e["title"]))
+        g["stale"].sort(key=lambda e: (-(e["days_since_update"] or 0), e["title"]))
+        g["nodue"].sort(key=lambda e: (e["updated"] or "", e["title"]))
+        members.append(g)
+    members.sort(key=lambda g: (-g["open"], g["name"]))
+    free.sort(key=lambda e: (e["board"] == BOARD_MAINT, e["board"], e["title"]))
+    return members, free
 
 
 def _workload(tasks, today):
@@ -241,10 +290,12 @@ def aggregate(raw, today, stale_days=14):
         warnings.append("欠けあり: 取得できなかったボード: " + "、".join(parts))
     action = _action(live, today, stale_days)
     gantt, gantt_range = _gantt(live, today)
+    members, unassigned = _members(live, today, stale_days)
     return {
         "today": today.isoformat(), "stale_days": stale_days, "incomplete": incomplete,
         "warnings": warnings, "excluded_count": len(excluded),
         "action": action,
+        "members": members, "unassigned": unassigned,
         "workload": _workload(live, today),
         "gantt": gantt, "gantt_range": gantt_range,
         "deals": _deals(live, excluded, action["by_kind"]["gate"]),

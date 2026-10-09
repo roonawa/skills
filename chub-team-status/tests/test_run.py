@@ -36,10 +36,10 @@ class FakeClientFactory:
                     raise exc
                 base = "/api/plugin/task-manager/projects"
                 if path == base:
-                    return {"data": {"projects": [{"id": "p1", "name": "CS部_企画/内部", "archived": 0}]}}
+                    return {"data": {"projects": [{"id": "p1", "title": "CS部_企画/内部", "archived": "0"}]}}
                 if path.endswith("/tasks"):
                     return {"data": {"tasks": [T("a", due_date="2026-01-01")]}}
-                return {"data": {"project": {"sections": [{"id": 1, "name": "作業"}]}}}
+                return {"data": {"sections": [{"id": 1, "name": "作業"}]}}
 
         return C()
 
@@ -68,12 +68,15 @@ class MainTest(unittest.TestCase):
             agg = json.load(open(os.path.join(run_dir, "aggregate.json"), encoding="utf-8"))
             self.assertEqual(agg["action"]["total_unique"], 1)
 
-    def test_consult_mode_has_no_html(self):
+    def test_consult_mode_also_writes_html(self):
         with tempfile.TemporaryDirectory() as d:
-            with redirect_stdout(io.StringIO()):
-                main(["--today", "2026-09-30"], env=env_with_config(d), client_factory=FakeClientFactory())
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                rc = main(["--today", "2026-09-30"], env=env_with_config(d), client_factory=FakeClientFactory())
+            self.assertEqual(rc, 0)
+            self.assertIn("dashboard.html", buf.getvalue())
             runs = os.path.join(d, "chub-team-status", "runs")
-            self.assertNotIn("dashboard.html", os.listdir(os.path.join(runs, os.listdir(runs)[0])))
+            self.assertIn("dashboard.html", os.listdir(os.path.join(runs, os.listdir(runs)[0])))
 
     def test_http_error_returns_1_with_message(self):
         with tempfile.TemporaryDirectory() as d:

@@ -253,5 +253,86 @@ class GanttTest(unittest.TestCase):
         self.assertIn("CS部_企画/内部", w)
 
 
+class MembersTest(unittest.TestCase):
+    def test_project_label_from_title_prefix_full_or_half_width_colon(self):
+        a = aggregate(raw(plan=[T("a", title="信州大学：機能追加"), T("b", title="山洋電気:ncs:改修")]), TODAY)
+        names = [p["name"] for p in a["members"][0]["projects"]]
+        self.assertEqual(sorted(names), ["信州大学", "山洋電気"])
+
+    def test_project_label_falls_back_to_board_name(self):
+        a = aggregate(raw(main=[T("m", title="接頭辞なし")], plan=[T("p", title="接頭辞なし2")],
+                          maint=[T("k", title="接頭辞なし3")]), TODAY)
+        names = sorted(p["name"] for p in a["members"][0]["projects"])
+        self.assertEqual(names, ["CS部", "企画/内部", "保守関連"])
+
+    def test_projects_sorted_by_count_then_name_and_counted(self):
+        ts = [T("a", title="乙社：1"), T("b", title="甲社：1"), T("c", title="甲社：2"), T("d", title="丙社：1")]
+        ps = aggregate(raw(plan=ts), TODAY)["members"][0]["projects"]
+        self.assertEqual([(p["name"], p["count"]) for p in ps], [("甲社", 2), ("丙社", 1), ("乙社", 1)])
+
+    def test_overdue_stuck_stale_split_with_day_counts(self):
+        ts = [T("o", due_date="2026-09-20"), T("s", status_name="詰まり", updated_at="2026-09-25 10:00:00"),
+              T("t", updated_at="2026-09-10 10:00:00")]
+        m = aggregate(raw(plan=ts), TODAY)["members"][0]
+        self.assertEqual([e["id"] for e in m["overdue"]], ["o"])
+        self.assertEqual(m["overdue"][0]["days_overdue"], 10)
+        self.assertEqual([e["id"] for e in m["stuck"]], ["s"])
+        self.assertEqual(m["stuck"][0]["days_since_update"], 5)
+        self.assertEqual([e["id"] for e in m["stale"]], ["t"])
+        self.assertEqual(m["stale"][0]["days_since_update"], 20)
+        self.assertEqual(m["open"], 3)
+
+    def test_lists_sorted_worst_first(self):
+        ts = [T("a", due_date="2026-09-29"), T("b", due_date="2026-09-01"),
+              T("c", updated_at="2026-09-10 10:00:00"), T("d", updated_at="2026-08-01 10:00:00")]
+        m = aggregate(raw(plan=ts), TODAY)["members"][0]
+        self.assertEqual([e["id"] for e in m["overdue"]], ["b", "a"])
+        self.assertEqual([e["id"] for e in m["stale"]], ["d", "c"])
+
+    def test_members_sorted_by_open_count(self):
+        ts = [T("a"), T("b", assignee="b", assignee_display_name="乙"), T("c", assignee="b", assignee_display_name="乙")]
+        a = aggregate(raw(plan=ts), TODAY)
+        self.assertEqual([m["name"] for m in a["members"]], ["乙", "甲"])
+
+    def test_unassigned_is_its_own_frame_not_a_member(self):
+        ts = [T("a"), T("u", assignee=None, assignee_display_name=None)]
+        a = aggregate(raw(plan=ts), TODAY)
+        self.assertEqual([m["assignee"] for m in a["members"]], ["a"])
+        self.assertEqual([e["id"] for e in a["unassigned"]], ["u"])
+
+    def test_unassigned_puts_maintenance_last_and_keeps_it(self):
+        none = {"assignee": None, "assignee_display_name": None}
+        a = aggregate(raw(maint=[T("m", **none)], plan=[T("p", **none)]), TODAY)
+        self.assertEqual([e["id"] for e in a["unassigned"]], ["p", "m"])
+
+    def test_done_and_excluded_tasks_are_not_held(self):
+        ts = [T("done", status_category="done"), T("lost", section_id=3)]
+        a = aggregate(raw(main=ts), TODAY)
+        self.assertEqual(a["members"], [])
+        self.assertEqual(a["unassigned"], [])
+
+    def test_maintenance_task_is_held_but_not_overdue_or_stale(self):
+        m = aggregate(raw(maint=[T("m", due_date="2020-01-01", updated_at="2020-01-01 00:00:00")]), TODAY)["members"][0]
+        self.assertEqual((m["overdue"], m["stale"]), ([], []))
+        self.assertEqual(m["open"], 1)
+
+    def test_tasks_without_due_date_are_listed_per_member_oldest_update_first(self):
+        ts = [T("a", due_date=None, updated_at="2026-09-29 10:00:00"),
+              T("b", due_date=None, updated_at="2026-09-01 10:00:00"), T("c")]
+        m = aggregate(raw(plan=ts), TODAY)["members"][0]
+        self.assertEqual([e["id"] for e in m["nodue"]], ["b", "a"])
+
+    def test_nodue_excludes_done_and_maintenance_and_unassigned(self):
+        none = {"assignee": None, "assignee_display_name": None}
+        a = aggregate(raw(plan=[T("d", due_date=None, status_category="done"), T("u", due_date=None, **none)],
+                          maint=[T("m", due_date=None)]), TODAY)
+        self.assertEqual(a["members"][0]["nodue"], [])
+        self.assertEqual([e["id"] for e in a["unassigned"]], ["u"])
+
+    def test_entry_carries_project_id_for_links(self):
+        e = aggregate(raw(plan=[T("a", project_id="p9")]), TODAY)["members"][0]["projects"][0]["tasks"][0]
+        self.assertEqual(e["project_id"], "p9")
+
+
 if __name__ == "__main__":
     unittest.main()

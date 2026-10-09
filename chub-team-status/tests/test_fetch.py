@@ -24,14 +24,14 @@ BASE = "/api/plugin/task-manager/projects"
 def routes():
     return {
         BASE: {"ok": True, "data": {"projects": [
-            {"id": "p1", "name": "CS部", "archived": 0},
-            {"id": "p2", "name": "CS部_保守関連", "archived": 0},
-            {"id": "p9", "name": "テンプレート：CS案件", "archived": 0},
-            {"id": "p8", "name": "CS部_企画/内部", "archived": 1},
+            {"id": "p1", "title": "CS部", "archived": "0"},
+            {"id": "p2", "title": "CS部_保守関連", "archived": "0"},
+            {"id": "p9", "title": "テンプレート：CS案件", "archived": "0"},
+            {"id": "p8", "title": "CS部_企画/内部", "archived": "1"},
         ]}},
-        BASE + "/p1": {"ok": True, "data": {"project": {"sections": [{"id": 1, "name": "見積中"}]}}},
+        BASE + "/p1/sections": {"ok": True, "data": {"sections": [{"id": 1, "name": "見積中"}]}},
         BASE + "/p1/tasks": {"ok": True, "data": {"tasks": [{"id": "t1", "section_id": 1}]}},
-        BASE + "/p2": {"ok": True, "data": {"project": {"sections": []}}},
+        BASE + "/p2/sections": {"ok": True, "data": {"sections": []}},
         BASE + "/p2/tasks": {"ok": True, "data": {"tasks": []}},
     }
 
@@ -46,8 +46,29 @@ class FetchTest(unittest.TestCase):
         self.assertEqual(raw["projects"][0]["sections"], {"1": "見積中"})
         self.assertEqual(raw["counts"], {"projects": 2, "tasks": 1})
 
+    def test_archived_accepts_string_and_int_forms(self):
+        for live in ("0", 0, None, False):
+            r = routes()
+            r[BASE]["data"]["projects"][0]["archived"] = live
+            raw = fetch_all(FakeClient(r), log=lambda *_: None)
+            self.assertIn("CS部", [p["name"] for p in raw["projects"]], live)
+        for gone in ("1", 1, True):
+            r = routes()
+            r[BASE]["data"]["projects"][0]["archived"] = gone
+            raw = fetch_all(FakeClient(r), log=lambda *_: None)
+            self.assertNotIn("CS部", [p["name"] for p in raw["projects"]], gone)
+
     def test_missing_board_is_warned_not_fatal(self):
         raw = fetch_all(FakeClient(routes()), log=lambda *_: None)
+        self.assertEqual(raw["missing_boards"], ["CS部_企画/内部", "品質保証"])
+
+    def test_qa_board_is_fetched(self):
+        r = routes()
+        r[BASE]["data"]["projects"].append({"id": "p7", "title": "品質保証", "archived": "0"})
+        r[BASE + "/p7/sections"] = {"ok": True, "data": {"sections": []}}
+        r[BASE + "/p7/tasks"] = {"ok": True, "data": {"tasks": [{"id": "q1"}]}}
+        raw = fetch_all(FakeClient(r), log=lambda *_: None)
+        self.assertIn("品質保証", [p["name"] for p in raw["projects"]])
         self.assertEqual(raw["missing_boards"], ["CS部_企画/内部"])
 
     def test_tasks_requested_with_completed(self):
@@ -69,14 +90,14 @@ class FetchTest(unittest.TestCase):
 
     def test_500_and_non_json_on_a_board_are_skipped_others_continue(self):
         c = FakeClient(routes(), fail={BASE + "/p1/tasks": ChubHttpError(500, "HTTP 500"),
-                                       BASE + "/p2": ChubError("レスポンスが JSON ではありません")})
+                                       BASE + "/p2/sections": ChubError("レスポンスが JSON ではありません")})
         raw = fetch_all(c, log=lambda *_: None)
         self.assertEqual(sorted(s["name"] for s in raw["skipped"]), ["CS部", "CS部_保守関連"])
         self.assertEqual(raw["projects"], [])
 
     def test_401_and_429_on_a_board_stop_the_run(self):
         for status in (401, 429):
-            c = FakeClient(routes(), fail={BASE + "/p1": ChubHttpError(status, str(status))})
+            c = FakeClient(routes(), fail={BASE + "/p1/sections": ChubHttpError(status, str(status))})
             with self.assertRaises(ChubHttpError):
                 fetch_all(c, log=lambda *_: None)
 

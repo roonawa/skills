@@ -5,6 +5,7 @@ import shutil
 import sys
 from datetime import date, datetime, timedelta, timezone
 
+import links
 from aggregate import aggregate
 from chub_client import ChubError, Client
 from chub_config import ConfigError, load_config
@@ -53,11 +54,13 @@ def main(argv=None, env=os.environ, client_factory=None):
         _dump(os.path.join(run_dir, "raw.json"), raw)
         _dump(os.path.join(run_dir, "aggregate.json"), agg)
         print("集計: %s" % os.path.join(run_dir, "aggregate.json"))
-        if args.mode in ("report", "レポート"):
-            html_path = os.path.join(run_dir, "dashboard.html")
-            with open(html_path, "w", encoding="utf-8") as f:
-                f.write(render(agg))
-            print("HTML: %s" % html_path)
+        url_for = None
+        if links.TASK_URL_TEMPLATE:
+            url_for = lambda e: links.task_url(cfg["base_url"], e["id"], e.get("project_id"))
+        html_path = os.path.join(run_dir, "dashboard.html")
+        with open(html_path, "w", encoding="utf-8") as f:
+            f.write(render(agg, url_for))
+        print("HTML: %s" % html_path)
         prune(runs, keep=5)
         return 0
     except (ConfigError, ChubError) as e:

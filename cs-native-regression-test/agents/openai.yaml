@@ -1,0 +1,4 @@
+interface:
+  display_name: "CSアプリ FlaUI回帰テスト"
+  short_description: "AllcampusのWindows側をFlaUIで回帰検証。PC占有枠で別実行"
+  default_prompt: "$cs-native-regression-test を使い、AllcampusのWindows側のPT・ST回帰テストを行ってください。PC占有時間を確認してからGUIを実行してください。"

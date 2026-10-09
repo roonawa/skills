@@ -1,137 +1,145 @@
-from datetime import date
 from html import escape as _e
 
-from aggregate import KIND_LABEL, KINDS, NO_ASSIGNEE
+from aggregate import BOARD_MAINT, NO_ASSIGNEE
+
+# 名前にこの文字列を含むメンバーは、開くまで中身を隠す（プルダウン）。
+FOLDED_MEMBERS = ("小林", "竹内")
 
 _CSS = """
-body{font:14px/1.6 "Yu Gothic UI","Meiryo",sans-serif;margin:0;padding:16px 24px;background:#f6f7f9;color:#222}
-h1{font-size:20px}h2{font-size:16px;margin-top:32px;border-bottom:2px solid #ccd;padding-bottom:4px}
-table{border-collapse:collapse;background:#fff;width:100%}th,td{border:1px solid #dde;padding:4px 8px;text-align:left;vertical-align:top}
-th{background:#eef}.num{text-align:right}.banner{background:#fff3cd;border:1px solid #e0c060;padding:8px 12px;margin:8px 0}
-.cards span{display:inline-block;background:#fff;border:1px solid #ccd;padding:6px 14px;margin:0 8px 8px 0}
-.tabs button{padding:4px 14px;margin-right:4px;border:1px solid #99a;background:#fff;cursor:pointer}
-.tabs button.on{background:#334;color:#fff}details{background:#fff;border:1px solid #dde;margin:6px 0;padding:4px 10px}
-summary{cursor:pointer;font-weight:bold}.barbg{background:#e6e8ee;height:14px;position:relative}
-.barfill{background:#5b7bd5;height:14px}.gr{position:relative;height:18px;background:#fff;border-bottom:1px solid #eee}
-.bar{position:absolute;top:3px;height:12px;background:#5b7bd5}.bar.overdue{background:#d33}.bar.stuck{background:#f0902a}
-.bar.done{background:#b9c3dd}.bar.nodue{background:#c7a0d8;border:1px dashed #756;box-sizing:border-box}
-.bar.dotted{opacity:.8}.today{position:absolute;top:0;bottom:0;width:2px;background:#e00}
-.gl{font-size:12px;color:#556}.flag{display:inline-block;background:#eef;border:1px solid #99a;font-size:11px;padding:0 4px;margin-right:3px}
+body{font:20px/1.6 "Yu Gothic UI","Meiryo",sans-serif;margin:0 auto;padding:24px 32px 64px;background:#f6f7f9;color:#222;max-width:1700px}
+h1{font-size:1.6em;margin:0 0 8px}h1 small{font-size:.65em;font-weight:normal;color:#556;margin-left:14px}
+h2{font-size:1.4em;margin:0 0 10px;padding:8px 16px;background:#334;color:#fff}h2 small{font-size:.7em;font-weight:normal;margin-left:14px;color:#cdd}
+h3{font-size:1.15em;margin:20px 0 6px;padding-left:12px;border-left:6px solid #99a}
+h3.overdue{border-color:#d33}h3.stuck{border-color:#f0902a}h3.stale{border-color:#b8a000}h3.proj{border-color:#5b7bd5}
+h3.nodue{border-color:#8a5bc4}
+section{background:#fff;border:1px solid #dde;margin:28px 0;padding:0 0 14px;break-inside:avoid}
+section>*:not(h2){margin-left:16px;margin-right:16px}
+table{border-collapse:collapse;width:calc(100% - 32px)}th,td{border:1px solid #dde;padding:6px 12px;text-align:left;vertical-align:top}
+th{background:#eef;font-weight:normal;font-size:.8em;color:#445}.num{text-align:right;white-space:nowrap}
+.sum{width:auto;background:#fff;margin:12px 0}.sum th,.sum td{padding:8px 18px}.sum td.hot{background:#fde8e8;font-weight:bold}.sum td.zero{color:#aab}
+.none{color:#889;margin:4px 16px}.banner{background:#fff3cd;border:1px solid #e0c060;padding:10px 16px;margin:10px 0}
+ul.projs{list-style:none;padding:0;margin:0 16px}ul.projs details{margin:4px 0}ul.projs summary{cursor:pointer}
+ul.projs ul{margin:4px 0 10px;padding-left:28px}.days{white-space:nowrap}.note{color:#667;font-size:.8em}
+a{color:#1a56c4}details{margin:8px 16px}summary{cursor:pointer}
+details.fold{margin:0}details.fold>*:not(summary){margin-left:16px;margin-right:16px}
+details.fold>summary{list-style:none}details.fold>summary::-webkit-details-marker{display:none}
+details.fold>summary h2{margin:0}details.fold>summary h2::before{content:"▶ ";font-size:.7em}
+details.fold[open]>summary h2::before{content:"▼ "}
+@media print{body{font-size:12px;background:#fff;padding:0;max-width:none}a{color:#000;text-decoration:none}}
 """
 
-_JS = """
-function show(v){document.getElementById('by-kind').hidden=(v!=='kind');
-document.getElementById('by-assignee').hidden=(v!=='assignee');
-document.getElementById('tab-kind').className=(v==='kind'?'on':'');
-document.getElementById('tab-assignee').className=(v==='assignee'?'on':'');}
-document.getElementById('tab-kind').onclick=function(){show('kind')};
-document.getElementById('tab-assignee').onclick=function(){show('assignee')};
-"""
 
-_HEAD = "<tr><th>タスク</th><th>ボード</th><th>セクション</th><th>担当</th><th>期限</th><th>最終更新</th><th>判定</th></tr>"
+def _date(d):
+    return d or "なし"
 
 
-def _row(e):
-    flags = "".join('<span class="flag">%s</span>' % _e(KIND_LABEL[k]) for k in e["flags"])
-    od = "（%d日超過）" % e["days_overdue"] if e.get("days_overdue") else ""
-    return ("<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s%s</td><td>%s</td><td>%s</td></tr>" % (
-        _e(e["title"]), _e(e["board"]), _e(e["section"]), _e(e["assignee_name"]),
-        _e(e["due"] or "なし"), _e(od), _e(e["updated"] or "-"), flags))
+def _link(e, url_for):
+    title = _e(e["title"])
+    url = url_for(e) if url_for else None
+    if not url:
+        return title
+    return '<a href="%s" target="_blank" rel="noopener noreferrer">%s</a>' % (_e(url), title)
 
 
-def _table(entries):
+def _ago(e):
+    n = e.get("days_since_update")
+    return "%s（%d日前）" % (_e(e["updated"]), n) if n is not None and e.get("updated") else "-"
+
+
+def _group(title, cls, entries, head, row, url_for):
+    h = '<h3 class="%s">%s（%d件）</h3>' % (cls, _e(title), len(entries))
     if not entries:
-        return "<p>該当なし</p>"
-    return "<table>%s%s</table>" % (_HEAD, "".join(_row(e) for e in entries))
+        return h + '<p class="none">なし</p>'
+    rows = "".join("<tr>%s</tr>" % row(e, url_for) for e in entries)
+    return h + "<table><tr>%s</tr>%s</table>" % ("".join("<th>%s</th>" % x for x in head), rows)
 
 
-def _by_kind(agg):
-    out = []
-    for k in KINDS:
-        es = agg["action"]["by_kind"][k]
-        out.append("<h3>%s（%d件）</h3>%s" % (_e(KIND_LABEL[k]), len(es), _table(es)))
-    return "".join(out)
+def _row_overdue(e, u):
+    return "<td>%s</td><td>%s</td><td class=\"days\">%d日超過</td>" % (_link(e, u), _e(_date(e["due"])), e["days_overdue"] or 0)
 
 
-def _by_assignee(agg):
-    groups = agg["action"]["by_assignee"]
-    if not groups:
-        return "<p>該当なし</p>"
-    out = []
-    for g in groups:
-        name = g["name"] if g["assignee"] else NO_ASSIGNEE
-        out.append("<details><summary>%s（要対応%d件）</summary>%s</details>" % (_e(name), g["count"], _table(g["tasks"])))
-    return "".join(out)
+def _row_stuck(e, u):
+    return "<td>%s</td><td>%s</td><td>%s</td>" % (_link(e, u), _e(_date(e["due"])), _ago(e))
 
 
-def _workload(agg):
-    rows = agg["workload"]
-    if not rows:
-        return "<p>該当なし</p>"
-    mx = max(r["open"] for r in rows) or 1
-    body = "".join(
-        '<tr><td>%s</td><td><div class="barbg"><div class="barfill" style="width:%d%%"></div></div></td>'
-        '<td class="num">%d</td><td class="num">%d</td><td class="num">%d</td><td class="num">%d</td>'
-        '<td class="num">%d</td><td class="num">%d</td></tr>' % (
-            _e(r["name"]), int(100 * r["open"] / mx), r["open"], r["not_started"], r["in_progress"],
-            r["stuck"], r["overdue"], r["soon"]) for r in rows)
-    return ("<table><tr><th>担当</th><th>未完了</th><th>件数</th><th>未着手</th><th>進行中</th><th>詰まり</th>"
-            "<th>期限切れ</th><th>期限間近</th></tr>%s</table>" % body)
+def _row_stale(e, u):
+    n = e.get("days_since_update")
+    return "<td>%s</td><td>%s</td><td class=\"days\">%s</td>" % (
+        _link(e, u), _e(_date(e["updated"])), "%d日間" % n if n is not None else "-")
 
 
-def _gantt(agg):
-    if not agg["gantt"]:
-        return "<p>該当なし</p>"
-    s = date.fromisoformat(agg["gantt_range"]["start"])
-    e = date.fromisoformat(agg["gantt_range"]["end"])
-    span = (e - s).days or 1
-    today = date.fromisoformat(agg["today"])
-
-    def pct(d):
-        return max(0.0, min(100.0, 100.0 * (d - s).days / span))
-
-    tl = pct(today)
-    out = []
-    for g in agg["gantt"]:
-        out.append("<h3>%s</h3>" % _e(g["name"]))
-        for t in g["tasks"]:
-            l, r = pct(date.fromisoformat(t["left"])), pct(date.fromisoformat(t["right"]))
-            cls = "bar %s%s" % (t["color"], " dotted" if t["dotted"] else "")
-            out.append('<div class="gl">%s</div><div class="gr"><div class="today" style="left:%.1f%%"></div>'
-                       '<div class="%s" style="left:%.1f%%;width:%.1f%%" title="%s ～ %s"></div></div>' % (
-                           _e(t["title"]), tl, cls, l, max(0.5, r - l), _e(t["left"]), _e(t["right"])))
-    return "".join(out)
+def _row_nodue(e, u):
+    return "<td>%s</td><td>%s</td><td>%s</td>" % (_link(e, u), _e(e["status"] or "-"), _ago(e))
 
 
-def _deals(agg):
-    d = agg["deals"]
-    rows = "".join('<tr><td>%s</td><td class="num">%d</td></tr>' % (_e(x["stage"]), x["count"]) for x in d["stages"])
-    return ("<table><tr><th>段階</th><th>件数</th></tr>%s</table><p>失注・保留（除外）: %d件</p>"
-            "<h3>ゲート違反</h3>%s" % (rows, d["excluded_count"], _table(d["gate_violations"])))
+def _row_free(e, u):
+    return "<td>%s</td><td>%s</td><td>%s</td><td>%s</td>" % (
+        _link(e, u), _e(e["board"]), _e(_date(e["due"])), _ago(e))
 
 
-def _completions(agg):
-    c = agg["completions"]
-    head = "".join("<th>%s</th>" % _e(w[5:]) for w in c["weeks"])
-    rows = ['<tr><td>全体</td>%s</tr>' % "".join('<td class="num">%d</td>' % n for n in c["total"])]
-    for name in sorted(c["by_assignee"]):
-        rows.append("<tr><td>%s</td>%s</tr>" % (
-            _e(name), "".join('<td class="num">%d</td>' % n for n in c["by_assignee"][name])))
-    return "<table><tr><th>週（月曜）</th>%s</tr>%s</table>" % (head, "".join(rows))
+def _projects(m, url_for):
+    items = []
+    for p in m["projects"]:
+        tasks = "".join("<li>%s</li>" % _link(e, url_for) for e in p["tasks"])
+        items.append("<li><details><summary>%s <b>%d件</b></summary><ul>%s</ul></details></li>" % (
+            _e(p["name"]), p["count"], tasks))
+    return ('<h3 class="proj">抱えているプロジェクト（%d案件・未完了%d件）</h3><ul class="projs">%s</ul>' % (
+        len(m["projects"]), m["open"], "".join(items)))
 
 
-def render(agg):
-    counts = agg["action"]["counts"]
-    cards = "".join("<span>%s <b>%d</b></span>" % (_e(KIND_LABEL[k]), counts[k]) for k in KINDS)
+def _is_folded(name):
+    return any(k in name for k in FOLDED_MEMBERS)
+
+
+def _member(i, m, stale_days, url_for):
+    body = "%s%s%s%s" % (
+        _projects(m, url_for),
+        _group("期限切れ", "overdue", m["overdue"], ["タスク", "期限", "超過"], _row_overdue, url_for),
+        _group("詰まり", "stuck", m["stuck"], ["タスク", "期限", "最終更新"], _row_stuck, url_for),
+        _group("動きなし（%d日以上更新なし）" % stale_days, "stale", m["stale"],
+               ["タスク", "最終更新", "更新なし"], _row_stale, url_for)
+        + _group("期限未設定", "nodue", m["nodue"], ["タスク", "状態", "最終更新"], _row_nodue, url_for))
+    if _is_folded(m["name"]):
+        return ('<section id="m-%d"><details class="fold"><summary><h2>%s<small>未完了%d件・クリックで開く</small></h2>'
+                "</summary>%s</details></section>" % (i, _e(m["name"]), m["open"], body))
+    return '<section id="m-%d"><h2>%s</h2>%s</section>' % (i, _e(m["name"]), body)
+
+
+def _summary(agg):
+    def cell(n):
+        return '<td class="num %s">%d</td>' % ("hot" if n else "zero", n)
+
+    rows = []
+    for i, m in enumerate(agg["members"]):
+        rows.append('<tr><td><a href="#m-%d">%s</a></td><td class="num">%d</td><td class="num">%d</td>%s%s%s%s</tr>' % (
+            i, _e(m["name"]), m["open"], len(m["projects"]), cell(len(m["overdue"])),
+            cell(len(m["stuck"])), cell(len(m["stale"])), cell(len(m["nodue"]))))
+    n = len(agg["unassigned"])
+    rows.append('<tr><td><a href="#unassigned">%s</a></td><td class="num">%d</td>%s</tr>' % (
+        _e(NO_ASSIGNEE), n, "<td></td>" * 5))
+    return ('<table class="sum"><tr><th>メンバー</th><th>未完了</th><th>案件</th><th>期限切れ</th><th>詰まり</th>'
+            '<th>動きなし</th><th>期限未設定</th></tr>%s</table>' % "".join(rows))
+
+
+def _unassigned(agg, url_for):
+    free = agg["unassigned"]
+    head = "".join("<th>%s</th>" % x for x in ["タスク", "ボード", "期限", "最終更新"])
+    table = lambda es: "<table><tr>%s</tr>%s</table>" % (head, "".join("<tr>%s</tr>" % _row_free(e, url_for) for e in es))
+    main = [e for e in free if e["board"] != BOARD_MAINT]
+    maint = [e for e in free if e["board"] == BOARD_MAINT]
+    body = table(main) if main else '<p class="none">なし</p>'
+    if maint:
+        body += "<details><summary>%s（%d件）</summary>%s</details>" % (_e(BOARD_MAINT), len(maint), table(maint))
+    return ('<section id="unassigned"><h2>%s<small>%d件</small></h2>'
+            '<p class="note">メンバー別の集計には含めていません。</p>%s</section>' % (_e(NO_ASSIGNEE), len(free), body))
+
+
+def render(agg, url_for=None):
+    """url_for(entry) -> タスクの URL（https）または None。None ならリンクなしで出す。"""
     banner = "".join('<div class="banner">%s</div>' % _e(w) for w in agg["warnings"])
-    return ('<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>CS部 タスク状況 %s</title>'
-            "<style>%s</style></head><body><h1>CS部 タスク状況（基準日 %s）</h1>%s"
-            '<h2>1. 要対応（棚卸し候補）</h2><div class="cards">%s<span>実数（重複除く） <b>%d</b></span></div>'
-            '<div class="tabs"><button id="tab-kind" class="on">判定別</button>'
-            '<button id="tab-assignee">担当者別</button></div>'
-            '<div id="by-kind">%s</div><div id="by-assignee" hidden>%s</div>'
-            "<h2>2. 負荷の偏り</h2>%s<h2>3. ガント</h2>%s<h2>4. CS部ボードの商談状況</h2>%s"
-            "<h2>5. 完了実績の推移</h2>%s<script>%s</script></body></html>" % (
-                _e(agg["today"]), _CSS, _e(agg["today"]), banner, cards, agg["action"]["total_unique"],
-                _by_kind(agg), _by_assignee(agg), _workload(agg), _gantt(agg), _deals(agg),
-                _completions(agg), _JS))
+    if url_for is None:
+        banner += '<div class="banner">タスクへのリンクは未設定です（scripts/links.py）。</div>'
+    members = "".join(_member(i, m, agg["stale_days"], url_for) for i, m in enumerate(agg["members"]))
+    return ('<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>CS部 メンバー別タスク状況 %s</title>'
+            "<style>%s</style></head><body><h1>CS部 メンバー別タスク状況<small>基準日 %s</small></h1>%s%s%s%s</body></html>" % (
+                _e(agg["today"]), _CSS, _e(agg["today"]), banner, _summary(agg), members, _unassigned(agg, url_for)))

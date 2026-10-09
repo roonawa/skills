@@ -1,0 +1,4 @@
+interface:
+  display_name: "CSアプリ WebView2回帰テスト"
+  short_description: "AllcampusのPT・ST回帰テスト。API検証とWindows操作は別実行"
+  default_prompt: "$cs-webview-regression-test を使い、AllcampusのCSアプリのPT・ST回帰テストを行ってください。APIテストとFlaUI操作は分離してください。"
