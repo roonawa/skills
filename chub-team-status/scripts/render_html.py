@@ -3,7 +3,7 @@ from html import escape as _e
 from aggregate import BOARD_MAINT, NO_ASSIGNEE
 
 # 名前にこの文字列を含むメンバーは、開くまで中身を隠す（プルダウン）。
-FOLDED_MEMBERS = ("小林", "竹内")
+FOLDED_MEMBERS = ("小林", "竹内", "山口")
 
 _CSS = """
 body{font:20px/1.6 "Yu Gothic UI","Meiryo",sans-serif;margin:0 auto;padding:24px 32px 64px;background:#f6f7f9;color:#222;max-width:1700px}
