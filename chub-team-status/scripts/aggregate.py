@@ -10,6 +10,8 @@ GATE_STAGES = STAGES[1:]
 OTHER_STAGE = "（段階なし・その他）"
 EXCLUDE_KUBUN = {"失注", "保留"}
 EXCLUDE_SECTION = {"失注", "保留中"}
+SECTION_CANCELLED = "中止"  # 全ボード共通で除外
+STATUS_ON_HOLD = "保留"  # 全ボード共通で除外
 
 KINDS = ["overdue", "stuck", "stale", "gate", "missing"]
 KIND_LABEL = {"overdue": "期限切れ", "stuck": "詰まり", "stale": "動きなし",
@@ -69,6 +71,8 @@ def _is_open(t):
 
 
 def _is_excluded(t):
+    if t["section"] == SECTION_CANCELLED or t["status_name"] == STATUS_ON_HOLD:
+        return True
     return t["board"] == BOARD_MAIN and (t["kubun"] in EXCLUDE_KUBUN or t["section"] in EXCLUDE_SECTION)
 
 
