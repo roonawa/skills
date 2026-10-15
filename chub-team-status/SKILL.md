@@ -5,7 +5,7 @@ description: C-HUB の CS部3ボード＋品質保証ボード（CS部・CS部_�
 
 # chub-team-status
 
-C-HUB の CS部3ボードと品質保証ボードを読み取り専用で集計する。レポート上、小林・竹内は開くまで中身を隠す（`render_html.py` の `FOLDED_MEMBERS`）。C-HUB が正本で、このスキルはタスクを保持・更新しない。
+C-HUB の CS部3ボードと品質保証ボードを読み取り専用で集計する。レポート上、小林・竹内・山口は開くまで中身を隠す（`render_html.py` の `FOLDED_MEMBERS`）。C-HUB が正本で、このスキルはタスクを保持・更新しない。
 
 ## 使い方
 
