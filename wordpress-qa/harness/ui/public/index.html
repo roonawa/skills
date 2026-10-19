@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="ja">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>WordPress QA Console</title><link rel="stylesheet" href="/style.css"><script type="module" src="/app.js"></script></head>
+<body>
+  <aside class="sidebar">
+    <a class="brand" href="/" aria-label="QA Console ホーム"><span class="brand-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16H5zM9 8h6M9 12h6M9 16h3"/></svg></span><span>QA Console<small>WORDPRESS TEST HARNESS</small></span></a>
+    <div class="sidebar-section"><label class="eyebrow" for="project-select">ワークスペース</label><select id="project-select" aria-label="サイトを選択"></select><span id="environment" class="environment">ローカル</span></div>
+    <div class="history-heading"><h2>実行履歴</h2><span id="history-count" class="count">0</span></div>
+    <div id="run-list" class="run-list" aria-label="実行履歴"><p class="quiet">読み込み中…</p></div>
+    <div class="sidebar-footer"><span class="connection-dot"></span><div>ローカルで実行<small>このPCのハーネスに接続しています</small></div></div>
+  </aside>
+  <main>
+    <div class="topline"><span>品質検証 <span class="slash">/</span> 実行状況</span><span id="demo-label" class="tag" hidden>デモ環境</span></div>
+    <header class="page-heading"><div><h1>テスト状況</h1><p id="project-name">サイトを読み込んでいます</p></div><div class="run-controls"><label class="sr-only" for="suite-select">検査範囲</label><select id="suite-select"><option value="all">すべての検査</option><option value="audit">URL・公開設定</option><option value="journey">操作・メール</option><option value="visual">表示・アクセシビリティ</option></select><button class="primary" id="run-button" disabled><span aria-hidden="true">▶</span> 検査を実行</button></div></header>
+    <div id="error" class="notice error" role="alert" hidden></div><div id="toast" class="notice toast" role="status" hidden></div>
+    <section class="run-summary" aria-label="実行状況"><div class="summary-top"><div class="status-heading"><span id="run-indicator" class="status-icon">○</span><div><h2 id="run-title">検査を始めましょう</h2><p id="run-subtitle">実行結果と確認が必要な項目を、ここで確認できます。</p></div></div><span id="run-badge" class="pill neutral">待機中</span></div><div class="progress-row"><div class="progress-track" role="progressbar" aria-label="検査の進捗" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="progress-fill"></div></div><span id="progress-label">0 / 0 項目</span></div></section>
+    <section class="metrics" aria-label="検査結果の集計">
+      <div class="metric"><span><i class="dot green"></i>合格</span><strong id="metric-pass">—</strong><small>期待結果に一致</small></div>
+      <div class="metric"><span><i class="dot red"></i>不合格</span><strong id="metric-fail">—</strong><small>修正が必要</small></div>
+      <div class="metric"><span><i class="dot orange"></i>実行不能</span><strong id="metric-blocked">—</strong><small>前提・環境を確認</small></div>
+      <div class="metric"><span><i class="dot purple"></i>確認待ち</span><strong id="metric-review">—</strong><small>画像・手動レビュー</small></div>
+      <div class="metric"><span><i class="dot gray"></i>未実施</span><strong id="metric-not_run">—</strong><small>未選択・実行待ち</small></div>
+    </section>
+    <div class="workspace-grid">
+      <section class="panel results-panel"><div class="panel-heading"><h2>検査項目 <span id="row-count" class="count">0</span></h2><a id="report-link" class="text-link" target="_blank" rel="noopener" hidden>HTMLレポート ↗</a></div>
+        <div class="table-tools"><div id="filters" class="filters" aria-label="結果で絞り込み"><button data-filter="all" class="selected" aria-pressed="true">すべて</button><button data-filter="attention" aria-pressed="false">要対応</button><button data-filter="pass" aria-pressed="false">合格</button><button data-filter="not_run" aria-pressed="false">未実施</button></div><label class="search"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="項目を検索" aria-label="検査項目を検索"></label></div>
+        <div class="table-scroll"><table><thead><tr><th>検査項目</th><th class="suite-col">種別</th><th>結果</th><th class="time-col">時間</th></tr></thead><tbody id="test-rows"></tbody></table></div>
+        <div id="empty-state" class="empty-state"><div class="empty-icon" aria-hidden="true">✓</div><h3>まだ実行履歴がありません</h3><p>検査範囲を選び「検査を実行」を押してください。<br>進捗と証拠は自動で更新されます。</p></div>
+        <div class="table-footer"><span id="table-note">実行結果はこのPCに保存されます</span><span class="live-label"><i class="connection-dot"></i> 自動更新</span></div>
+      </section>
+      <aside class="panel detail-panel" aria-label="検査の詳細"><div class="panel-heading"><h2>項目の詳細</h2><span class="subtle">INSPECT</span></div><div id="detail" class="detail-content"><div class="detail-placeholder"><span aria-hidden="true">↖</span><h3>確認したい項目を選択</h3><p>結果の理由、スクリーンショット、<br>ログをここで確認できます。</p></div></div></aside>
+    </div>
+    <section class="panel run-info"><div class="panel-heading"><h2>実行情報</h2><span id="run-time" class="subtle"></span></div><dl id="metadata"></dl><details id="log-panel"><summary>実行ログを見る</summary><pre id="run-log">まだログはありません。</pre></details></section>
+    <footer class="page-footer">必須条件の充足状況を表示しています。公開判断には手動確認と未解決リスクの確認も必要です。</footer>
+  </main>
+</body></html>

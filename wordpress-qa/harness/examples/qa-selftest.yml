@@ -1,0 +1,32 @@
+name: WordPress QA harness self-test
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'wordpress-qa/harness/**'
+jobs:
+  selftest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: wordpress-qa/harness
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: wordpress-qa/harness/package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm test
+      - run: npm run test:integration
+      - run: npm run test:ui
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: local-fixture-evidence
+          path: wordpress-qa/harness/.selftest/
+          include-hidden-files: true
+          retention-days: 7

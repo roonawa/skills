@@ -1,0 +1,20 @@
+{
+  "name": "WordPress QA local demonstration",
+  "baseURL": "http://127.0.0.1:4300",
+  "environment": "local",
+  "timeoutMs": 3000,
+  "outputDir": "../runs",
+  "baselineDir": "../baselines",
+  "pages": [
+    { "id": "home", "path": "/", "indexable": true, "canonical": "http://127.0.0.1:4300/", "title": "QA Demo", "lang": "ja", "template": "home" },
+    { "id": "contact", "path": "/contact", "indexable": true, "canonical": "http://127.0.0.1:4300/contact", "title": "お問い合わせ", "lang": "ja", "template": "form" }
+  ],
+  "policies": [
+    { "id": "admin", "path": "/wp-admin/", "statuses": [403] },
+    { "id": "config-source", "path": "/wp-config.php", "statuses": [200, 403, 404], "forbiddenText": ["<?php", "DB_PASSWORD", "DB_USER"] }
+  ],
+  "journeys": [{ "id": "contact", "title": "フォーム入力・送信・メール受信・計測", "module": "./contact.mjs" }],
+  "mailpit": { "url": "http://127.0.0.1:4300" },
+  "visuals": [{ "id": "home-mobile", "pageId": "home", "width": 375, "height": 812, "ready": "main", "axe": true, "reason": "トップのモバイル代表" }],
+  "manual": []
+}
