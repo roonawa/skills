@@ -1,0 +1,277 @@
+{
+  "runs": [
+    {
+      "at": "2026-10-20T06:47:36.199Z",
+      "variant": "core",
+      "runtime": "WordPress Playground; PHP WASM; SQLite; loopback only",
+      "node": "v24.18.0",
+      "playground": "3.1.59",
+      "releaseSHA256": "a163fe8d0d3d89ce00139ca0e0618e109bb7441fae2f733cff6c72fc4d170fb9",
+      "versions": {
+        "wp": "6.8.3",
+        "php": "8.3.33",
+        "theme": "Twenty Twenty-Five",
+        "themeVersion": "1.3",
+        "activePlugins": [],
+        "pageCacheEnabled": false
+      },
+      "cases": [
+        {
+          "kind": "wp-lifecycle",
+          "status": "pass",
+          "cleanedUp": true,
+          "phases": [
+            {
+              "phase": "anonymous-nonpublic-hidden"
+            },
+            {
+              "phase": "draft-preview"
+            },
+            {
+              "phase": "public-published",
+              "attempts": 1
+            },
+            {
+              "phase": "cache-refreshed-three-reads",
+              "attempts": 1
+            },
+            {
+              "phase": "private-hidden-after-publish"
+            }
+          ]
+        },
+        {
+          "kind": "wp-authz",
+          "status": "pass",
+          "cleanedUp": true,
+          "phases": [
+            {
+              "phase": "read",
+              "status": 403
+            },
+            {
+              "phase": "update",
+              "status": 403
+            }
+          ]
+        },
+        {
+          "kind": "wp-cache",
+          "status": "pass",
+          "cleanedUp": true,
+          "phases": [
+            {
+              "phase": "anonymous-nonpublic-hidden"
+            },
+            {
+              "phase": "public-published",
+              "attempts": 1
+            },
+            {
+              "phase": "cache-refreshed-three-reads",
+              "attempts": 1
+            },
+            {
+              "phase": "private-hidden-after-publish"
+            }
+          ]
+        },
+        {
+          "kind": "wp-scheduled",
+          "status": "pass",
+          "cleanedUp": true,
+          "phases": [
+            {
+              "phase": "anonymous-nonpublic-hidden"
+            },
+            {
+              "phase": "scheduled-published",
+              "attempts": 25
+            }
+          ]
+        }
+      ],
+      "leftoverPostIds": []
+    },
+    {
+      "at": "2026-10-20T06:55:32.574Z",
+      "variant": "plugins",
+      "runtime": "WordPress Playground; PHP WASM; SQLite; loopback only",
+      "node": "v24.18.0",
+      "playground": "3.1.59",
+      "releaseSHA256": "a163fe8d0d3d89ce00139ca0e0618e109bb7441fae2f733cff6c72fc4d170fb9",
+      "versions": {
+        "wp": "6.8.3",
+        "php": "8.3.33",
+        "theme": "Twenty Twenty-Four",
+        "themeVersion": "1.3",
+        "plugins": {
+          "akismet/akismet.php": "5.5",
+          "contact-form-7/wp-contact-form-7.php": "6.1.3",
+          "hello.php": "1.7.2",
+          "wp-super-cache/wp-cache.php": "3.1.4"
+        },
+        "activePlugins": [
+          "contact-form-7/wp-contact-form-7.php",
+          "wp-super-cache/wp-cache.php"
+        ],
+        "pageCacheEnabled": true
+      },
+      "cases": [
+        {
+          "kind": "wp-lifecycle",
+          "status": "pass",
+          "cleanedUp": true,
+          "phases": [
+            {
+              "phase": "anonymous-nonpublic-hidden"
+            },
+            {
+              "phase": "draft-preview"
+            },
+            {
+              "phase": "public-published",
+              "attempts": 1
+            },
+            {
+              "phase": "cache-refreshed-three-reads",
+              "attempts": 1
+            },
+            {
+              "phase": "private-hidden-after-publish"
+            }
+          ],
+          "cacheHits": 0
+        },
+        {
+          "kind": "wp-authz",
+          "status": "pass",
+          "cleanedUp": true,
+          "phases": [
+            {
+              "phase": "read",
+              "status": 403
+            },
+            {
+              "phase": "update",
+              "status": 403
+            }
+          ],
+          "cacheHits": 0
+        },
+        {
+          "kind": "wp-cache",
+          "status": "pass",
+          "cleanedUp": true,
+          "phases": [
+            {
+              "phase": "anonymous-nonpublic-hidden"
+            },
+            {
+              "phase": "public-published",
+              "attempts": 1
+            },
+            {
+              "phase": "cache-refreshed-three-reads",
+              "attempts": 1
+            },
+            {
+              "phase": "private-hidden-after-publish"
+            }
+          ],
+          "cacheHits": 0
+        },
+        {
+          "kind": "wp-scheduled",
+          "status": "pass",
+          "cleanedUp": true,
+          "phases": [
+            {
+              "phase": "anonymous-nonpublic-hidden"
+            },
+            {
+              "phase": "scheduled-published",
+              "attempts": 18
+            }
+          ],
+          "cacheHits": 0
+        }
+      ],
+      "cf7": {
+        "status": 200,
+        "result": "validation_failed",
+        "invalidFieldCount": 3
+      },
+      "leftoverPostIds": [],
+      "error": "Plugin variant did not demonstrate a real WP Super Cache hit",
+      "exitCode": 1
+    }
+  ],
+  "cacheDiagnosis": {
+    "at": "2026-10-20T07:05:21.660Z",
+    "forceHTMLAccept": true,
+    "selectedCases": [
+      "wp-cache"
+    ],
+    "status": "blocked-by-runtime-cache-bypass",
+    "dropin": true,
+    "config": true,
+    "values": {
+      "cache_enabled": true,
+      "super_cache_enabled": true,
+      "wpsc_served_header": true,
+      "wp_cache_phase1_loaded": true,
+      "cache_path": "/wordpress/wp-content/cache/",
+      "wp_cache_mod_rewrite": 0,
+      "wp_cache_not_logged_in": 0
+    },
+    "included": [
+      "/wordpress/wp-content/advanced-cache.php",
+      "/wordpress/wp-content/plugins/wp-super-cache/wp-cache-phase1.php",
+      "/wordpress/wp-content/plugins/wp-super-cache/wp-cache-phase2.php",
+      "/wordpress/wp-content/wp-cache-config.php"
+    ],
+    "publicResponse": {
+      "path": "/2026/10/20/wpqa-8deebb1b-0acc-462d-a2e1-f26218e10769/",
+      "status": 200,
+      "cacheHeader": null,
+      "diagnostic": {
+        "sapi": "cli",
+        "self": "/2026/10/20/wpqa-8deebb1b-0acc-462d-a2e1-f26218e10769/",
+        "script": "/wordpress/index.php",
+        "accept": "text/html",
+        "backend": true,
+        "dontCache": 1,
+        "enabled": true
+      },
+      "cacheControl": null,
+      "comments": []
+    },
+    "cacheFiles": [
+      {
+        "name": "/cache/.htaccess",
+        "size": 261
+      },
+      {
+        "name": "/cache/blogs/index.html",
+        "size": 0
+      },
+      {
+        "name": "/cache/index.html",
+        "size": 0
+      },
+      {
+        "name": "/cache/meta/index.html",
+        "size": 0
+      },
+      {
+        "name": "/cache/supercache/index.html",
+        "size": 0
+      }
+    ],
+    "reason": "Playground sets PHP_SAPI=cli and PHP_SELF to the pretty permalink. WP Super Cache wpsc_is_backend treats non-index.php PHP_SELF under cli as backend; wp-cache-phase1 sets DONOTCACHEPAGE=1 and returns. Explicit Accept text/html did not change the outcome.",
+    "pluginSource": "https://plugins.svn.wordpress.org/wp-super-cache/tags/3.1.4/wp-cache-phase2.php",
+    "sourceFunction": "wpsc_is_backend",
+    "sourceLine": 881
+  }
+}

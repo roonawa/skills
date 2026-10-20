@@ -1,3 +1,4 @@
+import {validateChecks,suites as extendedSuites} from './checks/index.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
@@ -24,7 +25,7 @@ export function sameOrigin(value, base) {
 }
 export function validateConfig(input) {
   const c = structuredClone(input);
-  object(c,['name','baseURL','environment','allowProductionJourneys','timeoutMs','pages','policies','journeys','visuals','manual','mailpit','headersEnv','outputDir','baselineDir','revision'],'config');
+  object(c,['name','baseURL','environment','allowProductionJourneys','timeoutMs','pages','policies','journeys','visuals','manual','mailpit','headersEnv','outputDir','baselineDir','revision','admin','checks','allowTestWrites','trustedAdapters'],'config');
   string(c.name,'name'); const base = url(c.baseURL,'baseURL');
   if (base.pathname !== '/' || base.search || base.hash) fail('baseURL must be an origin without a path');
   c.baseURL = base.origin;
@@ -32,7 +33,7 @@ export function validateConfig(input) {
   c.timeoutMs ??= 15000; integer(c.timeoutMs,1000,120000,'timeoutMs');
   c.allowProductionJourneys ??= false; bool(c.allowProductionJourneys,'allowProductionJourneys');
   for (const key of ['headersEnv','outputDir','baselineDir','revision']) if(c[key]!==undefined) string(c[key],key);
-  for (const key of ['pages','policies','journeys','visuals','manual']) { c[key] ??= []; list(c[key],key); }
+  for (const key of ['pages','policies','journeys','visuals','manual','admin']) { c[key] ??= []; list(c[key],key); }
   if (!c.pages.length) fail('pages: at least one explicit page required');
   const ids = new Set();
   function entry(e, keys, type) {
@@ -71,12 +72,23 @@ export function validateConfig(input) {
     if(v.reason!==undefined) string(v.reason,'visual.reason');
     v.maxDiffPixels ??= 0; integer(v.maxDiffPixels,0,100000,'maxDiffPixels'); v.axe ??= true; bool(v.axe,'visual.axe');
   }
+  for(const a of c.admin) {
+    entry(a,['title','source','path','field','expected','sensitive','headersEnv','storageStateEnv','selector','read','authenticatedSelector'],'admin');
+    string(a.title??a.id,'admin.title');string(a.path,'admin.path');sameOrigin(a.path,c.baseURL);
+    if(!['rest','browser'].includes(a.source))fail('admin.source must be rest/browser');
+    if(a.expected===undefined||a.expected===null||!['string','number','boolean'].includes(typeof a.expected))fail('admin.expected must be an explicit scalar');
+    a.sensitive??=false;bool(a.sensitive,'admin.sensitive');
+    for(const key of ['headersEnv','storageStateEnv'])if(a[key]!==undefined)string(a[key],key);
+    if(a.source==='rest'){string(a.field,'admin.field');if(a.selector!==undefined||a.read!==undefined||a.storageStateEnv!==undefined||a.authenticatedSelector!==undefined)fail('REST setting cannot use browser fields');}
+    else {string(a.selector,'admin.selector');string(a.authenticatedSelector,'admin.authenticatedSelector');if(!['value','checked','text'].includes(a.read))fail('admin.read required');if(a.read==='checked'&&typeof a.expected!=='boolean')fail('checked expected must be boolean');if(a.read!=='checked'&&typeof a.expected!=='string')fail('value/text expected must be string');if(a.field!==undefined||a.headersEnv!==undefined)fail('browser setting cannot use REST fields');}
+    if(c.environment!=='local'&&new URL(c.baseURL).protocol!=='https:')fail('admin checks require HTTPS outside local fixtures');
+  }
   for(const m of c.manual) { entry(m,['title','reason','status'],'manual'); string(m.title,'manual.title'); string(m.reason,'manual.reason'); m.status ??= 'review'; if(!['review','not_applicable'].includes(m.status)) fail('manual status must be review/not_applicable'); }
   if(c.mailpit!==undefined) {
     object(c.mailpit,['url','headersEnv'],'mailpit'); url(c.mailpit.url,'mailpit.url');
     if(c.mailpit.headersEnv!==undefined) string(c.mailpit.headersEnv,'mailpit.headersEnv');
   }
-  return c;
+  return validateChecks(c);
 }
 export function loadConfig(file) {
   const absolute = path.resolve(file);
@@ -84,17 +96,19 @@ export function loadConfig(file) {
   return { config, configPath:absolute, configDir:path.dirname(absolute), configHash:createHash('sha256').update(JSON.stringify(config)).digest('hex') };
 }
 export function catalog(c, suite='all') {
-  if(!['all','audit','journey','visual'].includes(suite)) fail(`Unknown suite: ${suite}`);
+  if(!['all','audit','journey','visual','admin',...Object.keys(extendedSuites)].includes(suite)) fail(`Unknown suite: ${suite}`);
   const rows=[];
   const add=(id,kind,title,required)=>rows.push({id,suite:kind,title,required,status:'not_run',selected:suite==='all'||suite===kind,reason:'未実行'});
   for(const p of c.pages) { add(`page.${p.id}`,'audit',`${p.path}: HTTP / metadata`,p.required); if(p.links) add(`links.${p.id}`,'audit',`${p.path}: internal links`,p.required); }
   for(const p of c.policies) add(`policy.${p.id}`,'audit',p.path,p.required);
   for(const j of c.journeys) add(`journey.${j.id}`,'journey',j.title??j.id,j.required);
+  for(const a of c.admin??[])add('admin.'+a.id,'admin',a.title??a.id,a.required);
   for(const v of c.visuals) {
     add(`layout.${v.id}`,'visual',`${v.pageId}: ${v.width}px layout`,v.required);
     add(`snapshot.${v.id}`,'visual',`${v.pageId}: ${v.width}px screenshot`,v.required);
     if(v.axe) add(`axe.${v.id}`,'visual',`${v.pageId}: ${v.width}px accessibility`,v.required);
   }
-  for(const m of c.manual) rows.push({id:`manual.${m.id}`,suite:'manual',title:m.title,required:m.required,status:m.status,reason:m.reason,selected:false});
+  for(const check of c.checks??[]) {add('check.'+check.id,check.suite,check.title,check.required);Object.assign(rows.at(-1),{kind:check.kind,manualReview:check.kind==='human-review',instructions:check.options.instructions});}
+  for(const m of c.manual) rows.push({id:`manual.${m.id}`,suite:'manual',manualReview:true,title:m.title,required:m.required,status:m.status,reason:m.reason,selected:false});
   return rows;
 }

@@ -17,6 +17,9 @@
 | revision | 検査対象のコミット・デプロイID。未設定なら未指定と記録 |
 | allowProductionJourneys | 本番での操作検査の明示的な許可。既定false。設定trueは利用者からの権限取得の代わりではない |
 | mailpit | `url`と任意の`headersEnv`。検証用メールAPIのみ指定 |
+| checks | 追加検査配列。各要素はid/title/suite/kind/options/required/timeoutMs。[追加検査ガイド](extended-checks.md)参照 |
+| allowTestWrites | 追加検査によるテストデータの変更許可。既定false。本番ではtrueでも書込み系を拒否 |
+| trustedAdapters | 運用処理の別名とESMモジュールの対応。UIでは起動時登録のみ |
 
 ブラウザーでのheadersEnvは第三者アセットへ転送しない。設定された認証ヘッダーを使う同一originの応答が別originへ転送する場合は中止する。外部SSOはこの方式の対象外。案件moduleのrequest fixtureも認証ヘッダーを持つため、同一origin専用とし、外部APIには別クライアントを使う。
 
@@ -78,3 +81,7 @@ mail引数: `to`（文字列または配列、Toの完全一致）, `subject`（
 | review | 基準画像未承認・人による判断待ち |
 
 終了コード: 0＝台帳の必須条件充足、1＝失敗検査あり、2＝未確認/環境障害/設定エラー。必須項目のpassまたは理由付きnot_applicable以外、ランナーエラー、0件を全体成功にしない。参考項目のfailも終了1で注意を促す。終了0でも台帳外の品質は保証しない。
+
+## 管理設定
+
+`admin` suiteで認証済みREST・管理画面の設定を読み取り、期待値と照合できます。UIの「管理設定」で実行し、項目を選ぶと期待値・取得値・証拠を確認できます。[設定方法と認証](admin-settings.md)を参照してください。

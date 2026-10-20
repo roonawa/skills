@@ -3,14 +3,22 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "test": "node --test test/*.test.mjs",
     "test:integration": "node test/integration.mjs",
     "test:ui": "node test/ui-browser.mjs",
     "ui": "node ui/start.mjs",
     "qa": "node bin/qa.mjs",
-    "demo": "node examples/demo-server.mjs"
+    "demo": "node examples/demo-server.mjs",
+    "test:settings": "node test/settings-browser.mjs",
+    "test:login": "node test/login-browser.mjs",
+    "test:extended": "node test/extended-integration.mjs",
+    "test:extended-ui": "node test/extended-ui.mjs",
+    "test:hardening": "node test/hardening-integration.mjs",
+    "test:real-wordpress": "powershell -NoProfile -File test/real-wordpress/setup.ps1"
   },
   "dependencies": {
     "@playwright/test": "1.64.1",

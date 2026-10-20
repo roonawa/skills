@@ -1,0 +1,20 @@
+[
+  {
+    "id": "timezone",
+    "title": "タイムゾーン",
+    "source": "rest",
+    "path": "/wp-json/wp/v2/settings",
+    "field": "timezone",
+    "expected": "Asia/Tokyo"
+  },
+  {
+    "id": "indexing",
+    "title": "検索エンジンの表示設定",
+    "source": "browser",
+    "path": "/wp-admin/options-reading.php",
+    "authenticatedSelector": "#wpadminbar",
+    "selector": "#blog_public",
+    "read": "checked",
+    "expected": false
+  }
+]

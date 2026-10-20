@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto';
 import { inspectHTML,checkPolicy,fetchPage,internalLinks } from '../lib/audit.mjs';
 import { waitForMail,envHeaders } from '../lib/mailpit.mjs';
 import { scopedHeaders } from '../lib/headers.mjs';
+import {checkCancellation} from '../lib/cancellation.mjs';
 
 const ctx=JSON.parse(fs.readFileSync(process.env.WPQA_CONTEXT,'utf8'));
 const c=ctx.config;
@@ -24,6 +25,7 @@ const test=base.extend({page:async({context},use)=>{
   const page=await context.newPage();await use(page);await page.close();
 }});
 const enabled=id=>ctx.report.rows.some(r=>r.id===id&&r.selected);
+test.beforeEach(()=>checkCancellation(ctx.runDir));
 const title=id=>`${id} | ${ctx.report.rows.find(r=>r.id===id).title}`;
 async function evidence(info,name,data) {
   const file=info.outputPath(`${name}.json`);fs.writeFileSync(file,JSON.stringify(data,null,2));

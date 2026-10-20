@@ -8,6 +8,14 @@ export async function startDemo(port=4300) {
   const server=createServer(async(req,res)=>{
     const target=new URL(req.url,origin),pathname=target.pathname;
     const json=value=>{res.setHeader('content-type','application/json');res.end(JSON.stringify(value));};
+    if(pathname==='/wp-json/wp/v2/settings') {
+      if(faults.has('admin-auth')){res.statusCode=403;return json({code:'rest_forbidden'});}
+      return json({timezone:faults.has('admin-value')?'UTC':'Asia/Tokyo',password:'fixture-secret-never-save'});
+    }
+    if(pathname==='/wp-admin/options-reading.php') {
+      res.setHeader('content-type','text/html; charset=utf-8');
+      return res.end(faults.has('admin-auth')?'<form id="loginform">Login</form>':'<!doctype html><html lang="ja"><title>管理設定デモ</title><div id="wpadminbar">管理画面デモ</div><label>検索エンジンがサイトをインデックスしないようにする<input type="checkbox" id="blog_public" '+(faults.has('admin-value')?'checked':'')+'></label><script>document.querySelector("#blog_public").checked=true;</script></html>');
+    }
     if(pathname==='/api/v1/search') return json({messages:[...messages.values()].filter(m=>m.Text.includes(target.searchParams.get('query'))).map(m=>({ID:m.ID,Subject:m.Subject}))});
     if(pathname.startsWith('/api/v1/message/')) return json(messages.get(pathname.split('/').at(-1))??{});
     if(pathname.startsWith('/__test/messages/')&&req.method==='DELETE') {

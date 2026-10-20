@@ -4,14 +4,27 @@
 <body>
   <aside class="sidebar">
     <a class="brand" href="/" aria-label="QA Console ホーム"><span class="brand-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16H5zM9 8h6M9 12h6M9 16h3"/></svg></span><span>QA Console<small>WORDPRESS TEST HARNESS</small></span></a>
-    <div class="sidebar-section"><label class="eyebrow" for="project-select">ワークスペース</label><select id="project-select" aria-label="サイトを選択"></select><span id="environment" class="environment">ローカル</span></div>
+    <div class="sidebar-section"><label class="eyebrow" for="project-select">ワークスペース</label><select id="project-select" aria-label="サイトを選択"></select><div class="site-actions"><button id="new-site" type="button">＋ サイトを登録</button><button id="edit-site" type="button">設定を編集</button></div><span id="environment" class="environment">ローカル</span></div>
     <div class="history-heading"><h2>実行履歴</h2><span id="history-count" class="count">0</span></div>
     <div id="run-list" class="run-list" aria-label="実行履歴"><p class="quiet">読み込み中…</p></div>
     <div class="sidebar-footer"><span class="connection-dot"></span><div>ローカルで実行<small>このPCのハーネスに接続しています</small></div></div>
   </aside>
   <main>
     <div class="topline"><span>品質検証 <span class="slash">/</span> 実行状況</span><span id="demo-label" class="tag" hidden>デモ環境</span></div>
-    <header class="page-heading"><div><h1>テスト状況</h1><p id="project-name">サイトを読み込んでいます</p></div><div class="run-controls"><label class="sr-only" for="suite-select">検査範囲</label><select id="suite-select"><option value="all">すべての検査</option><option value="audit">URL・公開設定</option><option value="journey">操作・メール</option><option value="visual">表示・アクセシビリティ</option></select><button class="primary" id="run-button" disabled><span aria-hidden="true">▶</span> 検査を実行</button></div></header>
+    <header class="page-heading"><div><span class="terminal-kicker">WORDPRESS QUALITY INTELLIGENCE / UNIT 07</span><h1>PHANTOM<span> PROTOCOL_</span></h1><p id="project-name">サイトを読み込んでいます</p></div><div class="run-controls"><label class="sr-only" for="suite-select">検査範囲</label><select id="suite-select"><option value="all">すべての検査</option><option value="admin">管理設定</option><option value="audit">URL・公開設定</option><option value="journey">操作・メール</option><option value="visual">表示・アクセシビリティ</option></select><button class="primary" id="run-button" disabled><span aria-hidden="true">▶</span> 検査を実行</button></div></header>
+    <section class="cinema-deck" aria-label="映画風の装飾パネル">
+      <div class="cinema-caption"><span>● SIGNAL INTELLIGENCE / <b>SIMULATED FEED · 演出</b></span><button id="cinema-toggle" type="button" aria-pressed="false">演出を停止 Ⅱ</button></div>
+      <div class="cinema-grid" aria-hidden="true">
+        <div class="cinema-window"><div class="cinema-window-title">01 / OPERATOR CONSOLE <span>LOCAL REPLAY</span></div><pre id="cinema-feed">[boot] phantom observer initialized
+[sync] decoding imaginary packet stream
+[node] wordpress surface mapped
+[wait] awaiting operator command_</pre><div class="cinema-bottom">root@phantom:~/blackbox <span>UTF-8 / ENCRYPTED NOTHING</span></div></div>
+        <div class="cinema-window radar-window"><div class="cinema-window-title">02 / SIGNAL TOPOLOGY <span>NO UPLINK</span></div><div class="radar"><div class="radar-sweep"></div><i></i><i></i><i></i><b>WP</b></div><div class="cinema-bottom">PASSIVE RECON <span>127.0.0.1 / LOOPBACK</span></div></div>
+        <div class="cinema-window"><div class="cinema-window-title">03 / SPECTRAL ANALYSIS <span>SIMULATION</span></div><svg class="signal-wave" viewBox="0 0 440 100" preserveAspectRatio="none"><defs><pattern id="wave-grid" width="22" height="20" patternUnits="userSpaceOnUse"><path d="M22 0H0V20" fill="none" stroke="#18352c" stroke-width=".7"/></pattern></defs><rect width="440" height="100" fill="url(#wave-grid)"/><path d="M0 50 L20 50 28 42 36 58 44 50 75 50 86 30 98 77 110 12 125 90 140 50 165 50 180 40 194 62 208 50 250 50 265 19 280 81 294 37 310 50 345 50 362 30 378 66 395 50 440 50" fill="none" stroke="#b4e883" stroke-width="1.5"/></svg><pre class="hex-feed">0x00A0  7F 45 4C 46  01 01 00 00
+0x00B0  51 41 20 50  48 41 4E 54
+0x00C0  4F 4D 00 FF  10 00 2A 7E</pre><div class="cinema-bottom">ENTROPY: UNNECESSARY <span>∞ BIT / DRAMA</span></div></div>
+      </div>
+    </section>
     <div id="error" class="notice error" role="alert" hidden></div><div id="toast" class="notice toast" role="status" hidden></div>
     <section class="run-summary" aria-label="実行状況"><div class="summary-top"><div class="status-heading"><span id="run-indicator" class="status-icon">○</span><div><h2 id="run-title">検査を始めましょう</h2><p id="run-subtitle">実行結果と確認が必要な項目を、ここで確認できます。</p></div></div><span id="run-badge" class="pill neutral">待機中</span></div><div class="progress-row"><div class="progress-track" role="progressbar" aria-label="検査の進捗" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="progress-fill"></div></div><span id="progress-label">0 / 0 項目</span></div></section>
     <section class="metrics" aria-label="検査結果の集計">
@@ -28,7 +41,9 @@
         <div id="empty-state" class="empty-state"><div class="empty-icon" aria-hidden="true">✓</div><h3>まだ実行履歴がありません</h3><p>検査範囲を選び「検査を実行」を押してください。<br>進捗と証拠は自動で更新されます。</p></div>
         <div class="table-footer"><span id="table-note">実行結果はこのPCに保存されます</span><span class="live-label"><i class="connection-dot"></i> 自動更新</span></div>
       </section>
-      <aside class="panel detail-panel" aria-label="検査の詳細"><div class="panel-heading"><h2>項目の詳細</h2><span class="subtle">INSPECT</span></div><div id="detail" class="detail-content"><div class="detail-placeholder"><span aria-hidden="true">↖</span><h3>確認したい項目を選択</h3><p>結果の理由、スクリーンショット、<br>ログをここで確認できます。</p></div></div></aside>
+      <div class="inspector-stack"><aside class="panel detail-panel" aria-label="検査の詳細"><div class="panel-heading"><h2>項目の詳細</h2><span class="subtle">INSPECT</span></div><div id="detail" class="detail-content"><div class="detail-placeholder"><span aria-hidden="true">↖</span><h3>確認したい項目を選択</h3><p>結果の理由、スクリーンショット、<br>ログをここで確認できます。</p></div></div></aside><section class="cipher-panel" aria-label="装飾用の架空解析パネル"><div class="cinema-window-title">04 / CIPHER ENGINE <span>SIMULATED</span></div><div aria-hidden="true"><div class="cipher-target"><span>⌖</span><div>DECRYPTING NOTHING<small>BRUTE FORCE / ABSOLUTELY NO PURPOSE</small></div></div><pre id="cipher-stream">KEY 0x7F3A :: SEARCHING THE VOID
+ENTROPY...........UNNECESSARY
+PAYLOAD...........PURE CINEMA</pre><div class="memory-grid"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><div class="cipher-footer">MEMORY / 0xDEADBEEF<span>虚構の解析 · 演出</span></div></div></section></div>
     </div>
     <section class="panel run-info"><div class="panel-heading"><h2>実行情報</h2><span id="run-time" class="subtle"></span></div><dl id="metadata"></dl><details id="log-panel"><summary>実行ログを見る</summary><pre id="run-log">まだログはありません。</pre></details></section>
     <footer class="page-footer">必須条件の充足状況を表示しています。公開判断には手動確認と未解決リスクの確認も必要です。</footer>

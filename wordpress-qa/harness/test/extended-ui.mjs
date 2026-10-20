@@ -1,0 +1,48 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import http from 'node:http';
+import {chromium,expect} from '@playwright/test';
+import {startUI} from '../ui/server.mjs';
+const scratch=path.resolve('.selftest','extended-ui-'+Date.now());fs.mkdirSync(scratch,{recursive:true});
+const fixture=http.createServer((req,res)=>{res.setHeader('Content-Type','text/html');res.end('<!doctype html><html lang="ja"><head><title>QA</title><link rel="canonical" href="'+origin+'/"></head><body><h1>QA</h1><span id="empty"></span></body></html>');});
+await new Promise(r=>fixture.listen(0,'127.0.0.1',r));const origin='http://127.0.0.1:'+fixture.address().port;
+const app=await startUI({storeDir:path.join(scratch,'projects'),port:0});const browser=await chromium.launch();const page=await browser.newPage({viewport:{width:1440,height:1000}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
+try{
+ await page.goto(app.url);await page.locator('#new-site').click();const dialog=page.locator('dialog');
+ await dialog.locator('[data-key=name]').fill('拡張検査UI');await dialog.locator('[data-key=baseURL]').fill(origin);await dialog.locator('[data-key=environment]').selectOption('local');await dialog.locator('[data-kind=page] [data-key=indexable]').check();
+ await dialog.locator('[data-add-plan]').click();await expect(dialog.locator('.coverage-row')).toHaveCount(15);
+ // Keep one real human verification; the other templates are not mistaken for completed tests.
+ while(await dialog.locator('.coverage-row').count()>1)await dialog.locator('.coverage-row').first().locator('[data-remove]').click();
+ await dialog.locator('[data-add-check]').click();const check=dialog.locator('.coverage-row').last();await check.locator('[data-c=id]').fill('seo');await check.locator('[data-c=kind]').selectOption('seo-page');await check.locator('[data-template]').click();await check.locator('[data-c=options]').fill('{}');await check.locator('[data-option="path"]').fill('/');await check.locator('[data-option="canonical"]').fill(origin+'/');await check.locator('[data-c=id]').click();
+ await dialog.locator('[data-add-check]').click();const flow=dialog.locator('.coverage-row').last();await flow.locator('[data-c=id]').fill('flow');await flow.locator('[data-c=kind]').selectOption('browser-flow');await flow.locator('[data-template]').click();
+ await flow.locator('[data-option="steps.0.url"]').fill('/?round=2');await flow.getByRole('button',{name:'操作手順（上から実行）を追加',exact:true}).click();await expect(flow.locator('[data-option="steps.0.url"]')).toHaveValue('/?round=2');
+ await flow.locator('[data-option="steps.2.action"]').selectOption('assertText');await flow.locator('[data-option="steps.2.url"]').fill('');await flow.locator('[data-option="steps.2.selector"]').fill('h1');await flow.locator('[data-option="steps.2.value"]').fill('QA');await flow.locator('[data-c=id]').click();
+ await flow.getByRole('button',{name:'操作手順（上から実行）を追加',exact:true}).click();
+ await flow.locator('[data-option="steps.3.action"]').selectOption('assertText');await flow.locator('[data-option="steps.3.url"]').fill('');await flow.locator('[data-option="steps.3.selector"]').fill('#empty');
+ await flow.locator('[data-option="steps.3.value"]').fill('temporary');await flow.locator('[data-c=id]').click();
+ await flow.locator('[data-option="steps.3.value"]').fill('');await flow.locator('[data-c=id]').click();
+ assert.equal(JSON.parse(await flow.locator('[data-c=options]').inputValue()).steps[3].value,'','clearing a required value must retain an explicit empty string');
+ await dialog.locator('#add-role').click();await dialog.locator('[data-role-name]').fill('subscriber');await dialog.locator('[data-role-user]').fill('reader');await dialog.locator('[data-role-password]').fill('private-test-secret');
+ await dialog.locator('#editor-save').click();await expect(dialog).not.toBeVisible({timeout:20000});
+ await page.locator('#edit-site').click();const savedSEO=dialog.locator('.coverage-row').filter({has:page.locator('[data-c=id][value="seo"]')});await expect(savedSEO.locator('[data-option="path"]')).toHaveValue('/');await expect(savedSEO.locator('[data-option="canonical"]')).toHaveValue(origin+'/');
+ const savedFlow=dialog.locator('.coverage-row').filter({has:page.locator('[data-c=id][value="flow"]')});await expect(savedFlow.locator('[data-option="steps.0.url"]')).toHaveValue('/?round=2');await expect(savedFlow.locator('[data-option="steps.2.value"]')).toHaveValue('QA');
+ assert.equal(JSON.parse(await savedFlow.locator('[data-c=options]').inputValue()).steps[3].value,'','empty assertion value must survive save and reload');
+ await dialog.locator('[data-add-check]').click();const pending=dialog.locator('.coverage-row').last();await pending.locator('[data-c=id]').fill('pending-fixture');await dialog.locator('#editor-save').click();await expect(dialog).not.toBeVisible();await page.locator('#preflight-button').click();await expect(page.locator('#preflight-result')).toContainText('設定に確認事項があります。');await expect(page.locator('#preflight-result')).toContainText('pending-fixture');
+ await page.locator('#edit-site').click();await dialog.locator('.coverage-row').last().locator('[data-remove]').click();await dialog.locator('#editor-save').click();await expect(dialog).not.toBeVisible();await page.locator('#preflight-button').click();await expect(page.locator('#preflight-result')).toContainText('設定上の前提条件を満たしています。');await expect(page.locator('#recover-button')).toBeHidden();
+ await page.locator('#run-button').click();await expect(page.locator('#stop-button')).toBeVisible();
+ await expect(page.locator('body')).toHaveClass(/cinema-active/);
+ const beforeWave=await page.locator('.signal-wave>path').getAttribute('d');
+ await expect.poll(()=>page.locator('.signal-wave>path').getAttribute('d')).not.toBe(beforeWave);
+ await page.screenshot({path:path.join(scratch,'overdrive.png'),fullPage:false});
+ await page.locator('#cinema-toggle').click();await expect(page.locator('body')).toHaveClass(/cinema-paused/);
+ await page.locator('#cinema-toggle').click();
+ await page.getByText('実行が完了しました',{exact:true}).waitFor({timeout:90000});
+ await expect(page.locator('body')).not.toHaveClass(/cinema-active/);
+ await page.locator('[data-row="check.seo"]').click();await expect(page.locator('#detail')).toContainText('期待値と取得結果');await expect(page.locator('#detail')).toContainText('実行経過・失敗時の証拠');await expect(page.locator('#stop-button')).toBeHidden();
+ await page.locator('[data-row="check.human-usability"]').click();const form=page.locator('#manual-review');await form.locator('[name=reviewer]').fill('Fixture reviewer');await form.locator('[name=notes]').fill('隔離fixtureで手動記録UIの保存と履歴を確認。実サイト評価ではない。');await form.locator('[name=evidence]').fill('fixture-only: synthetic observation for UI acceptance');await form.getByRole('button',{name:'判定を保存'}).click();
+ await expect(page.locator('#run-title')).toHaveText('必須条件を満たしています',{timeout:15000});await expect(form).toContainText('Fixture reviewer');
+ await page.screenshot({path:path.join(scratch,'review-results.png'),fullPage:true});await page.locator('#edit-site').click();await expect(dialog.locator('[data-role-password]')).toHaveValue('');await expect(dialog.locator('.role-row')).toContainText('登録済み');await expect(dialog.locator('.coverage-row')).toHaveCount(3);
+ await expect(dialog.locator('.alert-emblem')).toBeVisible();await page.screenshot({path:path.join(scratch,'restricted-settings.png'),fullPage:false});
+ assert.deepEqual(errors,[]);console.log('Extended settings and human-review UI passed: '+scratch);
+}finally{await browser.close();await app.close();await new Promise(r=>fixture.close(r));}
