@@ -1,3 +1,4 @@
+import {generateCases} from './case-generator.js';
 import {initCoverage} from './coverage-editor.js';
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const input=(key,label,value='',type='text')=>`<label>${label}<input data-key="${key}" type="${type}" value="${esc(value)}"></label>`;
@@ -62,7 +63,7 @@ export function initSettings({api,currentProject,onSaved}) {
     $('#rest-state').textContent=credentials.rest?'登録済み（値は表示しません）':'未登録';$('#browser-state').textContent=credentials.browser?'登録済み（値は表示しません）':'未登録';
     $('#auth-user').value='';$('#auth-password').value='';$('#auth-state').value='';$('#clear-rest').checked=false;$('#clear-browser').checked=false;
     $('#editor-heading').textContent=editing?'サイト設定を編集':'サイトを登録';
-    $('#editor-mode').textContent=editable?'保存しても検査は自動実行されません。保存後に検査範囲を選んで実行してください。':'このサイトは外部ファイルで管理されています。複製すると操作テスト・認証参照・メール連携を除いた新しい登録を作成します。';
+    $('#editor-mode').textContent=editable?'新規登録時は基本観点のテストケースを自動生成します。未設定項目は実行不能として残ります。保存後に対象・期待値を設定し、検査を実行してください。':'このサイトは外部ファイルで管理されています。複製すると操作テスト・認証参照・メール連携を除いた新しい登録を作成します。';
     $('#editor-copy').hidden=editable;$('#editor-save').hidden=!editable;
     for(const e of dialog.querySelectorAll('.editor-body input,.editor-body select,.editor-body textarea,.editor-body button'))e.disabled=!editable;
     loginControls();
@@ -71,7 +72,7 @@ export function initSettings({api,currentProject,onSaved}) {
     error('');editing=id;version=null;editable=!id;
     try{
       const data=id?await api(`/api/projects/${encodeURIComponent(id)}/settings`):{config:{name:'',baseURL:'',environment:'staging',pages:[{id:'home',path:'/',canonical:'',indexable:false}],admin:[]},managed:true};
-      editable=data.managed;version=data.version;populate(data.config,data.credentials);
+      editable=data.managed;version=data.version;populate(id?data.config:generateCases(data.config),data.credentials);
       const pending=(await api('/api/logins/current')).login;
       if(pending){
         loginId=pending.id;
@@ -115,7 +116,7 @@ export function initSettings({api,currentProject,onSaved}) {
   $('#site-editor').onsubmit=async e=>{
     e.preventDefault();if(!editable||saving||loginBusy||(loginId&&!loginReady))return;error('');saving=true;$('#editor-save').disabled=true;
     try{
-      const config={...original};delete config.headersEnv;delete config.mailpit;config.journeys=[];
+      let config={...original};delete config.headersEnv;delete config.mailpit;config.journeys=[];
       Object.assign(config,coverage.read());
       for(const el of fields.querySelectorAll('[data-key]'))config[el.dataset.key]=el.value.trim();
       config.pages=[];config.admin=[];
@@ -131,6 +132,7 @@ export function initSettings({api,currentProject,onSaved}) {
         }
       }
       for(const key of ['policies','visuals','manual']){try{config[key]=JSON.parse($('#edit-'+key).value);}catch{throw new Error(key+'のJSON形式を確認してください');}}
+      if(!editing) config=generateCases(config);
       const auth={clearRest:$('#clear-rest').checked,clearBrowser:$('#clear-browser').checked};
       auth.roleCredentials=[...dialog.querySelectorAll('.role-row')].map(row=>{const name=row.querySelector('[data-role-name]').value.trim(),username=row.querySelector('[data-role-user]').value,password=row.querySelector('[data-role-password]').value;return {name,clearRest:row.querySelector('[data-role-clear-rest]').checked,clearBrowser:row.querySelector('[data-role-clear-browser]').checked,...(username||password?{rest:{username,password}}:{})};});
       if(loginId){auth.browserLoginId=loginId;if(loginRole)auth.browserLoginRole=loginRole;}

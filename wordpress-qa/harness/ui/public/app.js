@@ -27,8 +27,64 @@ const duration=ms=>typeof ms==='number'?`${(ms/1000).toFixed(1)}s`:'—';
 const projectAPI=()=>`/api/projects/${encodeURIComponent(state.projectId)}`;
 const runAPI=()=>`${projectAPI()}/runs/${encodeURIComponent(state.runId)}`;
 const fileURL=file=>`${runAPI()}/files?path=${encodeURIComponent(file)}`;
+$('#filters').insertAdjacentHTML('beforeend','<button data-filter="review" aria-pressed="false">確認待ち</button>');
+$('#run-button').insertAdjacentHTML('beforebegin','<button id="operation-tests" type="button">注文・問い合わせを自動テスト</button>');
+$('.page-heading').insertAdjacentHTML('afterend','<section id="operation-panel" class="confirmation-panel" hidden></section>');
+$('#operation-tests').onclick=async()=>{
+ const host=$('#operation-panel'),endpoint=projectAPI(),projectId=state.projectId;
+ host.hidden=false;host.textContent='操作テストを読み込んでいます…';
+ try{
+  const data=await api(endpoint+'/operations');if(projectId!==state.projectId)return;
+  if(!data.operations.length){host.textContent='このサイトには自動操作テストが登録されていません。サイトの設定に専用の操作モジュールを登録してください。';return;}
+  host.innerHTML=`<h3>注文・問い合わせの自動操作テスト</h3><p>対象：${escape(data.baseURL)} ／ ${escape(data.environment)}</p><p>ブラウザーを自動操作し、入力・画面遷移・完了表示と証拠画像を記録します。メール到着や注文取消の確認は別途必要です。</p><form id="operation-form"><label>操作<select name="operation">${data.operations.map(o=>`<option value="${escape(o.id)}">${escape(o.title)}</option>`).join('')}</select></label><p id="operation-description"></p><label>実行範囲<select name="mode"><option value="preview">入力・確認画面まで（注文確定・送信なし）</option><option value="submit">注文確定／問い合わせ送信まで（新規1件）</option></select></label><label>サイト閲覧パスワード（保護されている場合）<input name="password" type="password" autocomplete="off"></label><p>パスワードは今回の実行だけに使います。管理画面のログイン情報は入力しないでください。</p><label><input name="confirmed" type="checkbox" required> 対象サイト・操作内容・実行範囲を確認しました</label><button type="submit" class="primary" ${!data.enabled?'disabled':''}>自動操作を開始</button><button type="button" id="close-operations">閉じる</button></form>`;
+  const form=host.querySelector('form');
+  $('#operation-description').insertAdjacentHTML('afterend','<div id="operation-pending"></div>');
+  const describe=()=>{
+   const operation=data.operations.find(o=>o.id===form.elements.operation.value);
+   $('#operation-description').textContent=operation.description;form.elements.confirmed.checked=false;
+   $('#operation-pending').innerHTML=operation.pending?`<p>前回の送信記録：${escape(operation.pending.token)}。${escape(operation.pending.cleanup)}。新しい送信は停止しています。</p><label>前回の結果・注文取消の確認内容<textarea id="operation-resolution" maxlength="10000"></textarea></label><button type="button" id="release-operation">前回の結果・後片付けを確認済みにする</button>`:'';
+   if(operation.pending)$('#release-operation').onclick=async()=>{
+    if(state.busy||state.requesting)return;const notes=$('#operation-resolution').value.trim();if(!notes){showError('前回の結果・注文取消の確認内容を入力してください');return;}
+    state.requesting=true;$('#release-operation').disabled=true;
+    try{await api(endpoint+'/operations/'+encodeURIComponent(operation.id)+'/release',{method:'POST',body:JSON.stringify({configHash:data.configHash,token:operation.pending.token,confirmed:true,notes})});operation.pending=null;describe();notify('前回の確認記録を保存しました。新しい操作テストを実行できます。');}
+    catch(error){showError(error.message);$('#release-operation').disabled=false;}finally{state.requesting=false;}
+   };
+  };describe();form.elements.operation.onchange=describe;form.elements.mode.onchange=()=>{form.elements.confirmed.checked=false;};
+  $('#close-operations').onclick=()=>{form.reset();host.hidden=true;};
+  form.onsubmit=async event=>{
+   event.preventDefault();if(state.requesting||state.busy||projectId!==state.projectId)return;
+   const operation=form.elements.operation.value,payload={configHash:data.configHash,mode:form.elements.mode.value,password:form.elements.password.value,confirmed:form.elements.confirmed.checked};
+   form.elements.password.value='';state.requesting=true;form.querySelector('button[type=submit]').disabled=true;showError('');
+   try{await api(endpoint+'/operations/'+encodeURIComponent(operation),{method:'POST',body:JSON.stringify(payload)});host.hidden=true;state.follow=true;state.runId=null;state.report=null;state.detail=null;state.lastActive=true;notify('自動操作テストを開始しました。結果と証拠は新しい実行履歴に保存されます。');}
+   catch(error){showError(error.message);form.querySelector('button[type=submit]').disabled=false;}
+   finally{payload.password='';state.requesting=false;await refresh();}
+  };
+ }catch(error){host.textContent=error.message;}
+};
+$('#operation-tests').textContent='送信履歴・後片付け';
+$('.page-heading').insertAdjacentHTML('afterend','<details class="confirmation-panel" id="standard-operation-settings"><summary>注文・問い合わせの実行設定</summary><p>「すべての検査」「操作・メール」では、登録済みの注文・問い合わせテストも実行します。</p><label>実行範囲<select id="standard-operation-mode"><option value="preview">入力・確認画面まで（送信なし）</option><option value="submit">注文確定・問い合わせ送信まで</option></select></label><label>サイト閲覧パスワード<input id="standard-operation-password" type="password" autocomplete="off"></label><label><input type="checkbox" id="standard-operation-confirmed"> 注文と問い合わせをそれぞれ新規1件送信することを確認しました</label></details>');
+$('#standard-operation-mode').onchange=()=>{$('#standard-operation-confirmed').checked=false;};
 $('#run-button').insertAdjacentHTML('beforebegin','<button id="preflight-button">実行前の確認</button><button id="stop-button" hidden>検査を停止</button>');
 $('#metadata').insertAdjacentHTML('afterend','<div id="recovery-info"></div><button id="recover-button" hidden>残ったテストデータを回収</button>');
+$('#report-link').insertAdjacentHTML('afterend','<details id="issue-report-panel"><summary>不具合報告書を作成</summary><p>選択した実行の証拠を集約し、影響・管理画面での修正候補・再確認項目をHTMLにまとめます。</p><label><input type="checkbox" id="issue-report-history" checked> 未実施の項目を同じ設定の過去結果で補う（出典を明記）</label><label for="issue-report-notes">追加調査・担当者の補足（任意）</label><textarea id="issue-report-notes" maxlength="10000" rows="4" placeholder="確認者・確認日・原因を確定した根拠など。認証情報は記載しないでください。"></textarea><button id="issue-report-generate" type="button">報告書を生成</button><a id="issue-report-open" target="_blank" rel="noopener" hidden>生成した報告書を開く ↗</a><p id="issue-report-status" role="status"></p></details>');
+$('#report-link').parentElement.after($('#issue-report-panel'));
+$('#issue-report-panel p').textContent='検査証拠から、影響・修正候補・再現手順・スクリーンショットをHTMLにまとめます。赤枠付き画像は新しい表示検査で取得します。既存の履歴に画像がない場合は、表示検査を再実行してください。';
+let issueReportScope='';
+$('#issue-report-generate').onclick=async()=>{
+  if(state.requesting||!state.runId)return;
+  const scope=`${state.projectId}/${state.runId}`,endpoint=runAPI();
+  state.requesting=true;render();showError('');
+  $('#issue-report-open').hidden=true;
+  $('#issue-report-status').textContent='証拠から報告書を生成しています…';
+  try{
+    const data=await api(`${endpoint}/issue-report`,{method:'POST',body:JSON.stringify({includeHistory:$('#issue-report-history').checked,notes:$('#issue-report-notes').value})});
+    if(scope!==`${state.projectId}/${state.runId}`)return;
+    $('#issue-report-open').href=`${endpoint}/files?path=${encodeURIComponent(data.file)}`;
+    $('#issue-report-open').hidden=false;
+    $('#issue-report-status').textContent=`不合格${data.failedCases}ケースを修正候補${data.issueCount}項目に整理しました。${data.warnings.length?'証拠の読取りに関する注意があります。':''}`;
+  }catch(error){if(scope===`${state.projectId}/${state.runId}`){showError(error.message);$('#issue-report-status').textContent='生成できませんでした。';}}
+  finally{state.requesting=false;render();}
+};
 $('.page-heading').insertAdjacentHTML('afterend','<div id="preflight-result" role="status"></div>');
 function notify(message){state.notice=message;$('#toast').textContent=message;$('#toast').hidden=!message;}
 function showError(message){$('#error').textContent=message;$('#error').hidden=!message;}
@@ -45,16 +101,56 @@ function renderHistory(runs){
     return `<button class="history-item ${r.runId===state.runId?'selected':''}" data-run="${escape(r.runId)}"><span class="history-top"><span><i class="dot ${active?'blue':r.gatePassed?'green':r.summary?.fail?'red':'orange'}"></i>${escape(date(r.startedAt))}</span></span><small>${label} · ${r.summary?.pass??0}件合格</small></button>`;
   }).join(''):'<p class="quiet">履歴はここに表示されます</p>';
 }
+const openGroups=new Set();let groupScope='';
+const displayReadiness='共通: 可視画像・フォントの読込みを確認。JavaScript例外は独立検査。';
+function classifyRow(r){
+  const prefix=r.id.split('.')[0];
+  const categories={
+    javascript:['JavaScriptエラー','ページ表示・表示準備・画像スクロール中の未捕捉例外を検査。他の表示検査は続行。'],
+    page:['HTTP・メタ情報','HTTP 200、HTML形式、タイトル、canonical、noindexの期待値を確認。'],
+    links:['内部リンク','ページ内の内部リンク先にアクセスでき、HTTPエラーにならないことを確認。'],
+    layout:['レイアウト','画面幅からの横はみ出しを確認。'+displayReadiness],
+    axe:['アクセシビリティ','axeによるWCAG 2.0・2.1 A／AAの自動検査。'+displayReadiness],
+    snapshot:['画像比較','承認済み基準画像と比較。未承認時は確認待ち。'+displayReadiness],
+  };
+  if(categories[prefix])return [prefix,...categories[prefix]];
+  if(prefix==='policy'){
+    const target=`${r.id} ${r.title}`;
+    if(/soft-404/.test(target))return ['soft-404','存在しないページ','存在しないURLが404を返すことを確認。'];
+    if(/wp-config\.php\.bak|wp-config-bak|hidden-|readme|git-head|env-file|debug-log/.test(target))return ['hidden-files','非公開ファイル等','バックアップ・README・Git情報・環境設定・ログの応答と、設定された転送先・禁止文字列を確認。'];
+    if(/wp-config/.test(target))return ['wp-config','設定ファイル','wp-config.phpの応答と、設定内容を示す特定文字列の露出を確認。'];
+    if(/users-rest|wp\/v2\/users/.test(target))return ['users-rest','ユーザー情報API','未認証でのユーザー一覧取得が拒否されることを確認。'];
+    if(/author-enum|author=/.test(target))return ['author-enum','投稿者URL','投稿者URLの転送先と、指定管理者名が本文に含まれないことを確認。'];
+    if(/xmlrpc/.test(target))return ['xmlrpc','XML-RPC','GET応答のHTTPステータスを確認。POSTの無効化は未検証。'];
+  }
+  // 未知の検査は独立して残し、異なる検査内容をまとめない。
+  return [r.id,r.title,'個別に登録された検査。詳細で判定内容を確認できます。'];
+}
 function renderRows(){
   const report=state.report?.report,rows=report?.rows??[];
-  const filtered=rows.filter(r=>(state.filter==='all'||(state.filter==='attention'?['fail','blocked','review'].includes(r.status):r.status===state.filter))&&`${r.id} ${r.title}`.toLowerCase().includes(state.search.toLowerCase()));
-  const key=JSON.stringify([filtered,state.detail]);if(key!==state.rowsKey){
-    state.rowsKey=key;$('#test-rows').innerHTML=filtered.map(r=>`<tr class="${state.detail===r.id?'row-selected':''}"><td><button class="row-button" data-row="${escape(r.id)}"><strong>${escape(r.title)}</strong><small>${escape(r.id)}${r.required?' · 必須':''}</small></button></td><td class="suite-col">${escape(suites[r.suite]??r.suite)}</td><td>${badge(r)}</td><td class="time-col">${duration(r.durationMs)}</td></tr>`).join('');
+  const scope=`${state.projectId}/${state.runId}`;
+  if(groupScope!==scope){openGroups.clear();groupScope=scope;}
+  const groups=new Map();
+  for(const r of rows){
+    const [id,title,description]=classifyRow(r);
+    if(!groups.has(id))groups.set(id,{id,title,description,rows:[]});
+    groups.get(id).rows.push(r);
   }
-  $('#row-count').textContent=rows.length;$('#empty-state').hidden=!!filtered.length;
-  if(rows.length&&!filtered.length){$('#empty-state h3').textContent='条件に一致する項目はありません';$('#empty-state p').textContent='絞り込み条件や検索キーワードを変更してください。';}
+  const visible=[...groups.values()].map(g=>({...g,matches:g.rows.filter(r=>(state.filter==='all'||(state.filter==='attention'?['fail','blocked','review'].includes(r.status):r.status===state.filter))&&`${g.title} ${g.description} ${r.id} ${r.title}`.toLowerCase().includes(state.search.toLowerCase()))})).filter(g=>g.matches.length);
+  const key=JSON.stringify([visible,state.detail,[...openGroups]]);if(key!==state.rowsKey){
+    state.rowsKey=key;$('#test-rows').innerHTML=visible.map((g,index)=>{
+      const expanded=openGroups.has(g.id),counts={};
+      for(const r of g.rows){const status=r.active?'running':r.status;counts[status]=(counts[status]??0)+1;}
+      const summary=Object.entries(counts).map(([status,count])=>`${names[status]??status} ${count}`).join(' / ');
+      const status=['fail','blocked','running','review','not_run','pass','not_applicable'].find(s=>counts[s])??'not_run';
+      const children=g.matches.map(r=>`<tr class="group-child ${state.detail===r.id?'row-selected':''}"><td><button class="row-button" data-row="${escape(r.id)}"><strong>${escape(r.title)}</strong><small>${escape(r.id)}${r.required?' · 必須':''}</small></button></td><td class="suite-col">${escape(suites[r.suite]??r.suite)}</td><td>${badge(r)}</td><td class="time-col">${duration(r.durationMs)}</td></tr>`).join('');
+      return `<tr class="group-heading"><td colspan="2"><button class="row-button group-toggle" data-group="${escape(g.id)}" aria-expanded="${expanded}" aria-controls="group-${index}"><strong>${expanded?'▾':'▸'} ${escape(g.title)} <span class="count">${g.rows.length}</span></strong><small>${escape(g.description)}</small><small>全体: ${escape(summary)}${g.matches.length!==g.rows.length?` · 絞り込み一致 ${g.matches.length}件`:''}</small></button></td><td>${badge({status})}</td><td class="time-col">${duration(g.rows.reduce((total,r)=>total+(r.durationMs??0),0))}</td></tr><tr id="group-${index}" class="group-results" ${expanded?'':'hidden'}><td colspan="4">${expanded?`<p class="group-caption">URL・条件ごとの結果（${g.matches.length}件）。項目を選ぶと判定理由・証拠を表示します。</p><table class="group-table"><thead><tr><th>URL・条件</th><th class="suite-col">種別</th><th>結果</th><th class="time-col">時間</th></tr></thead><tbody>${children}</tbody></table>`:''}</td></tr>`;
+    }).join('');
+  }
+  $('#row-count').textContent=`${groups.size}分類`;$('#empty-state').hidden=!!visible.length;
+  if(rows.length&&!visible.length){$('#empty-state h3').textContent='条件に一致する項目はありません';$('#empty-state p').textContent='絞り込み条件や検索キーワードを変更してください。';}
   else if(!rows.length){$('#empty-state h3').textContent=state.active?'検査を準備しています':'まだ実行履歴がありません';$('#empty-state p').textContent=state.active?'結果の保存を待っています。自動で更新されます。':'検査範囲を選び「検査を実行」を押してください。進捗と証拠は自動で更新されます。';}
-  $('#table-note').textContent=rows.length?`${filtered.length} / ${rows.length}項目を表示 · 対象外 ${report.summary?.not_applicable??0}件`:'実行結果はこのPCに保存されます';
+  $('#table-note').textContent=rows.length?`${visible.length} / ${groups.size}分類 · URL・条件別 ${rows.length}件（絞り込み一致 ${visible.reduce((n,g)=>n+g.matches.length,0)}件） · 上部の集計はURL・条件別の件数`:'実行結果はこのPCに保存されます';
 }
 function renderDetail(){
   const r=state.report?.report?.rows.find(r=>r.id===state.detail);
@@ -63,10 +159,25 @@ function renderDetail(){
   const files=r.evidence??[],candidate=state.report.candidates.includes(r.id),canApprove=state.report.canApprove&&!state.busy;
   const descriptions={pass:'この検査は期待した結果に一致しました。',not_run:'この実行では確認していません。対象の検査範囲を選んで実行してください。',review:'人による確認が必要です。証拠と期待する状態を照合してください。',blocked:'前提条件や実行環境を確認してから再実行してください。',not_applicable:'このサイトでは適用外として登録されています。',fail:'期待結果との違いがあります。証拠から原因を確認してください。'};
   $('#detail').innerHTML=`${badge(r)}<h3 class="detail-title">${escape(r.title)}</h3><div class="detail-id">${escape(r.id)}</div><span class="detail-label">判定の内容</span><p class="detail-description">${escape(descriptions[r.status]??'')}</p>${r.setting?`<span class="detail-label">設定の照合</span><dl><dt>取得方法</dt><dd>${escape(r.setting.source)}</dd><dt>期待値</dt><dd>${escape(JSON.stringify(r.setting.expected))}</dd><dt>取得した値</dt><dd>${escape(JSON.stringify(r.setting.actual))}</dd></dl>`:''}${r.reason?`<pre class="reason">${escape(r.reason.replace(/\x1b\[[0-9;]*m/g,''))}</pre>`:''}${files.length?'<span class="detail-label">証拠ファイル</span>':''}<div class="evidence-list">${files.map(f=>`<a class="evidence-link" href="${fileURL(f)}" target="_blank" rel="noopener">${escape(f.split('/').at(-1))} ↗</a>${/\.png$/i.test(f)?`<a href="${fileURL(f)}" target="_blank" rel="noopener"><img class="evidence-image" src="${fileURL(f)}" alt="${escape(f.split('/').at(-1))}"></a>`:''}`).join('')}</div>${candidate?`<div class="approval"><span class="detail-label">基準画像のレビュー</span><p class="detail-description">表示が意図どおりか確認した画像のみ承認します。承認後も、再実行するまで以前の判定は変わりません。</p>${canApprove?'<label><input type="checkbox" id="approve-check">候補画像を確認し、意図した表示であることを確認しました</label><button class="primary" id="approve-button" disabled>この画像を基準として承認</button>':'<p class="approval-note">実行中、または現在の設定と異なる履歴のため承認できません。必要に応じて再実行してください。</p>'}</div>`:''}`;
+  if(r.status==='blocked'){
+    const help=document.createElement('section');help.className='blocked-help';help.setAttribute('aria-live','polite');help.textContent='不足している設定を確認しています…';$('#detail .detail-id').after(help);
+    const url=runAPI()+'/guidance/'+encodeURIComponent(r.id);
+    api(url).then(g=>{
+      if(!help.isConnected)return;
+      help.innerHTML=`<h4>実行できるようにするには</h4>${g.changed?'<p class="guidance-history">この履歴の実行後に設定が変わっています。以下は現在の設定の案内です。</p>':''}<h5>不足・確認が必要なもの</h5><ul>${g.missing.map(x=>`<li>${escape(x)}</li>`).join('')}</ul><h5>設定する場所</h5><p>${escape(g.location)}</p><h5>対応手順</h5><ol>${g.steps.map(x=>`<li>${escape(x)}</li>`).join('')}</ol><p class="quiet">${escape(g.scope)}</p><button type="button" data-open-settings ${state.busy?'disabled':''}>設定画面を開く</button>`;
+      help.querySelector('[data-open-settings]').onclick=()=>$('#edit-site').click();
+    }).catch(e=>{if(help.isConnected)help.textContent='設定案内を取得できませんでした。項目を選び直してください：'+e.message;});
+  }
   if(r.details)$('#detail').insertAdjacentHTML('beforeend',`<details class="check-details"><summary>期待値と取得結果</summary><pre class="reason">${escape(JSON.stringify(r.details,null,2))}</pre></details>`);
   if(r.diagnostics)$('#detail').insertAdjacentHTML('beforeend',`<details class="check-details" open><summary>実行経過・失敗時の証拠</summary><pre class="reason">${escape(JSON.stringify(r.diagnostics,null,2))}</pre></details>`);
   if(r.instructions)$('#detail').insertAdjacentHTML('beforeend',`<p class="detail-description">${escape(r.instructions)}</p>`);
   if(r.manualReview)$('#detail').insertAdjacentHTML('beforeend',`<form id="manual-review" class="manual-review"><h4>人手による判定を記録</h4>${r.review?`<p>前回: ${escape(r.review.reviewer)} · ${escape(date(r.review.timestamp))} · ${escape(names[r.review.outcome])}</p>`:''}<label>確認者<input name="reviewer" required maxlength="10000" value="${escape(r.review?.reviewer??'')}"></label><label>判定<select name="outcome"><option value="pass">合格</option><option value="fail">不合格</option><option value="not_applicable">対象外</option></select></label><label>確認内容・判断理由<textarea name="notes" required maxlength="10000" rows="4">${escape(r.review?.notes??'')}</textarea></label><label>証拠・実施環境（1行に1件）<textarea name="evidence" required rows="4">${escape((r.review?.evidence??[]).join('\n'))}</textarea></label><button type="submit" class="primary" ${state.busy?'disabled':''}>判定を保存</button></form>`);
+  if(r.manualReview){
+    $('#manual-review').hidden=true;
+    $('#detail .detail-id').insertAdjacentHTML('afterend',`<section class="confirmation-panel"><button type="button" id="start-confirmation" ${!canApprove?'disabled':''}>確認を進める</button><p>手順ごとに確認し、途中結果・証拠を保存できます。サイトへの送信は自動実行しません。</p><div id="confirmation-workspace"></div></section>`);
+  }else if(['review','blocked','fail','not_run'].includes(r.status)){
+    $('#detail').insertAdjacentHTML('beforeend',`<section class="confirmation-panel"><p>${candidate?'候補画像を上の欄で確認・承認してから比較を実行します。':'登録済みの検査処理をこの項目だけ実行します。'}</p><button id="execute-case" type="button" ${!canApprove?'disabled':''}>この項目を再検査</button></section>`);
+  }
 }
 function render(){
   const report=state.report?.report,rows=report?.rows??[],active=state.active?.projectId===state.projectId;
@@ -89,12 +200,17 @@ function render(){
   let title='検査を始めましょう',subtitle='実行結果と確認が必要な項目を、ここで確認できます。',label='待機中',tone='neutral',icon='○';
   if(live){title='検査を実行しています';subtitle=rows.find(r=>r.active)?.title??'テストを準備しています';label='実行中';tone='running';icon='◌';}
   else if(state.report?.orphaned){title='実行の完了を確認できません';subtitle='アプリの終了などで中断した可能性があります。ログを確認してください。';label='未完了';tone='blocked';icon='!';}
+  else if(report?.runStatus==='planned'){title='テストケースを実行できます';subtitle='未実施のケース一覧です。検査範囲を選び「検査を実行」を押してください。';label='未実施';tone='not_run';icon='○';}
   else if(report){title=report.gatePassed?'必須条件を満たしています':report.summary?.fail?'不合格の項目を確認してください':'確認が必要な項目が残っています';subtitle=`${date(report.startedAt)} の実行結果 · 手動確認と未実施の項目も確認してください`;label=report.gatePassed?'必須条件充足':report.summary?.fail?'不合格あり':'未確認あり';tone=report.gatePassed?'pass':report.summary?.fail?'fail':'review';icon=report.gatePassed?'✓':report.summary?.fail?'!':'○';}
   $('#run-title').textContent=title;$('#run-subtitle').textContent=subtitle;$('#run-badge').className=`pill ${tone}`;$('#run-badge').textContent=label;
   $('#run-indicator').className=`status-icon ${live?'running':tone==='pass'?'good':tone==='fail'?'bad':''}`;$('#run-indicator').textContent=icon;
   $('#progress-fill').style.width=`${percent}%`;$('.progress-track').setAttribute('aria-valuenow',percent);$('#progress-label').textContent=`${completed} / ${selected.length} 項目`;
   for(const status of ['pass','fail','blocked','review','not_run'])$(`#metric-${status}`).textContent=report?.summary?.[status]??'—';
   $('#report-link').hidden=!report;if(report)$('#report-link').href=fileURL('report.html');
+  $('#issue-report-panel').hidden=!report;
+  $('#issue-report-generate').disabled=state.requesting||report?.runStatus!=='finished';
+  const reportScope=`${state.projectId}/${state.runId}`;
+  if(issueReportScope!==reportScope){issueReportScope=reportScope;$('#issue-report-open').hidden=true;$('#issue-report-status').textContent='';$('#issue-report-notes').value='';}
   renderRows();renderDetail();
   $('#run-time').textContent=report?date(report.finishedAt??report.startedAt):'';
   const metadata=[['対象サイト',report?.baseURL??state.project?.baseURL??'—'],['実行ID',report?.runId??'—'],['環境',({local:'ローカル',staging:'検証環境',production:'本番環境'})[report?.environment??state.project?.environment]??'—'],['設定ファイル',state.project?.configPath??'—'],['対象リビジョン',report?.revision??'未指定'],['実行環境',report?.runtime??'—']];
@@ -127,7 +243,7 @@ $('#project-select').addEventListener('change',async e=>{++refreshTicket;state.p
 $('#run-button').addEventListener('click',async()=>{
   const verdict=document.querySelector('#cinema-verdict');if(verdict)verdict.hidden=true;
   if(state.busy||state.requesting)return;++refreshTicket;state.requesting=true;render();showError('');notify('');
-  try{await api(`${projectAPI()}/runs`,{method:'POST',body:JSON.stringify({suite:$('#suite-select').value})});state.follow=true;state.runId=null;state.report=null;state.detail=null;state.lastActive=true;}
+  try{const operation={mode:$('#standard-operation-mode').value,password:$('#standard-operation-password').value,confirmed:$('#standard-operation-confirmed').checked};$('#standard-operation-password').value='';await api(`${projectAPI()}/runs`,{method:'POST',body:JSON.stringify({suite:$('#suite-select').value,operation})});state.follow=true;state.runId=null;state.report=null;state.detail=null;state.lastActive=true;}
   catch(e){showError(e.message);}finally{state.requesting=false;await refresh();}
 });
 $('#preflight-button').onclick=async()=>{
@@ -142,10 +258,41 @@ for(const [id,suffix,message] of [['stop-button','/stop','停止を要求しま�
  };
 }
 $('#run-list').addEventListener('click',async e=>{const button=e.target.closest('[data-run]');if(!button)return;++refreshTicket;state.runId=button.dataset.run;state.report=null;state.detail=null;state.follow=false;notify('');render();await refresh();});
-$('#test-rows').addEventListener('click',e=>{const button=e.target.closest('[data-row]');if(!button)return;state.detail=button.dataset.row;renderRows();renderDetail();});
+$('#test-rows').addEventListener('click',e=>{
+  const group=e.target.closest('[data-group]');
+  if(group){const id=group.dataset.group;openGroups.has(id)?openGroups.delete(id):openGroups.add(id);renderRows();[...$('#test-rows').querySelectorAll('[data-group]')].find(b=>b.dataset.group===id)?.focus();return;}
+  const button=e.target.closest('[data-row]');if(!button)return;state.detail=button.dataset.row;renderRows();renderDetail();
+});
 $('#filters').addEventListener('click',e=>{const button=e.target.closest('[data-filter]');if(!button)return;state.filter=button.dataset.filter;for(const b of $('#filters').querySelectorAll('button')){b.classList.toggle('selected',b===button);b.setAttribute('aria-pressed',String(b===button));}renderRows();});
 $('#search').addEventListener('input',e=>{state.search=e.target.value;renderRows();});
 $('#detail').addEventListener('change',e=>{if(e.target.id==='approve-check')$('#approve-button').disabled=!e.target.checked;});
+$('#detail').addEventListener('click',async e=>{
+ if(e.target.id==='start-confirmation'){
+  const host=$('#confirmation-workspace'),endpoint=runAPI()+'/confirmation/'+encodeURIComponent(state.detail);
+  e.target.disabled=true;
+  try{
+   const plan=await api(endpoint);if(!host.isConnected)return;
+   host.innerHTML=`<form id="confirmation-form"><p>${escape(plan.warning)}</p><label>確認者<input name="reviewer" required maxlength="1000" value="${escape(plan.reviewer)}"></label>${plan.steps.map(s=>`<fieldset data-step="${escape(s.id)}"><legend>${escape(s.title)}</legend><label>結果<select name="status">${['review','pass','fail','not_applicable'].map(v=>`<option value="${v}" ${v===s.status?'selected':''}>${names[v]}</option>`).join('')}</select></label><label>証拠・確認内容<textarea name="evidence" rows="3" maxlength="10000">${escape(s.evidence)}</textarea></label></fieldset>`).join('')}<label>補足<textarea name="notes" maxlength="10000">${escape(plan.notes)}</textarea></label><button type="submit" value="draft">途中保存</button><button type="submit" value="finish" class="primary">確認を完了</button></form>`;
+   host.querySelector('form').onsubmit=async event=>{
+    event.preventDefault();if(state.requesting||state.busy)return;
+    const form=event.target;
+    const payload={reviewer:form.elements.reviewer.value,notes:form.elements.notes.value,finish:event.submitter?.value==='finish',steps:[...form.querySelectorAll('[data-step]')].map(f=>({id:f.dataset.step,status:f.querySelector('select').value,evidence:f.querySelector('textarea').value}))};
+    state.requesting=true;form.querySelectorAll('button').forEach(b=>b.disabled=true);
+    try{await api(endpoint,{method:'POST',body:JSON.stringify(payload)});notify(payload.finish?'確認結果を保存しました':'途中結果を保存しました。確認待ちとして残しています。');state.detailKey='';}
+    catch(error){showError(error.message);form.querySelectorAll('button').forEach(b=>b.disabled=false);}
+    finally{state.requesting=false;await refresh();}
+   };
+  }catch(error){showError(error.message);if(e.target.isConnected)e.target.disabled=false;}
+ }
+ if(e.target.id==='execute-case'){
+  if(state.requesting||state.busy)return;
+  const endpoint=runAPI()+'/execute',rowId=state.detail;
+  state.requesting=true;e.target.disabled=true;showError('');
+  try{await api(endpoint,{method:'POST',body:JSON.stringify({rowId})});state.follow=true;state.runId=null;state.report=null;state.detail=null;state.lastActive=true;notify('選択した項目の再検査を開始しました');}
+  catch(error){showError(error.message);state.detailKey='';}
+  finally{state.requesting=false;await refresh();}
+ }
+});
 $('#detail').addEventListener('submit',async e=>{
  if(e.target.id!=='manual-review')return;e.preventDefault();if(state.requesting||state.busy)return;
  const form=e.target,values=new FormData(form),url=runAPI()+'/review',rowId=state.detail;

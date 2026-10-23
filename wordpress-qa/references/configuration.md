@@ -62,6 +62,8 @@ mail引数: `to`（文字列または配列、Toの完全一致）, `subject`（
 
 代表ページはテンプレート、重要導線、長文・画像なし等の例外から選ぶ。組込検査は横はみ出し、可視imgの読込、JS例外、使用フォントのerror状態、画像比較、axeのWCAG A/AA指摘。背景画像・遅延処理すべての完了・必須CTAの存在は組込で保証せず、必要ならjourneyでassertする。マスクは変動要素だけに限定し理由を台帳へ記載。
 
+各visualは `javascript.<id>` / `layout.<id>` / `snapshot.<id>` と、axe有効時の `axe.<id>` を生成する。JavaScript未捕捉例外は独立行で不合格にし、他3検査は例外だけでは停止しない。JSの観測範囲はページ遷移・表示準備・可視画像スクロールまでで、全操作や将来のタイマーを保証しない。各検査のreadiness証拠にもJS例外のmessage・stackを残す。HTTP異常、ready要素未表示、画像・フォント読込失敗などは引き続き準備失敗となる。旧実行の共通JS準備失敗は遡って変更しない。
+
 ### manual
 
 必須: `id`, `title`, `reason`。`status`はreview（既定）またはnot_applicable。後者には適用外理由を記す。

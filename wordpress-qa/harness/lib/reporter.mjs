@@ -19,6 +19,7 @@ export default class Reporter {
       if(!attachment.path) continue;
       let scoped;try{scoped=scopedFile(this.ctx.runDir,attachment.path);}catch{continue;}
       if(attachment.name==='extended-result'){try{row.details=this.clean(JSON.parse(fs.readFileSync(scoped.file,'utf8')));}catch{}}
+      if(attachment.name==='operation-result'){try{const operation=this.clean(JSON.parse(fs.readFileSync(scoped.file,'utf8')));row.details={...row.details,operation};if(row.status==='pass')row.reason=`${operation.result}。識別子: ${operation.token}。メール到着: ${operation.notificationDelivery}。後片付け: ${operation.cleanup}`;}catch{}}
       if(attachment.name==='extended-evidence'){try{row.diagnostics=this.clean(JSON.parse(fs.readFileSync(scoped.file,'utf8')));}catch{}}
       if(row.suite==='admin'&&attachment.name==='admin-setting') {try{row.setting=JSON.parse(fs.readFileSync(attachment.path,'utf8'));}catch{}}
       row.evidence.push(scoped.relative);

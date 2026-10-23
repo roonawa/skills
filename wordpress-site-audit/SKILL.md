@@ -35,3 +35,7 @@ description: Use when a WordPress site needs a URL-wide release audit for broken
 - 表示された秘密値をレポートに転記する → 検出した事実と場所を残し、秘密値そのものは保存しない。
 - 全ページをブラウザーで開く → HTTP/HTMLで決まる検査はauditで済ませる。
 - audit成功を公開承認とする → 重要導線・表示・必要な手動確認は統括Skillの台帳で別に判定する。
+
+## 検査漏れの防止
+
+初回設計・サイト登録・網羅性の確認では[観点とケース生成](../wordpress-qa/references/coverage-generation.md)を読み、この領域の必要観点を具体的なケースIDへ対応付ける。未判定・期待値未設定を台帳から除外しない。共通の生成ケースは出発点であり、登録した数だけで網羅や合格を宣言しない。

@@ -16,3 +16,7 @@ description: Use when WordPress general, reading, discussion, permalink, or plug
 管理画面の検査はスクリプトやXHRを実行しない読み取り専用表示を用いる。JavaScriptで組み立てる設定画面は取得不能になり得る。その場合はプラグインの読み取りAPIを確認し、対応できなければmanualへ根拠を記録する。認証マーカーはログイン画面には存在しない要素を指定する。
 
 設定値の一致だけで機能正常と結論しない。SEO公開設定は `wordpress-site-audit`、SMTP等は `wordpress-journey-test` の通知確認と組み合わせる。全体の公開判断は `wordpress-qa` へ戻す。
+
+## 検査漏れの防止
+
+初回設計・サイト登録・網羅性の確認では[観点とケース生成](../wordpress-qa/references/coverage-generation.md)を読み、この領域の必要観点を具体的なケースIDへ対応付ける。未判定・期待値未設定を台帳から除外しない。共通の生成ケースは出発点であり、登録した数だけで網羅や合格を宣言しない。

@@ -25,6 +25,7 @@ try {
   await page.getByText('実行が完了しました',{exact:true}).waitFor({timeout:90000});
   await expect(page.locator('#cinema-verdict')).toContainText('ACCESS PENDING');
   await page.locator('#cinema-verdict button').click();
+  await page.locator('[data-group="snapshot"]').click();
   await page.getByRole('button',{name:'snapshot.home-mobile',exact:false}).click();
   await page.getByLabel('候補画像を確認し、意図した表示であることを確認しました').check();
   await page.getByRole('button',{name:'この画像を基準として承認',exact:true}).click();
@@ -39,6 +40,7 @@ try {
   const runIds=await page.locator('[data-run]').evaluateAll(items=>items.map(x=>x.dataset.run));
   await page.locator(`[data-run="${runIds[1]}"]`).click();
   await expect(page.locator('#metadata')).toContainText(runIds[1]);
+  await page.locator('[data-group="snapshot"]').click();
   await page.getByRole('button',{name:'snapshot.home-mobile',exact:false}).click();
   await page.getByLabel('候補画像を確認し、意図した表示であることを確認しました').check();
   let releaseLatest;
@@ -56,6 +58,7 @@ try {
   await expect(page.locator('#cinema-verdict')).toContainText('ACCESS DENIED');
   await page.screenshot({path:path.join(scratch,'access-denied.png'),fullPage:false});
   await page.locator('#cinema-verdict button').click();
+  await page.locator('[data-group="page"]').click();
   await page.getByRole('button',{name:'page.home',exact:false}).click();
   await page.getByText('canonical differs from expectation',{exact:false}).first().waitFor();
   await page.screenshot({path:path.join(scratch,'failure.png'),fullPage:true});
@@ -68,6 +71,7 @@ try {
   await page.getByRole('button',{name:'検査を実行',exact:true}).click();
   await page.getByText('実行中',{exact:true}).first().waitFor();
   await page.getByText('実行が完了しました',{exact:true}).waitFor({timeout:90000});
+  await page.locator('[data-group="admin.timezone"]').click();
   await page.getByRole('button',{name:'admin.timezone',exact:false}).click();
   await expect(page.locator('#detail')).toContainText('Asia/Tokyo');
   await expect(page.locator('#detail')).toContainText('UTC');
@@ -81,12 +85,13 @@ try {
   config.baseURL='https://changed.example.test';config.environment='staging';fs.writeFileSync(file,JSON.stringify(config));
   await expect(page.locator('#environment')).toHaveText('検証環境');
   await expect(page.locator('#metadata')).toContainText(demo.url);
-  const latest=fs.readdirSync(config.outputDir).sort().at(-1);
+  const runDirectories=fs.readdirSync(config.outputDir,{withFileTypes:true}).filter(entry=>entry.isDirectory()).map(entry=>entry.name);
+  const latest=runDirectories.sort().at(-1);
   const artifacts=path.join(config.outputDir,latest,'artifacts');
   if(fs.existsSync(artifacts))for(const relative of fs.readdirSync(artifacts,{recursive:true})) {
     assert.ok(!/trace\.zip$|\.png$/.test(relative),'admin failures must not capture traces/screenshots');
   }
-  for(const run of fs.readdirSync(config.outputDir)) {
+  for(const run of runDirectories) {
     const results=fs.readFileSync(path.join(config.outputDir,run,'results.json'),'utf8');
     assert.ok(!results.includes('fixture-secret-never-save'));
   }

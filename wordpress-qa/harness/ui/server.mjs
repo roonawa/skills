@@ -11,6 +11,10 @@ import { loadConfig,catalog } from '../lib/config.mjs';
 import {writeReport} from '../lib/results.mjs';
 import {summarizeRecovery} from '../lib/recovery.mjs';
 import {preflight} from '../lib/preflight.mjs';
+import {guidance} from '../lib/guidance.mjs';
+import {confirmationPlan,validateConfirmation,selectSingleTest} from '../lib/confirmation.mjs';
+import {operationRequest} from '../lib/operations.mjs';
+import {buildIssueReport} from '../lib/issue-report.mjs';
 import {projectIsAlive,runIsAlive} from '../lib/run-lock.mjs';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
@@ -83,7 +87,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
     }).filter(Boolean).sort((a,b)=>(b.startedAt??b.runId).localeCompare(a.startedAt??a.runId)).filter((r,index)=>index<limit||r.pendingRecovery);
   }
   function jobState(job){return job?{projectId:job.projectId,kind:job.kind,runId:job.runId,state:job.state,exitCode:job.exitCode,log:job.log}:null;}
-  function launch(p,args,kind) {
+  function launch(p,args,kind,operationEnv={}) {
     if(closing)reject(503,'終了処理中です');if(active)reject(409,'別の処理が実行中です。完了を待ってください');
     if(['run','recover'].includes(kind)&&projectIsAlive(p.outputDir))reject(409,'以前の検査プロセスが生存している可能性があります。終了を待ってください。');
     if(logins.busy)reject(409,'ログインの保存またはキャンセル後に実行してください');
@@ -91,8 +95,9 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
     if(kind==='run'&&fs.existsSync(p.outputDir))for(const entry of fs.readdirSync(p.outputDir,{withFileTypes:true}).filter(e=>e.isDirectory()))if(summarizeRecovery(runPath(p,entry.name)).pending)reject(409,'前回のテストデータが残っています。該当する実行履歴から回収してください');
     const job={projectId:p.id,kind,runId:null,state:'starting',log:'',exitCode:null};active=job;lastJob=job;
     const inheritedEnv={...process.env};
+    delete inheritedEnv.WPQA_OPERATION_ID;delete inheritedEnv.WPQA_OPERATION_MODE;
     if(p.managed)for(const key of Object.keys(inheritedEnv))if(/^WPQA_(?:ROLE_.*|UI_ADMIN)_(HEADERS|STATE)$/i.test(key))delete inheritedEnv[key];
-    const child=spawn(process.execPath,[path.join(root,'bin/qa.mjs'),...args],{cwd:root,env:{...inheritedEnv,...prepared.env,FORCE_COLOR:'0'},stdio:['ignore','pipe','pipe','ipc']});
+    const child=spawn(process.execPath,[path.join(root,'bin/qa.mjs'),...args],{cwd:root,env:{...inheritedEnv,...prepared.env,...operationEnv,FORCE_COLOR:'0'},stdio:['ignore','pipe','pipe','ipc']});
     job.cancel=()=>{if(child.connected)child.send({type:'cancel'});job.state='stopping';};
     const append=chunk=>{
       job.log=(job.log+chunk.toString().replace(/\x1b\[[0-9;]*m/g,'')).slice(-128000);
@@ -193,17 +198,103 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
           const {config:c,configHash}=projectInfo(p);
           return json(200,{project:{id:p.id,name:c.name,baseURL:c.baseURL,environment:c.environment,configPath:p.file,configHash,counts:{pages:c.pages.length,journeys:c.journeys.length,visuals:c.visuals.length},planned:catalog(c).length},runs:history(p),busy:!!active,active:jobState(active),lastJob:lastJob?.projectId===p.id?jobState(lastJob):null});
         }
+        if(segments[3]==='operations'){
+          const current=projectInfo(p);
+          if(segments.length===4&&req.method==='GET')return json(200,{configHash:current.configHash,baseURL:current.config.baseURL,environment:current.config.environment,enabled:current.config.allowTestWrites&&['staging','local'].includes(current.config.environment),operations:current.config.journeys.filter(j=>j.explicitOnly).map(j=>{let pending=null;if(j.submissionLock&&fs.existsSync(path.resolve(current.configDir,j.submissionLock))){const saved=readJSON(boundedPath(current.configDir,j.submissionLock));pending={token:saved.token,completion:saved.completion===true,cleanup:saved.cleanup??'結果を確認してください'};}return {id:j.id,title:j.title??j.id,description:j.reason??'',pending};})});
+          if(segments.length===6&&segments[5]==='release'&&req.method==='POST'){
+            if(active||closing)reject(409,'実行が終了してから確認してください');
+            const data=await body(req),operation=current.config.journeys.find(j=>j.id===segments[4]&&j.explicitOnly);
+            if(!operation?.submissionLock||data.configHash!==current.configHash||data.confirmed!==true||typeof data.notes!=='string'||!data.notes.trim()||data.notes.length>10000)reject(400,'現在の設定で前回結果・後片付けの確認内容を入力してください');
+            const lock=boundedPath(current.configDir,operation.submissionLock),saved=readJSON(lock);
+            if(data.token!==saved.token)reject(409,'前回の識別子が変わっています。開き直してください');
+            fs.writeFileSync(lock+'.resolved-'+randomUUID()+'.json',JSON.stringify({...saved,resolvedAt:new Date().toISOString(),resolution:data.notes},null,2),{flag:'wx'});fs.unlinkSync(lock);
+            return json(200,{ok:true});
+          }
+          if(segments.length===5&&req.method==='POST'){
+            const data=await body(req);let prepared;
+            try{prepared=operationRequest(current.config,current.configHash,segments[4],data);}catch(e){reject(400,e.message);}
+            const {job}=launch(p,['run','--config',p.file,'--suite','journey','--id','journey.'+prepared.operation.id],'run',prepared.env);return json(202,jobState(job));
+          }
+        }
         if(segments[3]==='runs'&&segments.length===4&&req.method==='POST') {
-          const data=await body(req);if(!['all','audit','journey','visual','admin',...Object.keys(extendedSuites)].includes(data.suite))reject(400,'検査範囲が不正です');projectInfo(p);
-          const {job}=launch(p,['run','--config',p.file,'--suite',data.suite],'run');return json(202,jobState(job));
+          const data=await body(req);if(!['all','audit','journey','visual','admin',...Object.keys(extendedSuites)].includes(data.suite))reject(400,'検査範囲が不正です');const current=projectInfo(p);
+          const operations=['all','journey'].includes(data.suite)?current.config.journeys.filter(j=>j.runWithSuite&&j.explicitOnly):[];
+          let env={};if(operations.length){
+            const options={configHash:current.configHash,mode:'preview',password:'',...data.operation};
+            // Preview is the normal default; real submission requires an explicit checkbox.
+            if(options.mode==='preview')options.confirmed=true;
+            try{env=operationRequest(current.config,current.configHash,operations[0].id,options).env;}catch(e){reject(400,e.message);}
+            env.WPQA_OPERATION_ID='suite';
+          }
+          const {job}=launch(p,['run','--config',p.file,'--suite',data.suite],'run',env);return json(202,jobState(job));
         }
         if(segments[3]==='runs'&&segments[4]) {
           const id=segments[4],report=readRun(p,id),directory=runPath(p,id);
+          if(segments[5]==='confirmation'&&segments.length===7){
+            const row=report.rows.find(r=>r.id===segments[6]);if(!row)reject(404,'検査項目が見つかりません');
+            const current=projectInfo(p),plan=confirmationPlan(row);
+            if(req.method==='GET')return json(200,{...plan,changed:current.configHash!==report.configHash});
+            if(req.method==='POST'){
+              const data=await body(req);
+              if(active||closing||runIsAlive(directory)||report.runStatus!=='finished'||current.configHash!==report.configHash)reject(409,'実行完了後、現在の設定と一致する履歴で確認してください');
+              let result;try{result=validateConfirmation(plan,data);}catch(e){reject(400,e.message);}
+              const audit={...result,timestamp:new Date().toISOString(),runId:id,rowId:row.id,configHash:current.configHash,previousStatus:row.status};
+              const original=path.join(directory,'automated-results.json');if(!fs.existsSync(original))fs.writeFileSync(original,JSON.stringify(report,null,2),{flag:'wx'});
+              fs.mkdirSync(path.join(directory,'manual-reviews'),{recursive:true});
+              const evidence=`manual-reviews/${randomUUID()}.json`;fs.writeFileSync(path.join(directory,evidence),JSON.stringify(audit,null,2),{flag:'wx'});
+              row.details={...row.details,confirmation:audit};row.status=result.outcome;
+              row.reason=(data.finish?'確認完了':'確認途中')+'：'+result.steps.map(s=>`${plan.steps.find(p=>p.id===s.id).title}: ${s.status} ${s.evidence}`).join('\n')+'\n'+result.notes;
+              row.evidence=[...new Set([...(row.evidence??[]),evidence])];
+              row.review={...audit,reviewId:evidence,evidence:result.steps.map(s=>s.evidence).filter(Boolean)};
+              writeReport(directory,report);return json(200,{ok:true,report});
+            }
+          }
+          if(segments[5]==='execute'&&segments.length===6&&req.method==='POST'){
+            const data=await body(req),current=projectInfo(p);
+            if(report.runStatus!=='finished'||current.configHash!==report.configHash)reject(409,'現在の設定で完了した履歴を選択してください');
+            const row=report.rows.find(r=>r.id===data.rowId);if(!row)reject(404,'検査項目が見つかりません');
+            if(current.config.journeys.some(j=>j.explicitOnly&&row.id==='journey.'+j.id))reject(400,'操作テストの画面で送信内容を確認して実行してください');
+            try{selectSingleTest(catalog(current.config),row.id);}catch(e){reject(400,e.message);}
+            const {job}=launch(p,['run','--config',p.file,'--suite',row.suite,'--id',row.id],'run');return json(202,jobState(job));
+          }
+          if(segments[5]==='issue-report'&&segments.length===6&&req.method==='POST'){
+            if(report.runStatus!=='finished'||!report.finishedAt||runIsAlive(directory))reject(409,'完了した実行を選択してください');
+            const data=await body(req);
+            if(typeof data.includeHistory!=='boolean'||typeof (data.notes??'')!=='string'||(data.notes??'').length>10000)reject(400,'報告書の指定が不正です');
+            const previous=data.includeHistory?history(p,10000).filter(r=>r.runId!==id).map(r=>readRun(p,r.runId)):[];
+            const generated=buildIssueReport({current:report,previous,includeHistory:data.includeHistory,notes:data.notes??'',readImage:(runId,file)=>{
+              const source=runId===id?report:previous.find(r=>r.runId===runId);
+              if(!file.endsWith('.png')||!source?.rows.some(r=>(r.evidence??[]).includes(file)))throw new Error('Unregistered image');
+              const image=boundedPath(runPath(p,runId),file);
+              if(fs.statSync(image).size>12*1024*1024)throw new Error('Image too large');
+              const buffer=fs.readFileSync(image);
+              if(buffer.subarray(0,8).toString('hex')!=='89504e470d0a1a0a')throw new Error('Invalid PNG');
+              return `data:image/png;base64,${buffer.toString('base64')}`;
+            },readConfig:runId=>{
+              const context=readJSON(boundedPath(runPath(p,runId),'context.json'));
+              const source=runId===id?report:previous.find(r=>r.runId===runId);
+              if(context.configHash!==source?.configHash)throw new Error('Config mismatch');
+              const {pages,visuals,policies}=context.config;return {pages,visuals,policies};
+            },readEvidence:(runId,file)=>{
+              const source=runId===id?report:previous.find(r=>r.runId===runId);
+              if(!source?.rows.some(r=>(r.evidence??[]).includes(file)))reject(403,'未登録の証拠です');
+              const evidence=boundedPath(runPath(p,runId),file);
+              if(fs.statSync(evidence).size>16*1024*1024)throw new Error('Evidence too large');
+              return readJSON(evidence);
+            }});
+            fs.writeFileSync(path.join(directory,'issue-report.html'),generated.html);
+            return json(200,{file:'issue-report.html',issueCount:generated.issueCount,failedCases:generated.failedCases,warnings:generated.warnings});
+          }
           if(segments.length===5&&req.method==='GET') {
             let log='';try{log=fs.readFileSync(path.join(directory,'ui.log'),'utf8');}catch{}
             const {configHash}=projectInfo(p);
             const candidates=report.rows.filter(r=>r.id.startsWith('snapshot.')&&fs.existsSync(path.join(directory,'candidates',`${r.id}.png`))).map(r=>r.id);
             return json(200,{report,log,candidates,recovery:summarizeRecovery(directory),canApprove:report.configHash===configHash&&!active&&!runIsAlive(directory),orphaned:['running','starting'].includes(report.runStatus)&&active?.runId!==id&&!runIsAlive(directory)});
+          }
+          if(segments[5]==='guidance'&&segments.length===7&&req.method==='GET'){
+            const row=report.rows.find(r=>r.id===segments[6]);if(!row)reject(404,'検査項目が見つかりません');
+            const current=projectInfo(p),env=p.managed?store.prepare(p.id).env:process.env;
+            return json(200,guidance({config:current.config,row,env,changed:current.configHash!==report.configHash,managed:!!p.managed}));
           }
           if(segments[5]==='recover'&&segments.length===6&&req.method==='POST'){
             if(active)reject(409,'実行中は回収できません');
@@ -245,12 +336,12 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
           }
           if(segments.length>=6&&req.method==='GET') {
             const relative=segments[5]==='files'&&segments.length===6?target.searchParams.get('path'):segments.slice(5).join('/');
-            const allowed=new Set(['report.html','results.json','ui.log',...report.rows.flatMap(r=>r.evidence??[])]);
+            const allowed=new Set(['report.html','issue-report.html','results.json','ui.log',...report.rows.flatMap(r=>r.evidence??[])]);
             for(const row of report.rows) if(/^snapshot\.[a-z][a-z0-9-]{0,63}$/.test(row.id))allowed.add(`candidates/${row.id}.png`);
             if(!allowed.has(relative))reject(403,'台帳に登録されていないファイルです');
             let file;try{file=boundedPath(directory,relative);}catch(e){if(e.status)throw e;reject(404,'証拠ファイルがありません');}
             const ext=path.extname(file).toLowerCase();const type=({'.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.html':'text/html; charset=utf-8','.zip':'application/zip'})[ext]??'text/plain; charset=utf-8';
-            res.setHeader('Content-Security-Policy',"sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src 'self'");
+            res.setHeader('Content-Security-Policy',"sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:");
             res.setHeader('Cache-Control','no-store');res.setHeader('Content-Type',type);
             if(ext==='.zip')res.setHeader('Content-Disposition','attachment; filename="trace.zip"');
             return res.end(fs.readFileSync(file));
@@ -259,7 +350,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
         reject(404,'APIが見つかりません');
       }
       if(req.method!=='GET')reject(404,'ページが見つかりません');
-      const files={'/':'index.html','/app.js':'app.js','/style.css':'style.css','/settings.js':'settings.js','/coverage-editor.js':'coverage-editor.js','/options-form.js':'options-form.js'};
+      const files={'/':'index.html','/app.js':'app.js','/style.css':'style.css','/case-generator.js':'case-generator.js','/settings.js':'settings.js','/coverage-editor.js':'coverage-editor.js','/options-form.js':'options-form.js'};
       const name=files[target.pathname];if(!name)reject(404,'ページが見つかりません');
       res.setHeader('Cache-Control','no-store');res.setHeader('Content-Type',name.endsWith('.js')?'text/javascript; charset=utf-8':name.endsWith('.css')?'text/css; charset=utf-8':'text/html; charset=utf-8');
       res.end(fs.readFileSync(path.join(publicDir,name)));

@@ -1,6 +1,6 @@
 ---
 name: wordpress-qa
-description: Use when a WordPress project needs an overall QA strategy, selection of audit, journey and visual checks, or a release decision based on combined automated evidence and unresolved manual checks.
+description: Use when a WordPress site needs reusable QA cases, comprehensive site testing, grouped result review, failure-cause investigation, user-impact explanation, or a release decision based on automated evidence and unresolved manual checks.
 ---
 
 # WordPress QA
@@ -23,6 +23,8 @@ description: Use when a WordPress project needs an overall QA strategy, selectio
 利用者がブラウザーで状況を見たい場合は、ハーネスで `npm run ui -- --config <absolute-site.json>` を起動する。URL・起動方法・画面操作は [利用手順](references/harness-guide.md)。設定なしの `npm run ui` は同梱のローカルデモ。実サイトはUIの「サイトを登録」で検査項目・期待値・認証を登録し、「設定を編集」で更新できる。UIでもCLIと同じ検査台帳・公開条件を使い、画面上の進捗と過去の実行結果を区別する。
 
 ## 進め方
+
+実サイトの初回検査・他サイトへの展開では [実サイトQAの設計・運用](references/field-qa-playbook.md) を読む。大量のURL別結果を整理する場合や、不合格の原因・利用者への影響を聞かれた場合は [分類・原因調査・影響説明](references/failure-triage.md) を読む。案件のURL・認証情報・期待値は案件側へ保存し、このSkillに埋め込まない。
 
 1. **対象を確定**: サイト種別、対象環境、変更箇所、公開URL一覧、テンプレート、重要導線、外部連携、実行可能な操作を確認する。足りない情報は独立して進められる検査と分ける。
 2. **期待結果とリスクを設定**: 品質リスク→確認観点→期待結果→テスト方法の順で決める。canonicalやメール宛先を実際の出力から無批判に正解へコピーしない。
@@ -55,3 +57,15 @@ description: Use when a WordPress project needs an overall QA strategy, selectio
 ## よくある誤り
 
 存在確認だけで防御・通知・計測を保証しない。基準画像の自動採用で差分を消さない。環境依存を理由にメール確認を一律手動にしない。未実行や通信不能を合格扱いしない。デザイン・文章・使いやすさの最終判断は自動検査と区別して残す。
+
+## 実サイトでの判断原則
+
+- URLごとの同一検査は実行・証拠を保持したまま、表示だけを分類でまとめる。分類数、ケース数、原因数を分ける。
+- 共通の表示準備で失敗した場合、後続のlayout・axe・画像比較が実行されたとは扱わない。エラー名だけで影響を断定しない。
+- サイトマップ掲載URLを一律indexable:trueにしない。カート・完了ページ等の公開方針を確認する。観測値に合わせただけの期待値変更は禁止。
+- 長時間処理の完了通知や終了コードだけで全件成功にしない。対象runのresults.json、完了状態、未実施を確認する。
+- 原因と利用者影響は、再現済み／技術的に裏取り済み／可能性／未確認を区別し、次に必要な確認を示す。
+
+## 検査漏れの防止
+
+初回設計・サイト登録・網羅性の確認では[観点とケース生成](references/coverage-generation.md)を読み、この領域の必要観点を具体的なケースIDへ対応付ける。未判定・期待値未設定を台帳から除外しない。共通の生成ケースは出発点であり、登録した数だけで網羅や合格を宣言しない。

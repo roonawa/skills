@@ -62,3 +62,31 @@ button{background:#122017;color:#bed1b2;border:1px solid #40543a;border-radius:0
   ::-webkit-scrollbar-thumb{background:ButtonText;border-color:Canvas}
   ::-webkit-scrollbar-track,::-webkit-scrollbar-corner{background:Canvas}
 }
+.blocked-help{margin:14px 0;padding:14px;border:1px solid #81733d;background:#171c10;line-height:1.7;overflow-wrap:anywhere}.blocked-help h4{margin:0 0 12px;color:#d4df88}.blocked-help h5{margin:14px 0 4px;color:#bfd99b;font-size:12px}.blocked-help ul,.blocked-help ol{padding-left:20px;margin:6px 0}.blocked-help li{margin:6px 0}.blocked-help button{margin-top:12px}.guidance-history{color:#e4ba74}
+/* 分類の集計と、展開時だけ表示するURL別結果 */
+.group-toggle{width:100%;white-space:normal;text-align:left}
+.group-toggle small{white-space:normal;overflow-wrap:anywhere;line-height:1.6}
+.group-results[hidden]{display:none}
+.group-results>td{padding:0}
+.group-caption{padding:10px 16px;margin:0;font-size:12px;color:var(--muted)}
+.group-table{width:100%;table-layout:fixed}
+.group-table .row-button{white-space:normal;overflow-wrap:anywhere;width:100%}
+.group-table th:first-child{width:55%}
+.group-child td:first-child{padding-left:24px;border-left:3px solid #3b5134}
+.group-heading .group-toggle:focus-visible{outline:2px solid currentColor;outline-offset:3px}
+@media(max-width:720px){.group-table th:first-child{width:72%}.group-heading td:first-child{width:72%}.group-caption{padding:10px 12px}}
+/* Generated issue report controls */
+#issue-report-panel{margin:0 20px 18px;padding:14px;border:1px solid var(--border,#64748b);border-radius:8px;min-width:0}
+#issue-report-panel summary{cursor:pointer;font-weight:700}
+#issue-report-panel label{display:block;margin:12px 0 6px}
+#issue-report-notes{display:block;width:100%;box-sizing:border-box;font:inherit;padding:10px;resize:vertical}
+#issue-report-generate,#issue-report-open{display:inline-block;margin:12px 12px 0 0}
+#issue-report-open[hidden],#issue-report-panel[hidden]{display:none}
+#issue-report-status{overflow-wrap:anywhere}
+/* Guided confirmation keeps per-step evidence next to the action. */
+.confirmation-panel{padding:16px;margin:16px 0;border:1px solid #879caf;border-radius:8px}
+.confirmation-panel label{display:block;margin:12px 0}
+.confirmation-panel input,.confirmation-panel textarea,.confirmation-panel select{display:block;width:100%;box-sizing:border-box;margin-top:6px}
+.confirmation-panel fieldset{margin:16px 0;padding:12px;min-width:0;border:1px solid #879caf}
+.confirmation-panel legend{white-space:normal;overflow-wrap:anywhere}
+.confirmation-panel button{margin:6px 8px 6px 0}

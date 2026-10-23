@@ -1,0 +1,11 @@
+<!doctype html><html lang="ja"><meta charset="utf-8"><title>UIから操作テストを実行する</title><style>body{font:16px/1.8 system-ui;max-width:900px;margin:40px auto;padding:20px}pre{white-space:pre-wrap;background:#eef3f7;padding:16px}</style><h1>UIから注文・問い合わせを自動テスト</h1><ol><li>サイトを選び、検査範囲を「操作・メール」または「すべての検査」にする。「注文・問い合わせの実行設定」で範囲と閲覧パスワードを指定し、通常の「検査を実行」を押す。</li><li>操作と対象URL・送信内容を確認する。</li><li>「入力・確認画面まで」または「注文確定／問い合わせ送信まで」を選ぶ。</li><li>必要な場合はサイト閲覧パスワードを入力する。今回の子プロセスだけに渡し、設定・実行ログには保存しない。操作実行時のトレース保存も無効。</li><li>確認チェックを入れ「自動操作を開始」。実行履歴から結果・識別子・証拠画像を確認する。</li></ol><p>操作テストの合格は、指定した画面操作と期待表示の確認を意味する。メールの実到着、受注の管理画面照合、注文取消の完了とは別に記録する。</p><p>送信直前の記録が残っている場合は新たな送信を停止する。「前回の結果・後片付けを確認済みにする」で確認内容を保存してから再実行する。注文の場合は識別子で対象を照合し、取消を確認する。確認記録は保存されるが、このボタン自体が注文取消を実行するわけではない。</p><h2>他サイトへの登録</h2><p>案件の設定ファイルにサイト専用のPlaywrightモジュールをjourneysへ登録する。モジュールは既存のrun({page, expect, token, config, attach, testInfo})形式。実行範囲はWPQA_OPERATION_MODE（preview / submit）、閲覧パスワードはWPQA_SITE_PASSWORDで受け取る。previewで確定・送信しないこと、期待値を照合すること、送信直前の排他記録と結果保存をモジュール側で実装する。</p><pre>{
+  "id": "contact-operation",
+  "title": "問い合わせ操作（自動）",
+  "module": "operations/contact.mjs",
+  "explicitOnly": true, "runWithSuite": true,
+  "required": false,
+  "handlesAuthentication": true,
+  "submissionLock": "operations/contact-pending.json",
+  "reason": "対象フォーム、宛先、送信内容と後片付けを記述"
+}</pre><p>runWithSuite=trueの操作は通常の一括検査でも実行する。実行前は未実施と表示する。explicitOnlyだけの操作は専用実行に限定する。handlesAuthenticationは専用モジュールが認証を行う場合のみ指定する。検証またはローカル環境でallowTestWritesを有効にする。本番環境からのこの実行機能は拒否する。</p></html>
+

@@ -2,11 +2,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath,pathToFileURL } from 'node:url';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { loadConfig,catalog } from '../lib/config.mjs';
 import { writeReport } from '../lib/results.mjs';
+import {selectSingleTest} from '../lib/confirmation.mjs';
 import { discover } from '../lib/discovery.mjs';
 import { envHeaders } from '../lib/mailpit.mjs';
 import {cancellationRequested} from '../lib/cancellation.mjs';
@@ -31,6 +32,19 @@ async function main() {
   if(!['validate','discover','run','approve-baseline','recover'].includes(command)) throw new Error(`Unknown command: ${command}`);
   const opts=options(args),ctx=loadConfig(opts.config),c=ctx.config;
   const rows=catalog(c,opts.suite??'all');
+  if(command==='run'&&opts.id){const operation=c.journeys.find(j=>j.explicitOnly&&'journey.'+j.id===opts.id);if(operation)ctx.operation={id:operation.id,mode:process.env.WPQA_OPERATION_MODE,handlesAuthentication:operation.handlesAuthentication===true};}
+  if(command==='run'&&opts.id)selectSingleTest(rows,opts.id);
+  if(command==='run')for(const j of c.journeys.filter(j=>j.explicitOnly&&rows.some(r=>r.id==='journey.'+j.id&&r.selected))){
+    if(!(process.env.WPQA_OPERATION_ID===j.id||process.env.WPQA_OPERATION_ID==='suite'&&j.runWithSuite)||!['preview','submit'].includes(process.env.WPQA_OPERATION_MODE)||!c.allowTestWrites||!['local','staging'].includes(c.environment))throw Error('BLOCKED: configure operation test execution in the UI');
+  }
+  if(command==='run'&&process.env.WPQA_OPERATION_ID==='suite'){
+    const selected=rows.filter(r=>r.selected),operations=c.journeys.filter(j=>j.runWithSuite&&selected.some(r=>r.id==='journey.'+j.id));
+    ctx.operation={mode:process.env.WPQA_OPERATION_MODE,handlesAuthentication:selected.every(r=>operations.some(j=>'journey.'+j.id===r.id&&j.handlesAuthentication))};
+    if(!ctx.operation.handlesAuthentication&&c.headersEnv&&!process.env[c.headersEnv]){
+      const j=operations.find(j=>j.handlesAuthentication);
+      if(j){const module=await import(pathToFileURL(path.resolve(ctx.configDir,j.module)));if(module.authenticate){const {request}=await import('@playwright/test');process.env[c.headersEnv]=JSON.stringify(await module.authenticate(c,{request}));}}
+    }
+  }
   if(command==='recover'){
     if(!opts.run)throw new Error('--run is required');
     const directory=fs.realpathSync(path.resolve(opts.run)),output=fs.realpathSync(path.resolve(ctx.configDir,c.outputDir??'runs'));

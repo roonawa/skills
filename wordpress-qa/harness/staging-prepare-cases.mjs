@@ -1,0 +1,10 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import {loadConfig,catalog} from './lib/config.mjs';
+import {writeReport} from './lib/results.mjs';
+const ctx=loadConfig('../../debug-evidence/mannendo-staging/site.json');
+const runId=new Date().toISOString().replace(/[:.]/g,'-')+'-cases';
+const directory=path.resolve(ctx.configDir,ctx.config.outputDir,runId);fs.mkdirSync(directory,{recursive:true});
+const rows=catalog(ctx.config);for(const row of rows)row.selected=false;
+const report={runId,name:ctx.config.name,baseURL:ctx.config.baseURL,environment:ctx.config.environment,configHash:ctx.configHash,startedAt:new Date().toISOString(),runStatus:'planned',rows,errors:[],runtime:'ケース登録のみ・未実行'};
+writeReport(directory,report);fs.writeFileSync(path.join(directory,'context.json'),JSON.stringify({...ctx,report},null,2));console.log(runId);

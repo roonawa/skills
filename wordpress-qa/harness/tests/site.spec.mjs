@@ -8,11 +8,12 @@ import { inspectHTML,checkPolicy,fetchPage,internalLinks } from '../lib/audit.mj
 import { waitForMail,envHeaders } from '../lib/mailpit.mjs';
 import { scopedHeaders } from '../lib/headers.mjs';
 import {checkCancellation} from '../lib/cancellation.mjs';
+import {captureMarkedScreenshots} from '../lib/marked-screenshots.mjs';
 
 const ctx=JSON.parse(fs.readFileSync(process.env.WPQA_CONTEXT,'utf8'));
 const c=ctx.config;
 const test=base.extend({page:async({context},use)=>{
-  const configured=envHeaders(c.headersEnv);
+  const configured=ctx.operation?.handlesAuthentication?{}:envHeaders(c.headersEnv);
   if(Object.keys(configured).length) await context.route('**/*',async route=>{
     const req=route.request(),headers=scopedHeaders(req.headers(),configured,req.url(),c.baseURL);
     if(new URL(req.url()).origin!==c.baseURL) return route.continue({headers});
@@ -58,6 +59,7 @@ for(const j of c.journeys) if(enabled(`journey.${j.id}`)) test(title(`journey.${
   if(typeof module.run!=='function') throw new Error('BLOCKED: journey module must export run');
   const token=`qa-${ctx.report.runId}-${j.id}`;
   const args={page,request,expect,config:c,token,testInfo:info,
+    checkCancellation:()=>checkCancellation(ctx.runDir),
     mail:expected=>waitForMail(c.mailpit,{timeoutMs:c.timeoutMs,...expected,token}),
     attach:(name,data)=>evidence(info,name,data)};
   try { if(module.setup) await module.setup(args); await module.run(args); }
@@ -65,7 +67,7 @@ for(const j of c.journeys) if(enabled(`journey.${j.id}`)) test(title(`journey.${
 });
 
 async function ready(page,v,info) {
-  const jsErrors=[];page.on('pageerror',e=>jsErrors.push(e.message));
+  const jsErrors=[];page.on('pageerror',e=>jsErrors.push({message:e.message,stack:e.stack}));
   const p=c.pages.find(p=>p.id===v.pageId);
   await page.setViewportSize({width:v.width,height:v.height});
   const response=await page.goto(p.path);expect(response?.status()).toBe(200);
@@ -77,9 +79,15 @@ async function ready(page,v,info) {
   }
   await page.evaluate(()=>window.scrollTo(0,0));
   const fontErrors=await page.evaluate(()=>[...document.fonts].filter(f=>f.status==='error').map(f=>f.family));
-  await evidence(info,'readiness',{jsErrors,fontErrors});expect(jsErrors).toEqual([]);expect(fontErrors).toEqual([]);
+  await evidence(info,'readiness',{jsErrors,fontErrors});expect(fontErrors).toEqual([]);
+  return jsErrors;
 }
 for(const v of c.visuals) {
+  if(enabled(`javascript.${v.id}`)) test(title(`javascript.${v.id}`),async({page},info)=>{
+    const jsErrors=await ready(page,v,info);
+    await evidence(info,'javascript',{observation:'Navigation, readiness and visible-image scrolling; not a full interaction journey',jsErrors});
+    expect(jsErrors).toEqual([]);
+  });
   if(enabled(`layout.${v.id}`)) test(title(`layout.${v.id}`),async({page},info)=>{
     await ready(page,v,info);
     const width=await page.evaluate(()=>({content:document.documentElement.scrollWidth,viewport:window.innerWidth}));
@@ -87,7 +95,15 @@ for(const v of c.visuals) {
   });
   if(enabled(`axe.${v.id}`)) test(title(`axe.${v.id}`),async({page},info)=>{
     await ready(page,v,info);const result=await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21a','wcag21aa']).analyze();
-    await evidence(info,'axe',result);expect(result.violations.map(v=>({id:v.id,impact:v.impact,nodes:v.nodes.map(n=>n.target)}))).toEqual([]);
+    await evidence(info,'axe',result);
+    if(result.violations.length){
+      const shots=await captureMarkedScreenshots(page,result.violations,async(name,body)=>{
+        const file=info.outputPath(`${name}.png`);fs.writeFileSync(file,body);
+        await info.attach(name,{path:file,contentType:'image/png'});
+      });
+      await evidence(info,'marked-screenshots',{shots});
+    }
+    expect(result.violations.map(v=>({id:v.id,impact:v.impact,nodes:v.nodes.map(n=>n.target)}))).toEqual([]);
   });
   if(enabled(`snapshot.${v.id}`)) test(title(`snapshot.${v.id}`),async({page,browser},info)=>{
     await ready(page,v,info);

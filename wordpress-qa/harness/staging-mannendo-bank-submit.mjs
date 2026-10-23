@@ -1,0 +1,64 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import {request,chromium} from '@playwright/test';
+const origin='https://mannendo-test.rgr.jp',out=path.resolve('../../debug-evidence/mannendo-staging/submit-tests');fs.mkdirSync(out,{recursive:true});const token='WPQA-'+new Date().toISOString().replace(/[^0-9]/g,'');if(fs.existsSync(path.join(out,'bank-submit-started.json')))throw Error('Existing submission marker: inspect result before any repeat');
+const client=await request.newContext({baseURL:origin});await client.get('/?password-protected=login');
+await client.post('/?password-protected=login',{form:{password_protected_pwd:process.env.WPQA_SITE_PASSWORD,password_protected_cookie_test:'1','password-protected':'login',redirect_to:origin+'/'}});
+if((await client.get('/')).url().includes('password-protected'))throw Error('Authentication failed');
+const browser=await chromium.launch();const context=await browser.newContext({storageState:await client.storageState(),viewport:{width:1280,height:900}});
+const page=await context.newPage(),evidence={checks:[],snapshots:[],errors:[],blockedRequests:[],cartRequests:[]};
+evidence.dialogs=[];
+page.on('dialog',async dialog=>{evidence.dialogs.push({type:dialog.type(),message:dialog.message()});if(page.url().startsWith(origin+'/usces-cart')&&/数量|削除|更新/.test(dialog.message()))await dialog.accept();else await dialog.dismiss();});
+page.on('request',req=>{if(req.method()==='POST'&&req.url()===origin+'/usces-cart')evidence.cartRequests.push({keys:[...new URLSearchParams(req.postData()??'').keys()]});});
+page.on('pageerror',e=>evidence.errors.push(e.message));
+// Only cart add/update and moving to customer input are allowed. Never finalize an order or send a contact form.
+await context.route('**/*',async route=>{
+ const req=route.request(),url=new URL(req.url());
+ if(!['GET','HEAD'].includes(req.method())){
+   const data=new URLSearchParams(req.postData()??'');
+   const allowed=url.origin===origin&&url.pathname==='/usces-cart'&&[...data.keys()].some(k=>/^inCart\[/.test(k)||['upButton','customerinfo','deliveryinfo','confirm','purchase','backCart','delButton'].includes(k)||/^delButton\[/.test(k));
+   if(!allowed){evidence.blockedRequests.push({url:url.origin+url.pathname,method:req.method()});return route.abort();}
+ }
+ await route.continue();
+});
+async function capture(name){
+ await page.waitForTimeout(1500);
+ const snapshot=await page.evaluate(()=>({url:location.href,text:document.body.innerText,forms:[...document.forms].map(f=>({action:f.action,fields:[...f.elements].map(e=>({tag:e.tagName,type:e.type,name:e.name,value:['hidden','password'].includes(e.type)?'[redacted]':e.value,required:e.required,disabled:e.disabled,options:e.options?[...e.options].map(o=>({value:o.value,text:o.text})):undefined}))}))}));
+ snapshot.name=name;evidence.snapshots.push(snapshot);await page.screenshot({path:path.join(out,`${name}.png`),fullPage:true});console.log(JSON.stringify({name,url:snapshot.url,forms:snapshot.forms}));
+ snapshot.cartControls=await page.locator('input[type=submit]').evaluateAll(es=>es.map(e=>({name:e.name,onclick:e.getAttribute('onclick')})));
+}
+try{
+ await page.goto(origin+'/archives/2481');await page.getByRole('button',{name:'カートへ入れる',exact:true}).click();await page.waitForLoadState('domcontentloaded');
+ await capture('cart-added');
+ evidence.checks.push({id:'add-to-cart',pass:(await page.locator('body').innerText()).includes('パインブック リバーシブルクリップ ゆるカワ')&&page.url().includes('/usces-cart')});
+ await page.locator('input[name="quant[0][2481][k302018]"]').fill('2');
+ await page.getByRole('button',{name:'数量更新',exact:true}).click();await page.waitForLoadState('domcontentloaded');
+ await capture('cart-quantity-two');
+ evidence.checks.push({id:'quantity-limit',pass:evidence.dialogs.some(d=>d.message.includes('一度に1まで'))&&!(await page.locator('body').innerText()).includes('1,232'),expected:'購入上限1点を超えた入力は警告して更新しない',text:await page.locator('body').innerText()});
+ await page.locator('input[name="quant[0][2481][k302018]"]').fill('1');
+ await page.getByRole('button',{name:'数量更新',exact:true}).click();await page.waitForLoadState('domcontentloaded');await page.waitForTimeout(1500);
+ await page.locator('input[name="customerinfo"]').click();await page.waitForLoadState('domcontentloaded');
+ await capture('customer-input');
+ evidence.checks.push({id:'customer-input-transition',pass:await page.locator('input[name="customer[name1]"]').count()>0});
+ await page.locator('input[name="deliveryinfo"]').click();await page.waitForTimeout(1500);await capture('customer-empty-validation');
+ evidence.checks.push({id:'customer-empty-validation',pass:(await page.locator('body').innerText()).includes('入力')&&await page.locator('input[name="customer[name1]"]').count()>0,text:await page.locator('body').innerText()});
+ for(const [key,value] of Object.entries({mailaddress1:'webinfo@ailesys.co.jp',mailaddress2:'webinfo@ailesys.co.jp',name1:'テスト注文',name2:'発送不要',name3:'ドウサカクニン',name4:'チュウモンシナイ',zipcode:'000-0000',address1:'検証用市',address2:'架空住所0-0',address3:'テストデータ',tel:'000-0000-0000'}))await page.locator(`input[name="customer[${key}]"]`).fill(value);
+ await page.locator('select[name="customer[pref]"]').selectOption('長野県');
+ await page.locator('input[name="deliveryinfo"]').click();await page.waitForTimeout(1500);await capture('delivery-payment-input');
+ evidence.checks.push({id:'delivery-payment-transition',pass:await page.locator('input[name="customer[name1]"]').count()===0});
+
+ await page.locator('input[name="offer[payment_name]"][value="銀行振込"]').check();
+ await page.locator('textarea[name="offer[note]"]').fill(token+' 動作確認用テスト注文です。発送・請求不要。銀行振込の注文完了と通知の検証。');
+ await page.locator('input[name="confirm"]').click();
+ await page.waitForLoadState('domcontentloaded');await capture('bank-order-confirmation');
+
+ const text=await page.locator('body').innerText();
+ if(!text.includes('銀行振込')||!text.includes('発送不要')||!text.includes('1,466'))throw Error('Order confirmation differs from expected');
+ const button=page.locator('input[name="purchase"]');
+ const action=await button.evaluate(e=>e.form.action);if(action!==origin+'/usces-cart')throw Error('Unexpected bank order destination');
+ fs.writeFileSync(path.join(out,'bank-submit-started.json'),JSON.stringify({token,at:new Date().toISOString(),payment:'銀行振込',expectedTotal:1466,email:'webinfo@ailesys.co.jp'}));
+ await button.click();await page.waitForTimeout(5000);await capture('bank-submitted-result');
+ evidence.submission={token,at:new Date().toISOString(),text:await page.locator('body').innerText(),url:page.url()};
+ console.log(JSON.stringify(evidence.submission));
+
+}finally{fs.writeFileSync(path.join(out,'bank-submission-evidence.json'),JSON.stringify(evidence,null,2));await browser.close();await client.dispose();}

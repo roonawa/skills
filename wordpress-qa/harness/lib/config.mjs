@@ -59,7 +59,11 @@ export function validateConfig(input) {
     Object.values(p.requiredHeaders).forEach(x=>string(x,'header expected value'));
   }
   for(const j of c.journeys) {
-    entry(j,['module','title','reason'],'journey'); string(j.module,'journey.module');
+    entry(j,['module','title','reason','explicitOnly','submissionLock','handlesAuthentication','runWithSuite'],'journey'); string(j.module,'journey.module');
+    if(j.runWithSuite!==undefined)bool(j.runWithSuite,'journey.runWithSuite');
+    if(j.handlesAuthentication!==undefined&&typeof j.handlesAuthentication!=='boolean')fail('journey.handlesAuthentication must be boolean');
+    if(j.submissionLock!==undefined){string(j.submissionLock,'journey.submissionLock');if(path.isAbsolute(j.submissionLock)||j.submissionLock.split(/[\\/]/).includes('..'))fail('submissionLock must be inside the config directory');}
+    if(j.explicitOnly!==undefined&&typeof j.explicitOnly!=='boolean')fail('journey.explicitOnly must be boolean');
     if(j.title!==undefined) string(j.title,'journey.title');
     if(j.reason!==undefined) string(j.reason,'journey.reason');
   }
@@ -101,10 +105,11 @@ export function catalog(c, suite='all') {
   const add=(id,kind,title,required)=>rows.push({id,suite:kind,title,required,status:'not_run',selected:suite==='all'||suite===kind,reason:'未実行'});
   for(const p of c.pages) { add(`page.${p.id}`,'audit',`${p.path}: HTTP / metadata`,p.required); if(p.links) add(`links.${p.id}`,'audit',`${p.path}: internal links`,p.required); }
   for(const p of c.policies) add(`policy.${p.id}`,'audit',p.path,p.required);
-  for(const j of c.journeys) add(`journey.${j.id}`,'journey',j.title??j.id,j.required);
+  for(const j of c.journeys) {add(`journey.${j.id}`,'journey',j.title??j.id,j.required);if(j.explicitOnly&&!j.runWithSuite)rows.at(-1).selected=false;}
   for(const a of c.admin??[])add('admin.'+a.id,'admin',a.title??a.id,a.required);
   for(const v of c.visuals) {
     add(`layout.${v.id}`,'visual',`${v.pageId}: ${v.width}px layout`,v.required);
+    add(`javascript.${v.id}`,'visual',`${v.pageId}: ${v.width}px JavaScript errors`,v.required);
     add(`snapshot.${v.id}`,'visual',`${v.pageId}: ${v.width}px screenshot`,v.required);
     if(v.axe) add(`axe.${v.id}`,'visual',`${v.pageId}: ${v.width}px accessibility`,v.required);
   }

@@ -12,7 +12,7 @@ export default defineConfig({
   reporter:[['list'],['./lib/reporter.mjs']],
   use:{baseURL:context.config.baseURL,browserName:'chromium',locale:'ja-JP',timezoneId:'Asia/Tokyo',
     viewport:{width:1280,height:800}, colorScheme:'light',reducedMotion:'reduce',
-    extraHTTPHeaders:envHeaders(context.config.headersEnv),
+    extraHTTPHeaders:context.operation?.handlesAuthentication?{}:envHeaders(context.config.headersEnv),
     actionTimeout:context.config.timeoutMs,navigationTimeout:context.config.timeoutMs,
-    screenshot:'only-on-failure',trace:'retain-on-failure',serviceWorkers:'block'}
+    screenshot:'only-on-failure',trace:process.env.WPQA_OPERATION_ID?'off':'retain-on-failure',serviceWorkers:'block'}
 });
