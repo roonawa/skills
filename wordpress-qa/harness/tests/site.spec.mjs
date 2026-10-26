@@ -9,12 +9,13 @@ import { waitForMail,envHeaders } from '../lib/mailpit.mjs';
 import { scopedHeaders } from '../lib/headers.mjs';
 import {checkCancellation} from '../lib/cancellation.mjs';
 import {captureMarkedScreenshots} from '../lib/marked-screenshots.mjs';
+import {isolatedAuthOnly} from '../lib/isolated-auth.mjs';
 
 const ctx=JSON.parse(fs.readFileSync(process.env.WPQA_CONTEXT,'utf8'));
 const c=ctx.config;
 const test=base.extend({page:async({context},use)=>{
   let closing=false;
-  const configured=ctx.operation?.handlesAuthentication?{}:envHeaders(c.headersEnv);
+  const configured=ctx.operation?.handlesAuthentication||isolatedAuthOnly(ctx)?{}:envHeaders(c.headersEnv);
   if(Object.keys(configured).length) await context.route('**/*',async route=>{
     try {
     const req=route.request(),headers=scopedHeaders(req.headers(),configured,req.url(),c.baseURL);

@@ -8,6 +8,7 @@ import { spawn } from 'node:child_process';
 import {BrowserLogin} from './browser-login.mjs';
 import {ProjectStore} from './project-store.mjs';
 import {ExternalAuth} from './external-auth.mjs';
+import {discoverRegistration,registrationConfig,validateProfile,builtinModules} from './registration.mjs';
 import { loadConfig,catalog } from '../lib/config.mjs';
 import {writeReport} from '../lib/results.mjs';
 import {summarizeRecovery} from '../lib/recovery.mjs';
@@ -16,6 +17,7 @@ import {guidance} from '../lib/guidance.mjs';
 import {confirmationPlan,validateConfirmation,selectSingleTest} from '../lib/confirmation.mjs';
 import {operationRequest} from '../lib/operations.mjs';
 import {buildIssueReport} from '../lib/issue-report.mjs';
+import {autoReport} from '../lib/auto-report.mjs';
 import {projectIsAlive,runIsAlive} from '../lib/run-lock.mjs';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
@@ -57,6 +59,27 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
   let active=null,lastJob=null,closing=false,url;
   const jobs=new Set();
   const getProject=id=>{const p=projects.get(id);if(!p)reject(404,'登録されていないサイトです');return p;};
+  function profileScope(p,current=projectInfo(p)){
+    const profile=p.managed?store.record(p.id).profile:null;
+    if(!profile)return null;
+    const c=current.config,writeAllowed=['staging','local'].includes(c.environment)&&c.allowTestWrites===true&&profile.writes===true;
+    const has=kind=>c.journeys.some(j=>j.module===builtinModules[kind]);
+    return {mode:'saved-profile',writeAllowed,contactSubmit:writeAllowed&&profile.submit===true&&has('contact-submit'),bankOrder:writeAllowed&&profile.bankOrder===true&&has('bank-order'),postLifecycle:writeAllowed&&has('post-lifecycle'),scheduled:writeAllowed&&has('scheduled')};
+  }
+  function contactSubmission(directory){
+    const file=path.join(directory,'profile-contact-pending.json');
+    const exists=name=>{try{fs.lstatSync(name);return true;}catch(error){if(error.code==='ENOENT')return false;throw error;}};
+    let locked=false;
+    try{
+      locked=exists(file+'.lock');
+      if(!exists(file))return {status:'none',locked,blocked:locked,readOnly:true,inboxVerified:false};
+      const stat=fs.lstatSync(file);
+      if(!stat.isFile()||stat.isSymbolicLink()||stat.size>8192)throw Error('Invalid journal');
+      const saved=readJSON(boundedPath(directory,'profile-contact-pending.json'));
+      if(!['pending','mail_sent'].includes(saved.status)||typeof saved.token!=='string'||!/^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/.test(saved.token))throw Error('Invalid journal');
+      return {status:saved.status,token:saved.token,locked,blocked:locked||saved.status==='pending',readOnly:true,inboxVerified:false};
+    }catch{return {status:'unreadable',locked,blocked:true,readOnly:true,inboxVerified:false};}
+  }
   function runPath(p,id) {
     if(!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,128}$/.test(id)) reject(400,'実行IDが不正です');
     try{return boundedPath(p.outputDir,id);}catch(e){if(e.status)throw e;reject(404,'実行履歴が見つかりません');}
@@ -114,7 +137,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
     });
     const done=new Promise(resolve=>{
       let ended=false;
-      const finish=(code,error)=>{if(ended)return;ended=true;if(error)append(error.message);job.exitCode=code;job.state='finished';if(active===job)active=null;resolve(jobState(job));};
+      const finish=(code,error)=>{if(ended)return;ended=true;if(error)append(error.message);if(kind==='run'&&job.runId)try{const directory=runPath(p,job.runId),generated=autoReport(directory),report=readRun(p,job.runId);report.autoReport=generated;if(report.rows[0])report.rows[0].evidence=[...new Set([...(report.rows[0].evidence??[]),'issue-report.html'])];writeReport(directory,report);append('\n報告書を自動生成しました: issue-report.html\n');}catch(e){append('\n報告書の自動生成に失敗: '+e.message+'\n');}job.exitCode=code;job.state='finished';if(active===job)active=null;resolve(jobState(job));};
       child.once('error',e=>finish(2,e));child.once('close',code=>finish(code??2));
     });
     jobs.add(done);done.finally(()=>jobs.delete(done));return {job,done};
@@ -134,7 +157,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
         if(index<0)credentials.push({name:role,browser:state});else credentials[index]={...credentials[index],browser:state};
         savedAuth.roleCredentials=credentials;
       } else if(state) savedAuth.browser=state;
-      return store.save({id:projectId??undefined,version:data.version,config:data.config,auth:savedAuth});
+      return store.save({id:projectId??undefined,version:data.version,config:data.config,auth:savedAuth,profile:data.profile});
     };
     try{return loginId?logins.save(loginId,{baseURL:data.config.baseURL,projectId,role},persist):persist();}catch(e){reject(400,e.message);}
   }
@@ -158,6 +181,16 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
         });return json(200,{token,projects:list,demo,canRegister:!!store});
       }
       if(target.pathname==='/api/logins/current'&&req.method==='GET')return json(200,{login:logins.status()});
+      if(target.pathname==='/api/registration'&&req.method==='POST'){
+        if(!store||active||closing)reject(409,'実行完了後に登録してください');
+        const data=await body(req),profile=validateProfile(data.profile,data.environment);
+        const session=logins.get(data.loginId);
+        if(session.phase!=='verified'||session.projectId||session.role||session.baseURL!==data.baseURL||session.environment!==data.environment)reject(400,'このサイトの管理者ログインを確認してください');
+        const discovery=await discoverRegistration({baseURL:data.baseURL,profile,state:session.state,publicPassword:data.publicPassword??''});
+        const config=registrationConfig({...data,profile,discovery});
+        const id=saveSettings({config,profile,auth:{browserLoginId:data.loginId,publicPassword:data.publicPassword??''}});
+        registerManaged(id);return json(201,{id,pages:config.pages.length,cases:catalog(projectInfo(getProject(id)).config).length,warnings:discovery.warnings});
+      }
       if(segments[0]==='api'&&segments[1]==='logins'&&req.method==='POST') {
         if(!store)reject(503,'サイト登録が無効です');
         const data=await body(req);
@@ -206,11 +239,15 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
           registerManaged(p.id);return json(200,{id:p.id});
         }
         if(segments.length===3&&req.method==='GET') {
-          const {config:c,configHash}=projectInfo(p);
-          return json(200,{project:{id:p.id,managed:!!p.managed,name:c.name,baseURL:c.baseURL,environment:c.environment,configPath:p.file,configHash,counts:{pages:c.pages.length,journeys:c.journeys.length,visuals:c.visuals.length},planned:catalog(c).length},runs:history(p),busy:!!active,active:jobState(active),lastJob:lastJob?.projectId===p.id?jobState(lastJob):null});
+          const current=projectInfo(p),{config:c,configHash}=current;
+          return json(200,{project:{id:p.id,managed:!!p.managed,profileScope:profileScope(p,current),name:c.name,baseURL:c.baseURL,environment:c.environment,configPath:p.file,configHash,counts:{pages:c.pages.length,journeys:c.journeys.length,visuals:c.visuals.length},planned:catalog(c).length},runs:history(p),busy:!!active,active:jobState(active),lastJob:lastJob?.projectId===p.id?jobState(lastJob):null});
         }
         if(segments[3]==='operations'){
-          const current=projectInfo(p);
+          const current=projectInfo(p),scope=profileScope(p,current);
+          if(scope){
+            if(segments.length===4&&req.method==='GET')return json(200,{configHash:current.configHash,baseURL:current.config.baseURL,environment:current.config.environment,profileScope:scope,enabled:false,operations:[],contactSubmission:contactSubmission(current.configDir)});
+            if(req.method==='POST')reject(409,'登録時の実行範囲を使用します。送信結果が不明な記録はこの画面から解除・再送できません。');
+          }
           if(segments.length===4&&req.method==='GET')return json(200,{configHash:current.configHash,baseURL:current.config.baseURL,environment:current.config.environment,enabled:current.config.allowTestWrites&&['staging','local'].includes(current.config.environment),operations:current.config.journeys.filter(j=>j.explicitOnly).map(j=>{let pending=null;if(j.submissionLock&&fs.existsSync(path.resolve(current.configDir,j.submissionLock))){const saved=readJSON(boundedPath(current.configDir,j.submissionLock));pending={token:saved.token,completion:saved.completion===true,cleanup:saved.cleanup??'結果を確認してください'};}return {id:j.id,title:j.title??j.id,description:j.reason??'',pending};})});
           if(segments.length===6&&segments[5]==='release'&&req.method==='POST'){
             if(active||closing)reject(409,'実行が終了してから確認してください');
@@ -229,7 +266,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
         }
         if(segments[3]==='runs'&&segments.length===4&&req.method==='POST') {
           const data=await body(req);if(!['all','audit','journey','visual','admin',...Object.keys(extendedSuites)].includes(data.suite))reject(400,'検査範囲が不正です');const current=projectInfo(p);
-          const operations=['all','journey'].includes(data.suite)?current.config.journeys.filter(j=>j.runWithSuite&&j.explicitOnly):[];
+          const operations=!profileScope(p,current)&&['all','journey'].includes(data.suite)?current.config.journeys.filter(j=>j.runWithSuite&&j.explicitOnly):[];
           let env={};if(operations.length){
             const options={configHash:current.configHash,mode:'preview',password:'',...data.operation};
             // Preview is the normal default; real submission requires an explicit checkbox.
@@ -361,7 +398,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
         reject(404,'APIが見つかりません');
       }
       if(req.method!=='GET')reject(404,'ページが見つかりません');
-      const files={'/':'index.html','/app.js':'app.js','/style.css':'style.css','/case-generator.js':'case-generator.js','/settings.js':'settings.js','/external-auth.js':'external-auth.js','/coverage-editor.js':'coverage-editor.js','/options-form.js':'options-form.js'};
+      const files={'/':'index.html','/app.js':'app.js','/style.css':'style.css','/case-generator.js':'case-generator.js','/settings.js':'settings.js','/external-auth.js':'external-auth.js','/registration.js':'registration.js','/coverage-editor.js':'coverage-editor.js','/options-form.js':'options-form.js'};
       const name=files[target.pathname];if(!name)reject(404,'ページが見つかりません');
       res.setHeader('Cache-Control','no-store');res.setHeader('Content-Type',name.endsWith('.js')?'text/javascript; charset=utf-8':name.endsWith('.css')?'text/css; charset=utf-8':'text/html; charset=utf-8');
       res.end(fs.readFileSync(path.join(publicDir,name)));

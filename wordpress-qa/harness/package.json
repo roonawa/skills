@@ -15,6 +15,7 @@
     "qa": "node bin/qa.mjs",
     "demo": "node examples/demo-server.mjs",
     "test:settings": "node test/settings-browser.mjs",
+    "test:registration": "node test/registration-browser.mjs",
     "test:login": "node test/login-browser.mjs",
     "test:extended": "node test/extended-integration.mjs",
     "test:extended-ui": "node test/extended-ui.mjs",

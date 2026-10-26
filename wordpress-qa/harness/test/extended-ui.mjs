@@ -9,8 +9,10 @@ const fixture=http.createServer((req,res)=>{res.setHeader('Content-Type','text/h
 await new Promise(r=>fixture.listen(0,'127.0.0.1',r));const origin='http://127.0.0.1:'+fixture.address().port;
 const app=await startUI({storeDir:path.join(scratch,'projects'),port:0});const browser=await chromium.launch();const page=await browser.newPage({viewport:{width:1440,height:1000}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
 try{
- await page.goto(app.url);await page.locator('#new-site').click();const dialog=page.locator('dialog');
+ await page.goto(app.url);await page.locator('#new-site').click();await page.locator('#registration-advanced').click();const dialog=page.locator('dialog:has(#site-editor)');
  await dialog.locator('[data-key=name]').fill('拡張検査UI');await dialog.locator('[data-key=baseURL]').fill(origin);await dialog.locator('[data-key=environment]').selectOption('local');await dialog.locator('[data-kind=page] [data-key=indexable]').check();
+ // Test adding the extended plan independently of registration's generated coverage.
+ while(await dialog.locator('.coverage-row').count())await dialog.locator('.coverage-row').first().locator('[data-remove]').click();
  await dialog.locator('[data-add-plan]').click();await expect(dialog.locator('.coverage-row')).toHaveCount(15);
  // Keep one real human verification; the other templates are not mistaken for completed tests.
  while(await dialog.locator('.coverage-row').count()>1)await dialog.locator('.coverage-row').first().locator('[data-remove]').click();
@@ -29,7 +31,7 @@ try{
  const savedFlow=dialog.locator('.coverage-row').filter({has:page.locator('[data-c=id][value="flow"]')});await expect(savedFlow.locator('[data-option="steps.0.url"]')).toHaveValue('/?round=2');await expect(savedFlow.locator('[data-option="steps.2.value"]')).toHaveValue('QA');
  assert.equal(JSON.parse(await savedFlow.locator('[data-c=options]').inputValue()).steps[3].value,'','empty assertion value must survive save and reload');
  await dialog.locator('[data-add-check]').click();const pending=dialog.locator('.coverage-row').last();await pending.locator('[data-c=id]').fill('pending-fixture');await dialog.locator('#editor-save').click();await expect(dialog).not.toBeVisible();await page.locator('#preflight-button').click();await expect(page.locator('#preflight-result')).toContainText('設定に確認事項があります。');await expect(page.locator('#preflight-result')).toContainText('pending-fixture');
- await page.locator('#edit-site').click();await dialog.locator('.coverage-row').last().locator('[data-remove]').click();await dialog.locator('#editor-save').click();await expect(dialog).not.toBeVisible();await page.locator('#preflight-button').click();await expect(page.locator('#preflight-result')).toContainText('設定上の前提条件を満たしています。');await expect(page.locator('#recover-button')).toBeHidden();
+ await page.locator('#edit-site').click();await dialog.locator('.coverage-row').last().locator('[data-remove]').click();await dialog.locator('#editor-save').click();await expect(dialog).not.toBeVisible();await page.locator('#preflight-button').click();await expect(page.locator('#preflight-result')).toContainText('coverage-inventory');await expect(page.locator('#preflight-result')).not.toContainText('pending-fixture');await expect(page.locator('#recover-button')).toBeHidden();
  await page.locator('#run-button').click();await expect(page.locator('#stop-button')).toBeVisible();
  await expect(page.locator('body')).toHaveClass(/cinema-active/);
  const beforeWave=await page.locator('.signal-wave>path').getAttribute('d');
@@ -37,12 +39,12 @@ try{
  await page.screenshot({path:path.join(scratch,'overdrive.png'),fullPage:false});
  await page.locator('#cinema-toggle').click();await expect(page.locator('body')).toHaveClass(/cinema-paused/);
  await page.locator('#cinema-toggle').click();
- await page.getByText('実行が完了しました',{exact:true}).waitFor({timeout:90000});
+ await expect(page.locator('#run-title')).toHaveText('確認が必要な項目が残っています',{timeout:240000});
  await expect(page.locator('body')).not.toHaveClass(/cinema-active/);
  await page.locator('[data-group="check.seo"]').click();await page.locator('[data-row="check.seo"]').click();await expect(page.locator('#detail')).toContainText('期待値と取得結果');await expect(page.locator('#detail')).toContainText('実行経過・失敗時の証拠');await expect(page.locator('#stop-button')).toBeHidden();
- await page.locator('[data-group="check.human-usability"]').click();await page.locator('[data-row="check.human-usability"]').click();const form=page.locator('#manual-review');await form.locator('[name=reviewer]').fill('Fixture reviewer');await form.locator('[name=notes]').fill('隔離fixtureで手動記録UIの保存と履歴を確認。実サイト評価ではない。');await form.locator('[name=evidence]').fill('fixture-only: synthetic observation for UI acceptance');await form.getByRole('button',{name:'判定を保存'}).click();
- await expect(page.locator('#run-title')).toHaveText('必須条件を満たしています',{timeout:15000});await expect(form).toContainText('Fixture reviewer');
- await page.screenshot({path:path.join(scratch,'review-results.png'),fullPage:true});await page.locator('#edit-site').click();await expect(dialog.locator('[data-role-password]')).toHaveValue('');await expect(dialog.locator('.role-row')).toContainText('登録済み');await expect(dialog.locator('.coverage-row')).toHaveCount(3);
+ await page.locator('[data-group="check.human-usability"]').click();await page.locator('[data-row="check.human-usability"]').click();await page.locator('#start-confirmation').click();const form=page.locator('#confirmation-form');await form.locator('[name=reviewer]').fill('Fixture reviewer');await form.locator('[name=notes]').fill('隔離fixtureで手動記録UIの保存と履歴を確認。実サイト評価ではない。');for(const step of await form.locator('[data-step]').all()){await step.locator('select').selectOption('pass');await step.locator('textarea').fill('fixture-only: synthetic observation for UI acceptance');}await form.getByRole('button',{name:'確認を完了'}).click();
+ await expect(page.locator('#run-title')).toHaveText('確認が必要な項目が残っています',{timeout:15000});await expect(page.locator('#detail')).toContainText('Fixture reviewer');
+ await page.screenshot({path:path.join(scratch,'review-results.png'),fullPage:true});await page.locator('#edit-site').click();await expect(dialog.locator('[data-role-password]')).toHaveValue('');await expect(dialog.locator('.role-row')).toContainText('登録済み');await expect(dialog.locator('.coverage-row')).toHaveCount(34);
  await expect(dialog.locator('.alert-emblem')).toBeVisible();await page.screenshot({path:path.join(scratch,'restricted-settings.png'),fullPage:false});
  assert.deepEqual(errors,[]);console.log('Extended settings and human-review UI passed: '+scratch);
 }finally{await browser.close();await app.close();await new Promise(r=>fixture.close(r));}

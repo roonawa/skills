@@ -2,7 +2,10 @@ import { defineConfig } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
 import { envHeaders } from './lib/mailpit.mjs';
+import {isolatedAuthOnly} from './lib/isolated-auth.mjs';
 const context=JSON.parse(fs.readFileSync(process.env.WPQA_CONTEXT,'utf8'));
+// Admin checks create isolated authenticated contexts and never use public headers.
+const adminOnly=isolatedAuthOnly(context);
 export default defineConfig({
   testDir:'./tests', timeout:context.config.timeoutMs*4, expect:{timeout:context.config.timeoutMs},
   workers:1, retries:0, forbidOnly:true, fullyParallel:false,
@@ -12,7 +15,7 @@ export default defineConfig({
   reporter:[['list'],['./lib/reporter.mjs']],
   use:{baseURL:context.config.baseURL,browserName:'chromium',locale:'ja-JP',timezoneId:'Asia/Tokyo',
     viewport:{width:1280,height:800}, colorScheme:'light',reducedMotion:'reduce',
-    extraHTTPHeaders:context.operation?.handlesAuthentication?{}:envHeaders(context.config.headersEnv),
+    extraHTTPHeaders:context.operation?.handlesAuthentication||adminOnly?{}:envHeaders(context.config.headersEnv),
     actionTimeout:context.config.timeoutMs,navigationTimeout:context.config.timeoutMs,
     screenshot:'only-on-failure',trace:process.env.WPQA_OPERATION_ID?'off':'retain-on-failure',serviceWorkers:'block'}
 });

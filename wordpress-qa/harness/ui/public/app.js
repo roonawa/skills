@@ -1,5 +1,6 @@
 import {initSettings} from './settings.js';
 import {initExternalAuth} from './external-auth.js';
+import {initRegistration} from './registration.js';
 import {extendedSuites} from './coverage-editor.js';
 const $=selector=>document.querySelector(selector);
 const state={token:'',projects:[],projectId:'',project:null,runId:null,report:null,detail:null,filter:'all',search:'',busy:false,active:null,follow:true,lastActive:false,notice:'',detailKey:'',rowsKey:'',historyKey:'',requesting:false};
@@ -36,6 +37,12 @@ $('#operation-tests').onclick=async()=>{
  host.hidden=false;host.textContent='操作テストを読み込んでいます…';
  try{
   const data=await api(endpoint+'/operations');if(projectId!==state.projectId)return;
+  if(data.profileScope){
+    const record=data.contactSubmission;
+    const status=({none:'送信記録なし',pending:'送信結果が未確定',mail_sent:'CF7が送信成功を応答（受信箱は未確認）',unreadable:'送信記録を読み取れません'})[record.status];
+    host.innerHTML=`<h3>登録済みの送信範囲・問い合わせ記録</h3><p>${escape(savedScopeText(data.profileScope))}</p><p>${escape(status)}${record.token?` ／ 識別子：${escape(record.token)}`:''}</p><p>${record.blocked?'新しい問い合わせ送信は停止されています。実行中の場合は完了を待ってください。中断や結果不明の場合は保存済み証拠と実際の送信結果を確認してください。この画面では解除・再送できません。':'結果が確定した送信記録は、次の新しい検査を妨げません。'}</p><button type="button" id="close-operations">閉じる</button>`;
+    $('#close-operations').onclick=()=>{host.hidden=true;};return;
+  }
   if(!data.operations.length){host.textContent='このサイトには自動操作テストが登録されていません。サイトの設定に専用の操作モジュールを登録してください。';return;}
   host.innerHTML=`<h3>注文・問い合わせの自動操作テスト</h3><p>対象：${escape(data.baseURL)} ／ ${escape(data.environment)}</p><p>ブラウザーを自動操作し、入力・画面遷移・完了表示と証拠画像を記録します。メール到着や注文取消の確認は別途必要です。</p><form id="operation-form"><label>操作<select name="operation">${data.operations.map(o=>`<option value="${escape(o.id)}">${escape(o.title)}</option>`).join('')}</select></label><p id="operation-description"></p><label>実行範囲<select name="mode"><option value="preview">入力・確認画面まで（注文確定・送信なし）</option><option value="submit">注文確定／問い合わせ送信まで（新規1件）</option></select></label><label>サイト閲覧パスワード（保護されている場合）<input name="password" type="password" autocomplete="off"></label><p>パスワードは今回の実行だけに使います。管理画面のログイン情報は入力しないでください。</p><label><input name="confirmed" type="checkbox" required> 対象サイト・操作内容・実行範囲を確認しました</label><button type="submit" class="primary" ${!data.enabled?'disabled':''}>自動操作を開始</button><button type="button" id="close-operations">閉じる</button></form>`;
   const form=host.querySelector('form');
@@ -64,6 +71,24 @@ $('#operation-tests').onclick=async()=>{
 };
 $('#operation-tests').textContent='送信履歴・後片付け';
 $('.page-heading').insertAdjacentHTML('afterend','<details class="confirmation-panel" id="standard-operation-settings"><summary>注文・問い合わせの実行設定</summary><p>「すべての検査」「操作・メール」では、登録済みの注文・問い合わせテストも実行します。</p><label>実行範囲<select id="standard-operation-mode"><option value="preview">入力・確認画面まで（送信なし）</option><option value="submit">注文確定・問い合わせ送信まで</option></select></label><label>サイト閲覧パスワード<input id="standard-operation-password" type="password" autocomplete="off"></label><label><input type="checkbox" id="standard-operation-confirmed"> 注文と問い合わせをそれぞれ新規1件送信することを確認しました</label></details>');
+$('#standard-operation-settings').insertAdjacentHTML('afterend','<section id="profile-operation-scope" class="confirmation-panel" hidden></section>');
+function savedScopeText(scope){
+  return `登録済みの実行範囲：問い合わせ送信：${scope.contactSubmit?'有効':'無効'} ／ 銀行振込注文検査：${scope.bankOrder?'有効（対応状況・回収条件を検査）':'無効'} ／ テスト投稿の作成・公開・更新・回収：${scope.postLifecycle?'有効':'無効'} ／ 予約公開・回収：${scope.scheduled?'有効':'無効'}。「すべての検査」「操作・メール」では、この保存済み範囲を実行します。管理設定・URL・表示などの個別検査には送信を含みません。問い合わせ送信は受信箱への到着を保証しません。`;
+}
+let operationScopeProject=null;
+function renderOperationScope(){
+  if(operationScopeProject!==state.projectId){
+    operationScopeProject=state.projectId;$('#operation-panel').hidden=true;$('#operation-panel').replaceChildren();
+    $('#standard-operation-mode').value='preview';$('#standard-operation-password').value='';$('#standard-operation-confirmed').checked=false;
+  }
+  const scope=state.project?.profileScope;
+  $('#standard-operation-settings').hidden=!state.project||!!scope;
+  $('#profile-operation-scope').hidden=!scope;
+  $('#profile-operation-scope').textContent=scope?savedScopeText(scope):'';
+  $('#operation-tests').disabled=!state.project||state.requesting;
+  $('#operation-tests').textContent=scope?'問い合わせの送信記録':'送信履歴・後片付け';
+  if(scope){$('#standard-operation-password').value='';$('#standard-operation-confirmed').checked=false;}
+}
 $('#standard-operation-mode').onchange=()=>{$('#standard-operation-confirmed').checked=false;};
 $('#run-button').insertAdjacentHTML('beforebegin','<button id="preflight-button">実行前の確認</button><button id="stop-button" hidden>検査を停止</button>');
 $('#metadata').insertAdjacentHTML('afterend','<div id="recovery-info"></div><button id="recover-button" hidden>残ったテストデータを回収</button>');
@@ -181,6 +206,7 @@ function renderDetail(){
   }
 }
 function render(){
+  renderOperationScope();
   const report=state.report?.report,rows=report?.rows??[],active=state.active?.projectId===state.projectId;
   const live=active&&(!state.runId||state.active.runId===state.runId);
   document.body.classList.toggle('cinema-active',!!active&&state.active?.kind==='run');
@@ -214,6 +240,7 @@ function render(){
   $('#issue-report-generate').disabled=state.requesting||report?.runStatus!=='finished';
   const reportScope=`${state.projectId}/${state.runId}`;
   if(issueReportScope!==reportScope){issueReportScope=reportScope;$('#issue-report-open').hidden=true;$('#issue-report-status').textContent='';$('#issue-report-notes').value='';}
+  if(report?.autoReport?.file==='issue-report.html'){$('#issue-report-open').href=`${projectAPI()}/runs/${state.runId}/files?path=issue-report.html`;$('#issue-report-open').hidden=false;$('#issue-report-status').textContent='検査完了時に報告書を自動生成しました。';}
   renderRows();renderDetail();
   $('#run-time').textContent=report?date(report.finishedAt??report.startedAt):'';
   const metadata=[['対象サイト',report?.baseURL??state.project?.baseURL??'—'],['実行ID',report?.runId??'—'],['環境',({local:'ローカル',staging:'検証環境',production:'本番環境'})[report?.environment??state.project?.environment]??'—'],['設定ファイル',state.project?.configPath??'—'],['対象リビジョン',report?.revision??'未指定'],['実行環境',report?.runtime??'—']];
@@ -242,11 +269,11 @@ async function refresh(){
     if(completedReport)showVerdict(completedReport.report,data.lastJob.exitCode);
   }catch(e){if(current())showError('状態を取得できませんでした：'+e.message);}
 }
-$('#project-select').addEventListener('change',async e=>{++refreshTicket;state.projectId=e.target.value;localStorage.setItem('wpqa-project',state.projectId);state.runId=null;state.report=null;state.detail=null;state.follow=true;state.lastActive=false;state.rowsKey='';state.historyKey='';notify('');showError('');render();await refresh();});
+$('#project-select').addEventListener('change',async e=>{++refreshTicket;state.projectId=e.target.value;state.project=null;localStorage.setItem('wpqa-project',state.projectId);state.runId=null;state.report=null;state.detail=null;state.follow=true;state.lastActive=false;state.rowsKey='';state.historyKey='';notify('');showError('');render();await refresh();});
 $('#run-button').addEventListener('click',async()=>{
   const verdict=document.querySelector('#cinema-verdict');if(verdict)verdict.hidden=true;
-  if(state.busy||state.requesting)return;++refreshTicket;state.requesting=true;render();showError('');notify('');
-  try{const operation={mode:$('#standard-operation-mode').value,password:$('#standard-operation-password').value,confirmed:$('#standard-operation-confirmed').checked};$('#standard-operation-password').value='';await api(`${projectAPI()}/runs`,{method:'POST',body:JSON.stringify({suite:$('#suite-select').value,operation})});state.follow=true;state.runId=null;state.report=null;state.detail=null;state.lastActive=true;}
+  if(state.busy||state.requesting||!state.project)return;++refreshTicket;state.requesting=true;render();showError('');notify('');
+  try{const payload={suite:$('#suite-select').value};if(!state.project.profileScope)payload.operation={mode:$('#standard-operation-mode').value,password:$('#standard-operation-password').value,confirmed:$('#standard-operation-confirmed').checked};$('#standard-operation-password').value='';await api(`${projectAPI()}/runs`,{method:'POST',body:JSON.stringify(payload)});state.follow=true;state.runId=null;state.report=null;state.detail=null;state.lastActive=true;}
   catch(e){showError(e.message);}finally{state.requesting=false;await refresh();}
 });
 $('#preflight-button').onclick=async()=>{
@@ -322,13 +349,15 @@ try{
 }catch(e){showError(e.message);}
 
 initExternalAuth({api,currentProject:()=>state.project,onSaved:()=>refresh()});
-initSettings({api,currentProject:()=>state.projectId,onSaved:async id=>{
+const siteSaved=async id=>{
   $('#preflight-result').replaceChildren();
   ++refreshTicket;state.projectId=id;state.project=null;state.runId=null;state.report=null;state.detail=null;state.follow=true;state.lastActive=false;
   const boot=await api('/api/bootstrap');state.projects=boot.projects;
   $('#project-select').innerHTML=boot.projects.map(p=>`<option value="${escape(p.id)}">${escape(p.name)}</option>`).join('');$('#project-select').value=id;
   localStorage.setItem('wpqa-project',id);notify('サイト設定を保存しました');render();await refresh();
-}});
+};
+initSettings({api,currentProject:()=>state.projectId,onSaved:siteSaved});
+initRegistration({api,onSaved:siteSaved});
 
 // Movie-prop telemetry: entirely local decoration, independent of QA state.
 const cinemaToggle=document.querySelector('#cinema-toggle');

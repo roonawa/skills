@@ -3,6 +3,7 @@ import path from 'node:path';
 import {randomUUID,createHash} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
 import {validateConfig} from '../lib/config.mjs';
+import {builtinModules,validateProfile,profileJourneys} from './registration.mjs';
 
 export function protect(value,decode=false) {
   if(process.platform!=='win32')throw new Error('認証情報の保存はWindowsのユーザー暗号化に対応しています');
@@ -27,15 +28,18 @@ export class ProjectStore {
   ids(){return fs.readdirSync(this.directory).filter(x=>/^[a-f0-9-]{36}\.json$/.test(x)).map(x=>x.slice(0,-5));}
   file(id){if(!/^[a-f0-9-]{36}$/.test(id))throw new Error('サイトIDが不正です');return path.join(this.directory,id+'.json');}
   record(id){return JSON.parse(fs.readFileSync(this.file(id),'utf8'));}
-  view(id){const r=this.record(id);return {config:r.config,version:r.version,credentials:r.credentials,managed:true};}
+  view(id){const r=this.record(id);return {config:r.config,version:r.version,credentials:r.credentials,profile:r.profile,managed:true};}
   context(id){const r=this.record(id),dir=path.join(this.directory,id),config=validateConfig({...r.config,trustedAdapters:structuredClone(this.trustedAdapters)});return {config,trustedAdapters:config.trustedAdapters,configHash:createHash('sha256').update(JSON.stringify(config)).digest('hex'),configPath:path.join(dir,'site.json'),configDir:dir,outputDir:config.outputDir,baselineDir:config.baselineDir};}
-  save({id,version,config,auth={}}){
+  save({id,version,config,auth={},profile}){
     const old=id?this.record(id):null;
     if(old&&old.version!==version)throw new Error('別の画面で設定が更新されました。閉じてから再度開いてください');
     id??=randomUUID();const dir=path.join(this.directory,id);
     // UI can edit test data, never introduce executable modules or arbitrary output paths.
-    if((config.journeys??[]).length)throw new Error('UI登録サイトの操作テストには案件用コードが必要です。外部設定ファイルを利用してください');
-    for(const key of ['headersEnv','mailpit'])if(config[key]!==undefined)throw new Error('認証・メール連携はこの編集画面では設定できません');
+    profile=profile===undefined?old?.profile:validateProfile(profile,config.environment);
+    const allowed=new Set(Object.values(builtinModules));
+    if((config.journeys??[]).some(j=>!profile||!allowed.has(j.module)))throw new Error('UIで利用できる操作テストのコードは登録済みの標準検査のみです');
+    if(config.headersEnv!==undefined&&!(profile&&config.headersEnv==='WPQA_UI_PUBLIC_HEADERS')||config.mailpit!==undefined)throw new Error('認証・メール連携はこの編集画面では設定できません');
+    if(profile){profile=validateProfile(profile,config.environment);config={...config,revision:'registration-'+createHash('sha256').update(JSON.stringify(profile)).digest('hex'),headersEnv:'WPQA_UI_PUBLIC_HEADERS',allowTestWrites:profile.writes,allowProductionJourneys:config.environment==='production',journeys:profileJourneys(profile)};}
     config=validateConfig({...config,trustedAdapters:structuredClone(this.trustedAdapters),outputDir:path.join(dir,'runs'),baselineDir:path.join(dir,'baselines')});
     const roles=auth.roleCredentials??[];
     if(!Array.isArray(roles))throw new Error('roleCredentialsは配列で指定してください');
@@ -52,12 +56,14 @@ export class ProjectStore {
       if((credential.rest&&!clearing?.clearRest)||(credential.browser&&!clearing?.clearBrowser))throw new Error('URL変更前に保存済みロール認証をすべて削除してください');
     }
     let secrets=old?.sealed?JSON.parse(this.codec(old.sealed,true)):{};
+    if(old&&old.config.baseURL!==config.baseURL&&secrets.publicPassword&&auth.publicPassword===undefined)throw new Error('URL変更前にサイト閲覧パスワードを削除または再入力してください');
     if(auth.clearRest)delete secrets.rest;if(auth.clearBrowser)delete secrets.browser;
     if(auth.rest){
       if(typeof auth.rest.username!=='string'||!auth.rest.username.trim()||auth.rest.username.includes(':')||typeof auth.rest.password!=='string'||!auth.rest.password.trim())throw new Error('REST認証のユーザー名とパスワードを入力してください');
       secrets.rest=auth.rest;
     }
     if(auth.browser)secrets.browser=stateForOrigin(auth.browser,config.baseURL);
+    if(auth.publicPassword!==undefined){if(typeof auth.publicPassword!=='string'||auth.publicPassword.length>1000)throw Error('サイト閲覧パスワードが不正です');secrets.publicPassword=auth.publicPassword;}
     secrets.roles??={};
     for(const role of roles){
       const secret=Object.hasOwn(secrets.roles,role.name)?secrets.roles[role.name]:{};
@@ -69,14 +75,14 @@ export class ProjectStore {
       if(role.browser)secret.browser=stateForOrigin(role.browser,config.baseURL);
       if(secret.rest||secret.browser)secrets.roles[role.name]=secret;else delete secrets.roles[role.name];
     }
-    if((secrets.rest||secrets.browser||Object.keys(secrets.roles).length)&&new URL(config.baseURL).protocol!=='https:'&&config.environment!=='local')throw new Error('認証付きの実サイトはHTTPSで登録してください');
+    if((secrets.rest||secrets.browser||secrets.publicPassword||Object.keys(secrets.roles).length)&&new URL(config.baseURL).protocol!=='https:'&&config.environment!=='local')throw new Error('認証付きの実サイトはHTTPSで登録してください');
     config.admin=(config.admin??[]).map(a=>{
       const {headersEnv,storageStateEnv,...clean}=a;
       return {...clean,...(a.source==='rest'&&secrets.rest?{headersEnv:'WPQA_UI_ADMIN_HEADERS'}:{}),...(a.source==='browser'&&secrets.browser?{storageStateEnv:'WPQA_UI_ADMIN_STATE'}:{})};
     });
     config=validateConfig(config);
     const credentials={rest:!!secrets.rest,browser:!!secrets.browser,roles:Object.fromEntries(Object.entries(secrets.roles).map(([name,value])=>[name,{rest:!!value.rest,browser:!!value.browser}]))};
-    const record={version:randomUUID(),config,credentials,sealed:credentials.rest||credentials.browser||Object.keys(credentials.roles).length?this.codec(JSON.stringify(secrets)):null};
+    const record={version:randomUUID(),config,credentials,...(profile?{profile}:{}),sealed:credentials.rest||credentials.browser||secrets.publicPassword||Object.keys(credentials.roles).length?this.codec(JSON.stringify(secrets)):null};
     const file=this.file(id),temp=file+'.tmp';fs.writeFileSync(temp,JSON.stringify(record,null,2),{mode:0o600});fs.renameSync(temp,file);
     return id;
   }
@@ -86,6 +92,7 @@ export class ProjectStore {
     const env={WPQA_UI_ADMIN_HEADERS:'',WPQA_UI_ADMIN_STATE:''};
     if(secrets.rest)env.WPQA_UI_ADMIN_HEADERS=JSON.stringify({Authorization:'Basic '+Buffer.from(secrets.rest.username+':'+secrets.rest.password).toString('base64')});
     if(secrets.browser)env.WPQA_UI_ADMIN_STATE=JSON.stringify(secrets.browser);
+    if(r.profile){env.WPQA_UI_PROFILE=JSON.stringify(r.profile);env.WPQA_UI_SITE_PASSWORD=secrets.publicPassword??'';const gate=secrets.browser?.cookies.filter(c=>/password_protected/.test(c.name)&&c.name!=='password_protected_cookie_test')??[];env.WPQA_UI_PUBLIC_HEADERS=JSON.stringify(gate.length?{Cookie:gate.map(c=>c.name+'='+c.value).join('; ')}:{});}
     for(const [name,value] of Object.entries(secrets.roles??{})){
       const prefix='WPQA_ROLE_'+name.toUpperCase().replaceAll('-','_');
       env[prefix+'_HEADERS']=value.rest?JSON.stringify({Authorization:'Basic '+Buffer.from(value.rest.username+':'+value.rest.password).toString('base64')}):'';

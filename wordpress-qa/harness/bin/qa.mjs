@@ -12,6 +12,8 @@ import { discover } from '../lib/discovery.mjs';
 import { envHeaders } from '../lib/mailpit.mjs';
 import {cancellationRequested} from '../lib/cancellation.mjs';
 import {acquireRunLock,projectIsAlive,runIsAlive} from '../lib/run-lock.mjs';
+import {preparePublicGate} from '../lib/registration-gate.mjs';
+import {isolatedAuthOnly} from '../lib/isolated-auth.mjs';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 function options(args) {
@@ -34,6 +36,7 @@ async function main() {
   const rows=catalog(c,opts.suite??'all');
   if(command==='run'&&opts.id){const operation=c.journeys.find(j=>j.explicitOnly&&'journey.'+j.id===opts.id);if(operation)ctx.operation={id:operation.id,mode:process.env.WPQA_OPERATION_MODE,handlesAuthentication:operation.handlesAuthentication===true};}
   if(command==='run'&&opts.id)selectSingleTest(rows,opts.id);
+  if(command==='run'&&!isolatedAuthOnly({config:c,report:{rows}}))await preparePublicGate(c);
   if(command==='run')for(const j of c.journeys.filter(j=>j.explicitOnly&&rows.some(r=>r.id==='journey.'+j.id&&r.selected))){
     if(!(process.env.WPQA_OPERATION_ID===j.id||process.env.WPQA_OPERATION_ID==='suite'&&j.runWithSuite)||!['preview','submit'].includes(process.env.WPQA_OPERATION_MODE)||!c.allowTestWrites||!['local','staging'].includes(c.environment))throw Error('BLOCKED: configure operation test execution in the UI');
   }

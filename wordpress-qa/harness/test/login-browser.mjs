@@ -30,7 +30,7 @@ let loginBrowser;
 const storeDir=path.join(scratch,'projects');const app=await startUI({storeDir,port:0,loginOptions:{launch:async()=>loginBrowser=await chromium.launch({headless:process.env.WPQA_LOGIN_HEADED!=='1'})}});
 const browser=await chromium.launch();const page=await browser.newPage({viewport:{width:1440,height:1000}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
 try{
- await page.goto(app.url);await page.locator('#new-site').click();const dialog=page.locator('dialog');
+ await page.goto(app.url);await page.locator('#new-site').click();await page.locator('#registration-advanced').click();const dialog=page.locator('dialog:has(#site-editor)');
  await dialog.locator('#site-fields [data-key=name]').fill('ログイン検証');await dialog.locator('#site-fields [data-key=baseURL]').fill(origin);await dialog.locator('#site-fields [data-key=environment]').selectOption('local');
  await dialog.locator('#add-admin').click();const row=dialog.locator('[data-kind=admin]');await row.locator('[data-key=id]').fill('indexing');await row.locator('[data-key=source]').selectOption('browser');await row.locator('[data-key=path]').fill('/wp-admin/options-reading.php');await row.locator('[data-key=selector]').fill('#blog_public');await row.locator('[data-key=read]').selectOption('checked');await row.locator('[data-key=expectedType]').selectOption('boolean');await row.locator('[data-key=expected]').fill('false');
  await dialog.locator('#login-start').click();await expect(dialog.locator('#login-verify')).toBeVisible();await expect(dialog.locator('#editor-save')).toBeDisabled();
