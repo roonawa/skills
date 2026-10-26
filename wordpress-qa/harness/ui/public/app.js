@@ -1,4 +1,5 @@
 import {initSettings} from './settings.js';
+import {initExternalAuth} from './external-auth.js';
 import {extendedSuites} from './coverage-editor.js';
 const $=selector=>document.querySelector(selector);
 const state={token:'',projects:[],projectId:'',project:null,runId:null,report:null,detail:null,filter:'all',search:'',busy:false,active:null,follow:true,lastActive:false,notice:'',detailKey:'',rowsKey:'',historyKey:'',requesting:false};
@@ -202,11 +203,13 @@ function render(){
   else if(state.report?.orphaned){title='実行の完了を確認できません';subtitle='アプリの終了などで中断した可能性があります。ログを確認してください。';label='未完了';tone='blocked';icon='!';}
   else if(report?.runStatus==='planned'){title='テストケースを実行できます';subtitle='未実施のケース一覧です。検査範囲を選び「検査を実行」を押してください。';label='未実施';tone='not_run';icon='○';}
   else if(report){title=report.gatePassed?'必須条件を満たしています':report.summary?.fail?'不合格の項目を確認してください':'確認が必要な項目が残っています';subtitle=`${date(report.startedAt)} の実行結果 · 手動確認と未実施の項目も確認してください`;label=report.gatePassed?'必須条件充足':report.summary?.fail?'不合格あり':'未確認あり';tone=report.gatePassed?'pass':report.summary?.fail?'fail':'review';icon=report.gatePassed?'✓':report.summary?.fail?'!':'○';}
+  if(report?.aggregation&&!live){title='実行結果・実査レビューの統合';subtitle='複数の実行履歴を統合した結果です。新たな全件実行ではありません。各項目の採用元・確認日を参照してください。';}
   $('#run-title').textContent=title;$('#run-subtitle').textContent=subtitle;$('#run-badge').className=`pill ${tone}`;$('#run-badge').textContent=label;
   $('#run-indicator').className=`status-icon ${live?'running':tone==='pass'?'good':tone==='fail'?'bad':''}`;$('#run-indicator').textContent=icon;
   $('#progress-fill').style.width=`${percent}%`;$('.progress-track').setAttribute('aria-valuenow',percent);$('#progress-label').textContent=`${completed} / ${selected.length} 項目`;
+  if(report?.aggregation&&!live)$('#progress-label').textContent=`${rows.length}項目の保存証拠を統合`;
   for(const status of ['pass','fail','blocked','review','not_run'])$(`#metric-${status}`).textContent=report?.summary?.[status]??'—';
-  $('#report-link').hidden=!report;if(report)$('#report-link').href=fileURL('report.html');
+  $('#report-link').hidden=!report;if(report)$('#report-link').href=fileURL(report.aggregation&&rows.some(r=>r.evidence?.includes('followup-summary.html'))?'followup-summary.html':'report.html');
   $('#issue-report-panel').hidden=!report;
   $('#issue-report-generate').disabled=state.requesting||report?.runStatus!=='finished';
   const reportScope=`${state.projectId}/${state.runId}`;
@@ -318,6 +321,7 @@ try{
   const poll=async()=>{await refresh();setTimeout(poll,1000);};setTimeout(poll,1000);
 }catch(e){showError(e.message);}
 
+initExternalAuth({api,currentProject:()=>state.project,onSaved:()=>refresh()});
 initSettings({api,currentProject:()=>state.projectId,onSaved:async id=>{
   $('#preflight-result').replaceChildren();
   ++refreshTicket;state.projectId=id;state.project=null;state.runId=null;state.report=null;state.detail=null;state.follow=true;state.lastActive=false;

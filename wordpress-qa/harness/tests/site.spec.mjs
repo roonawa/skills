@@ -13,8 +13,10 @@ import {captureMarkedScreenshots} from '../lib/marked-screenshots.mjs';
 const ctx=JSON.parse(fs.readFileSync(process.env.WPQA_CONTEXT,'utf8'));
 const c=ctx.config;
 const test=base.extend({page:async({context},use)=>{
+  let closing=false;
   const configured=ctx.operation?.handlesAuthentication?{}:envHeaders(c.headersEnv);
   if(Object.keys(configured).length) await context.route('**/*',async route=>{
+    try {
     const req=route.request(),headers=scopedHeaders(req.headers(),configured,req.url(),c.baseURL);
     if(new URL(req.url()).origin!==c.baseURL) return route.continue({headers});
     // Do not let custom authentication headers follow a cross-origin redirect.
@@ -22,8 +24,9 @@ const test=base.extend({page:async({context},use)=>{
     const location=response.headers().location;
     if(location && new URL(location,req.url()).origin!==c.baseURL) {await response.dispose();return route.abort('blockedbyclient');}
     await route.fulfill({response});await response.dispose();
+    } catch(error) { if(!closing || !/Test ended|Target.*closed|context.*disposed/i.test(error.message)) throw error; }
   });
-  const page=await context.newPage();await use(page);await page.close();
+  const page=await context.newPage();try{await use(page);}finally{closing=true;await page.close();}
 }});
 const enabled=id=>ctx.report.rows.some(r=>r.id===id&&r.selected);
 test.beforeEach(()=>checkCancellation(ctx.runDir));
@@ -42,10 +45,12 @@ for(const p of c.pages) {
   });
   if(enabled(`links.${p.id}`)) test(title(`links.${p.id}`),async({request},info)=>{
     const res=await fetchPage(request,p.path,c.baseURL,c.timeoutMs);expect(res.status).toBe(200);
-    const results=[];
-    for(const link of internalLinks(res.body,res.url)) {
-      const target=await fetchPage(request,link,c.baseURL,c.timeoutMs);results.push({url:link,status:target.status});
-    }
+    const links=[...internalLinks(res.body,res.url)],results=[];let next=0;
+    await Promise.all(Array.from({length:Math.min(3,links.length)},async()=>{
+      while(next<links.length){const link=links[next++];
+        const target=await fetchPage(request,link,c.baseURL,c.timeoutMs);results.push({url:link,status:target.status});
+      }
+    }));
     await evidence(info,'links',results);expect(results.filter(r=>r.status<200||r.status>=400)).toEqual([]);
   });
 }

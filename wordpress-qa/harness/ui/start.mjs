@@ -23,6 +23,14 @@ try {
     else throw new Error('Usage: npm run ui -- [--config site.json] [--port 4310] [--adapters adapters.json]');
   }
   if(port<0||port>65535)throw new Error('Invalid port');
+  // Keep explicitly registered local configurations available on normal startup.
+  // Store paths only; credentials and historical results stay in their original locations.
+  const registryFile=path.join(root,'.ui','config-paths.json');
+  const savedPaths=fs.existsSync(registryFile)?JSON.parse(fs.readFileSync(registryFile,'utf8')):[];
+  if(!Array.isArray(savedPaths)||savedPaths.some(p=>typeof p!=='string'||!path.isAbsolute(p)))throw new Error('Invalid saved configuration paths');
+  const registeredPaths=[...new Set([...configPaths,...savedPaths])];
+  for(const file of registeredPaths)if(!fs.existsSync(file))throw new Error(`Registered configuration missing: ${file}`);
+  configPaths.splice(0,configPaths.length,...registeredPaths);
   const demo=!configPaths.length;
   if(demo){
     demoServer=await startDemo(0);
@@ -36,6 +44,7 @@ try {
     fs.mkdirSync(path.join(root,'.ui'),{recursive:true});const file=path.join(root,'.ui','demo.json');fs.writeFileSync(file,JSON.stringify(config,null,2));configPaths.push(file);
   }
   const app=await startUI({configPaths,port,demo,storeDir:path.join(root,'.ui','projects'),trustedAdapters});
+  if(!demo){fs.mkdirSync(path.dirname(registryFile),{recursive:true});fs.writeFileSync(registryFile,JSON.stringify(registeredPaths,null,2));}
   console.log(`WordPress QA Console: ${app.url}\n${demo?'Local demo included.':'Registered projects: '+configPaths.length}\nCtrl+C to stop (active run will finish first).`);
   let closing=false;
   const close=async()=>{if(closing)return;closing=true;await app.close();if(demoServer)await demoServer.close();};

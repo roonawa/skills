@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import {BrowserLogin} from './browser-login.mjs';
 import {ProjectStore} from './project-store.mjs';
+import {ExternalAuth} from './external-auth.mjs';
 import { loadConfig,catalog } from '../lib/config.mjs';
 import {writeReport} from '../lib/results.mjs';
 import {summarizeRecovery} from '../lib/recovery.mjs';
@@ -43,6 +44,7 @@ function projectInfo(project) {
 export async function startUI({configPaths=[],port=4310,demo=false,storeDir,loginOptions,trustedAdapters={}}) {
   const logins=new BrowserLogin(loginOptions);
   const store=storeDir?new ProjectStore(storeDir,{trustedAdapters}):null;
+  const externalAuth=storeDir?new ExternalAuth(path.join(storeDir,'external-auth')):null;
   const token=randomBytes(24).toString('hex'),projects=new Map(),outputDirs=new Set();
   for(const filename of configPaths) {
     const ctx=loadConfig(filename),outputDir=path.resolve(ctx.configDir,ctx.config.outputDir??'runs');
@@ -91,7 +93,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
     if(closing)reject(503,'終了処理中です');if(active)reject(409,'別の処理が実行中です。完了を待ってください');
     if(['run','recover'].includes(kind)&&projectIsAlive(p.outputDir))reject(409,'以前の検査プロセスが生存している可能性があります。終了を待ってください。');
     if(logins.busy)reject(409,'ログインの保存またはキャンセル後に実行してください');
-    const prepared=p.managed?store.prepare(p.id):{env:{}};
+    const prepared=p.managed?store.prepare(p.id):externalAuth?.prepare(p.id,projectInfo(p).config)??{env:{}};
     if(kind==='run'&&fs.existsSync(p.outputDir))for(const entry of fs.readdirSync(p.outputDir,{withFileTypes:true}).filter(e=>e.isDirectory()))if(summarizeRecovery(runPath(p,entry.name)).pending)reject(409,'前回のテストデータが残っています。該当する実行履歴から回収してください');
     const job={projectId:p.id,kind,runId:null,state:'starting',log:'',exitCode:null};active=job;lastJob=job;
     const inheritedEnv={...process.env};
@@ -162,7 +164,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
         if(active||closing)reject(409,'実行完了後にログインしてください');
         try{
           if(segments.length===2){
-            if(data.projectId&&!getProject(data.projectId).managed)reject(403,'UI登録サイトでログインしてください');
+            if(data.projectId){const p=getProject(data.projectId),c=projectInfo(p).config;if(!p.managed&&(data.baseURL!==c.baseURL||data.environment!==c.environment||data.role))reject(400,'登録済みサイトの既定管理者としてログインしてください');}
             return json(201,await logins.start(data));
           }
           if(segments.length===4&&segments[3]==='verify')return json(200,await logins.verify(segments[2]));
@@ -178,8 +180,17 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
           registerManaged(id);return json(201,{id});
         }
         const p=getProject(segments[2]);
+        if(segments[3]==='auth'&&segments.length===4){
+          if(p.managed||!externalAuth)reject(400,'このサイトは設定を編集から認証を登録してください');
+          const c=projectInfo(p).config;
+          if(req.method==='GET')return json(200,{...externalAuth.status(p.id,c),baseURL:c.baseURL,environment:c.environment});
+          if(active||closing||projectIsAlive(p.outputDir))reject(409,'実行完了後に認証を保存してください');
+          const data=await body(req);if(Object.keys(data).some(k=>k!=='loginId')||typeof data.loginId!=='string')reject(400,'確認済みログインを指定してください');
+          logins.save(data.loginId,{baseURL:c.baseURL,projectId:p.id},state=>externalAuth.save(p.id,c,state));
+          return json(200,{ok:true,...externalAuth.status(p.id,c)});
+        }
         if(segments[3]==='preflight'&&segments.length===4&&req.method==='GET'){
-          const config=projectInfo(p).config,env=p.managed?store.prepare(p.id).env:process.env;
+          const config=projectInfo(p).config,env=p.managed?store.prepare(p.id).env:{...process.env,...externalAuth?.prepare(p.id,config).env};
           return json(200,preflight(config,env));
         }
         if(segments[3]==='stop'&&segments.length===4&&req.method==='POST'){
@@ -196,7 +207,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
         }
         if(segments.length===3&&req.method==='GET') {
           const {config:c,configHash}=projectInfo(p);
-          return json(200,{project:{id:p.id,name:c.name,baseURL:c.baseURL,environment:c.environment,configPath:p.file,configHash,counts:{pages:c.pages.length,journeys:c.journeys.length,visuals:c.visuals.length},planned:catalog(c).length},runs:history(p),busy:!!active,active:jobState(active),lastJob:lastJob?.projectId===p.id?jobState(lastJob):null});
+          return json(200,{project:{id:p.id,managed:!!p.managed,name:c.name,baseURL:c.baseURL,environment:c.environment,configPath:p.file,configHash,counts:{pages:c.pages.length,journeys:c.journeys.length,visuals:c.visuals.length},planned:catalog(c).length},runs:history(p),busy:!!active,active:jobState(active),lastJob:lastJob?.projectId===p.id?jobState(lastJob):null});
         }
         if(segments[3]==='operations'){
           const current=projectInfo(p);
@@ -350,7 +361,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
         reject(404,'APIが見つかりません');
       }
       if(req.method!=='GET')reject(404,'ページが見つかりません');
-      const files={'/':'index.html','/app.js':'app.js','/style.css':'style.css','/case-generator.js':'case-generator.js','/settings.js':'settings.js','/coverage-editor.js':'coverage-editor.js','/options-form.js':'options-form.js'};
+      const files={'/':'index.html','/app.js':'app.js','/style.css':'style.css','/case-generator.js':'case-generator.js','/settings.js':'settings.js','/external-auth.js':'external-auth.js','/coverage-editor.js':'coverage-editor.js','/options-form.js':'options-form.js'};
       const name=files[target.pathname];if(!name)reject(404,'ページが見つかりません');
       res.setHeader('Cache-Control','no-store');res.setHeader('Content-Type',name.endsWith('.js')?'text/javascript; charset=utf-8':name.endsWith('.css')?'text/css; charset=utf-8':'text/html; charset=utf-8');
       res.end(fs.readFileSync(path.join(publicDir,name)));

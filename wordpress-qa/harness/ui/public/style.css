@@ -90,3 +90,6 @@ button{background:#122017;color:#bed1b2;border:1px solid #40543a;border-radius:0
 .confirmation-panel fieldset{margin:16px 0;padding:12px;min-width:0;border:1px solid #879caf}
 .confirmation-panel legend{white-space:normal;overflow-wrap:anywhere}
 .confirmation-panel button{margin:6px 8px 6px 0}
+
+#admin-auth-dialog{width:min(720px,92vw);max-height:88vh;overflow:auto;border:1px solid #8795a9;border-radius:12px;padding:24px;background:#fff;color:#203045}#admin-auth-dialog::backdrop{background:#15284088}#admin-auth-dialog p{line-height:1.7}#admin-auth-dialog button{margin:6px 0}#admin-auth-error{color:#b42318}#admin-auth-path{min-width:220px}
+
