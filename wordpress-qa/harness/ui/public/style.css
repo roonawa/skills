@@ -93,3 +93,35 @@ button{background:#122017;color:#bed1b2;border:1px solid #40543a;border-radius:0
 
 #admin-auth-dialog{width:min(720px,92vw);max-height:88vh;overflow:auto;border:1px solid #8795a9;border-radius:12px;padding:24px;background:#fff;color:#203045}#admin-auth-dialog::backdrop{background:#15284088}#admin-auth-dialog p{line-height:1.7}#admin-auth-dialog button{margin:6px 0}#admin-auth-error{color:#b42318}#admin-auth-path{min-width:220px}
 
+#designer-report-panel{margin:0 20px 18px;padding:14px;border:1px solid var(--border,#64748b);border-radius:8px;min-width:0}
+#designer-report-panel summary{cursor:pointer;font-weight:700}
+#designer-report-panel label{display:block;margin:12px 0 6px}
+#designer-report-notes{box-sizing:border-box;display:block;width:100%;max-width:100%;padding:10px;background:#101a14;color:#e6eee1;border:1px solid #64745d;border-radius:4px;font:inherit}
+.designer-report-actions{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:12px}
+#designer-report-panel a{color:#b9ddb1;text-decoration:underline}
+#designer-report-panel[hidden],#designer-report-panel [hidden]{display:none}
+#designer-report-status{overflow-wrap:anywhere}
+
+#registration-dialog [aria-invalid="true"]{border:2px solid #ff746c!important;outline:1px solid #ff746c;background:#351918!important}#registration-dialog .registration-field-error,#registration-validation{color:#ffb5ae;font-size:13px;font-weight:600}#registration-validation:empty{display:none}
+.pill.preparation{color:#bfe1f4;background:#163243;border:1px solid #618fa7}
+.dot.preparation{background:#90c9e6}
+.preparation-help{margin:14px 0;padding:14px;border:1px solid #618fa7;background:#122631;color:#d4e7ef;line-height:1.7;overflow-wrap:anywhere}
+.preparation-help h3,.preparation-help h4{margin:0 0 10px}
+.preparation-help button{margin-top:12px}
+
+@media(min-width:721px){.metrics{grid-template-columns:repeat(3,minmax(0,1fr))}}
+#test-rows > tr > td[colspan="4"] { text-align: left; white-space: normal; }
+#test-rows .preparation-help details { margin: 12px 0; }
+#test-rows .preparation-help summary { cursor: pointer; font-size: 14px; line-height: 1.7; }
+.preparation-help dl { line-height: 1.8; white-space: normal; overflow-wrap: anywhere; }
+.preparation-help dt { font-weight: 700; margin-top: 12px; }
+.preparation-help dd { margin: 4px 0 12px; }
+.settings-target { outline: 3px solid #e7ac44; outline-offset: 4px; }
+.settings-target-note { padding: 12px; background: #fff3cc; color: #372a10; font-weight: 700; }
+.preparation-mode .editor-body > section:not(:has(.settings-target)),
+.preparation-mode .coverage-row:not(.settings-target),
+.preparation-mode [data-add-check],.preparation-mode [data-add-plan],
+.preparation-mode [data-checks] ~ details { display:none; }
+.preparation-wizard { padding:16px; line-height:1.8; }
+.preparation-wizard label { display:block; margin:12px 0; }
+.settings-target > [hidden] { display:none!important; }

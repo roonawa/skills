@@ -7,7 +7,7 @@ import { waitForMail, envHeaders } from '../mailpit.mjs';
 import { networkPolicy, validateNetworkPolicy } from '../network-policy.mjs';
 
 export const kinds = ['browser-flow', 'mail-delivery', 'operation-drill'];
-const actions = ['goto','fill','click','check','select','press','setInputFiles','assertVisible','assertText','assertCount','assertURL','assertAttribute','waitForMail'];
+const actions = ['goto','fill','click','check','select','press','setInputFiles','assertVisible','assertText','assertCount','assertURL','assertAttribute','assertRequest','waitForMail'];
 const assertions = actions.filter(x=>x.startsWith('assert')).concat('waitForMail');
 function object(value, keys, label) {
   assert.ok(value && typeof value==='object' && !Array.isArray(value), `${label} must be an object`);
@@ -29,6 +29,61 @@ function mail(options) {
     if(e.attachments.names!==undefined) assert.ok(Array.isArray(e.attachments.names)&&e.attachments.names.every(x=>typeof x==='string'),'attachment names must be strings');
   }
 }
+
+function requestExpectation(s,config) {
+  string(s.url,'request endpoint');
+  const u=new URL(s.url,config?.baseURL??'https://fixture.invalid');
+  assert.ok((s.url.startsWith('/')&&!s.url.startsWith('//')||/^https?:\/\//.test(s.url))&&!s.url.includes('*')&&!u.username&&!u.password&&!u.search&&!u.hash,'request endpoint must be an exact URL without query, credentials or fragment');
+  assert.ok(u.protocol==='https:'||(u.protocol==='http:'&&['127.0.0.1','localhost','[::1]'].includes(u.hostname)),'request endpoint requires HTTPS or loopback HTTP');
+  assert.ok(['GET','HEAD','POST','PUT','PATCH','DELETE'].includes(s.method),'request method required');
+  assert.ok(Number.isInteger(s.count)&&s.count>=0&&s.count<=10000,'request count must be 0..10000');
+  for(const key of ['query','body'])if(s[key]!==undefined){
+    const values=s[key];assert.ok(values&&typeof values==='object'&&!Array.isArray(values),'request parameters must be objects');
+    assert.ok(Object.keys(values).length<=100,'too many request parameters');
+    for(const [name,value] of Object.entries(values))assert.ok(name.length>0&&name.length<=200&&(key==='query'?typeof value==='string':value===null||typeof value==='string'||typeof value==='boolean'||typeof value==='number'&&Number.isFinite(value))&&(typeof value!=='string'||value.length<=4000),'request parameters must be bounded scalar values (query strings only)');
+  }
+  const timeout=s.timeoutMs??5000,settle=s.settleMs??500;
+  assert.ok(Number.isInteger(timeout)&&timeout>=100&&timeout<=30000,'request timeoutMs must be 100..30000');
+  assert.ok(Number.isInteger(settle)&&settle>=50&&settle<=5000&&settle<=timeout,'request settleMs must be 50..5000 and no greater than timeoutMs');
+}
+// Compare only declared parameters; all comparisons are exact, with no regex or
+// partial text matching. Payloads are used transiently and never kept as evidence.
+function matchesRequest(req,s,baseURL) {
+  try{
+    const u=new URL(req.url()),target=new URL(s.url,baseURL);
+    if(u.origin!==target.origin||u.pathname!==target.pathname||req.method()!==s.method)return false;
+    if(Object.entries(s.query??{}).some(([k,v])=>u.searchParams.getAll(k).length!==1||u.searchParams.get(k)!==v))return false;
+    if(s.body!==undefined){
+      const text=req.postData();if(typeof text!=='string'||text.length>65536)return false;
+      const type=(req.headers()['content-type']??'').split(';')[0].trim().toLowerCase();let data;
+      if(type==='application/json'){
+        data=JSON.parse(text);if(!data||typeof data!=='object'||Array.isArray(data))return false;
+        if(Object.entries(s.body).some(([k,v])=>!Object.hasOwn(data,k)||data[k]!==v))return false;
+      }else if(type==='application/x-www-form-urlencoded'){
+        const values=new URLSearchParams(text);
+        if(Object.entries(s.body).some(([k,v])=>typeof v!=='string'||values.getAll(k).length!==1||values.get(k)!==v))return false;
+      }else return false;
+    }
+    return true;
+  }catch{return false;}
+}
+async function assertObservedRequest(counter,s,signal) {
+  const start=Date.now(),deadline=start+(s.timeoutMs??5000),settle=s.settleMs??500;
+  while(true){
+    signal?.throwIfAborted();
+    assert.equal(counter.failed,0,'request verification inconclusive: a matching request failed');
+    assert.ok(counter.count<=s.count,'matching request count exceeds expectation');
+    const now=Date.now();
+    if(s.count>0&&counter.count===s.count&&counter.pending===0&&now-Math.max(start,counter.last)>=settle)return;
+    if(now>=deadline){
+      assert.equal(counter.pending,0,'request verification inconclusive: matching requests still pending');
+      assert.equal(counter.count,s.count,'matching request count differs');
+      assert.ok(s.count===0||now-Math.max(start,counter.last)>=settle,'matching requests did not settle within timeout');return;
+    }
+    await new Promise(resolve=>setTimeout(resolve,Math.min(25,deadline-now)));
+  }
+}
+
 function probe(p) {
   object(p,['url','status','bodyIncludes'],'probe'); string(p.url,'probe url'); string(p.bodyIncludes,'probe bodyIncludes');
   assert.ok(Number.isInteger(p.status) && p.status>=100 && p.status<=599,'probe status required');
@@ -44,9 +99,11 @@ export function validate(check,config) {
     if(check.suite==='commerce') assert.equal(o.sandbox,true,'commerce requires sandbox=true');
     assert.ok(Array.isArray(o.steps) && o.steps.length>0 && o.steps.length<=200,'steps required (maximum 200)');
     for(const s of o.steps) {
-      object(s,['action','selector','value','url','count','name','source','expected','mimeType'],'step');
+      object(s,['action','selector','value','url','count','name','source','expected','mimeType','method','query','body','timeoutMs','settleMs'],'step');
       assert.ok(actions.includes(s.action),'unknown step action');
-      if(s.action==='waitForMail') mail({source:s.source,expected:s.expected});
+      if(s.action!=='assertRequest')assert.ok(!['method','query','body','timeoutMs','settleMs'].some(k=>s[k]!==undefined),'request fields require assertRequest');
+      if(s.action==='assertRequest'){object(s,['action','url','method','query','body','count','timeoutMs','settleMs'],'assertRequest');requestExpectation(s,config);}
+      else if(s.action==='waitForMail') mail({source:s.source,expected:s.expected});
       else if(s.action==='goto' || s.action==='assertURL') string(s.url,'step url');
       else string(s.selector,'step selector');
       if(['fill','select','press','assertText','assertAttribute'].includes(s.action)) assert.equal(typeof s.value,'string','step value required');
@@ -127,8 +184,12 @@ export async function run({check,config,requestFactory,browser,token,configDir,r
         storageState.origins.some(origin=>origin.origin!==base.origin||!Array.isArray(origin.localStorage)))
         throw new Error('BLOCKED: role storage state must be restricted to configured site origin');
     }
+    const observed=new Map(o.steps.flatMap((s,index)=>s.action==='assertRequest'?[[index,{step:s,count:0,pending:0,failed:0,last:0}]]:[]));
+    for(const counter of observed.values())assert.ok(policy.allowed(new URL(counter.step.url,config.baseURL).href,counter.step.method,false),'assertRequest endpoint origin is not explicitly allowed');
     const context=await browser.newContext({baseURL:config.baseURL,storageState,serviceWorkers:'block',acceptDownloads:false});
     try {
+      const observe=(req,event)=>{for(const counter of observed.values())if(matchesRequest(req,counter.step,config.baseURL)){if(event==='start')counter.pending++;else{counter.pending=Math.max(0,counter.pending-1);if(event==='finish'){counter.count++;counter.last=Date.now();}else counter.failed++;}}};
+      context.on('request',req=>observe(req,'start'));context.on('requestfinished',req=>observe(req,'finish'));context.on('requestfailed',req=>observe(req,'fail'));
       await context.route('**/*',route=>policy.route(route));
       const page=await context.newPage(); page.setDefaultTimeout(config.timeoutMs??15000);
       const {expect}=await import('@playwright/test');
@@ -152,12 +213,14 @@ export async function run({check,config,requestFactory,browser,token,configDir,r
           case 'assertCount': await expect(locator).toHaveCount(s.count); break;
           case 'assertURL': assert.ok(policy.navigation(s.url),'workflow navigation origin denied'); await expect(page).toHaveURL(new URL(s.url,config.baseURL).href); break;
           case 'assertAttribute': await expect(locator).toHaveAttribute(s.name,s.value); break;
+          case 'assertRequest': await assertObservedRequest(observed.get(index),s,signal); break;
           case 'waitForMail': await mailRun(s,token); break;
         }
         summary.push({action:s.action,passed:true});
         passed=true;
         } finally {
-          if(s.action==='assertCount') {expected={count:s.count}; actual={count:await locator.count().catch(()=>null)};}
+          if(s.action==='assertRequest'){const counter=observed.get(index);expected={count:s.count};actual={count:counter.count,pending:counter.pending,failed:counter.failed};}
+          else if(s.action==='assertCount') {expected={count:s.count}; actual={count:await locator.count().catch(()=>null)};}
           else if(s.action==='assertVisible') {expected={visible:true};actual={visible:await locator.isVisible().catch(()=>false)};}
           else if(s.action.startsWith('assert')) { expected={matches:true}; actual={matches:passed}; }
           await emit({kind:'step',phase:'after',index,action:s.action,passed,...(expected?{expected,actual}:{})});

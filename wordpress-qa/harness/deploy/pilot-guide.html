@@ -1,0 +1,50 @@
+<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>WordPress QA 社内共有版・試用計画</title>
+<style>body{font:16px/1.8 system-ui,sans-serif;background:#f2f5f8;color:#183040;margin:0}main{max-width:1050px;margin:auto;padding:36px 24px}h1{font-size:32px}h2{border-bottom:2px solid #197d83;padding-bottom:8px;margin-top:38px}section{background:white;padding:20px 26px;margin:18px 0;border-radius:12px}table{border-collapse:collapse;width:100%}th,td{border:1px solid #ccd8df;padding:10px;text-align:left;vertical-align:top}pre{background:#183040;color:#eaf7fa;padding:18px;white-space:pre-wrap;overflow-wrap:anywhere}code{overflow-wrap:anywhere}.note{border-left:4px solid #c68813;padding:10px 16px;background:#fff5dc}a{color:#086d76}@media(max-width:650px){main{padding:16px}section{padding:14px}table{font-size:13px}}</style>
+<main><h1>WordPress QA 社内共有版・試用計画</h1><p>2026年10月27日／Linux・Docker／同じサイトと権限を共有する少人数向け</p>
+<p class="note">共有版の基盤を実装済み。社内サーバーへの配置・ネットワーク公開は未実施です。ローカル環境で181件のテストと共有UIの登録を確認済み。Docker Composeの構成検証は成功しましたが、Docker Engineが起動していないため、Linuxコンテナのビルド・起動・HTTPS接続は未確認です。</p>
+<section><h2>1. 試用する構成</h2><pre>メンバーのブラウザー
+    ↓ HTTPS（社内ネットワーク／VPNからのみ）
+Caddy：証明書・TLS終端
+    ↓ Dockerネットワーク内 HTTP（アプリのポートは外部公開しない）
+QAアプリ：個別ユーザー認証・サイト管理・実行制御・報告書
+    ├ Playwright：同時実行は全体で1件、追加実行は待機を案内
+    ├ 永続ボリューム：設定／実行結果／画像／監査ログ
+    └ Secretファイル：暗号化キー／利用者のパスワードハッシュ</pre>
+<p>各PCへのテスト実行環境の導入は不要です。ただし初回のWordPressセッション作成は、当面、担当者のPCで行って共有UIへ取り込みます。UIの新規登録は詳細設定画面を使用し、基本テストケースを生成します。ログイン付き自動調査ウィザードは遠隔版に未対応です。</p></section>
+<section><h2>2. 現在の実装と今回の改修</h2><table><tr><th>観点</th><th>調査した現状</th><th>今回の対応</th></tr>
+<tr><td>入口</td><td>127.0.0.1限定、利用者認証なし</td><td>既存ローカルモードは維持。共有専用起動を追加し、全画面・API・証拠取得に利用者ごとのHTTP Basic認証。公開originとHostの厳密照合、利用者別CSRFトークン。</td></tr>
+<tr><td>認証情報</td><td>Windows CurrentUserのDPAPI専用</td><td>共有モードにAES-256-GCMの暗号化保存を追加。32バイトキーは別ファイル。改ざん・異なるキーでは復号失敗。</td></tr>
+<tr><td>遠隔ログイン</td><td>実行PCに可視ブラウザーを開く</td><td>共有モードでは当該操作をAPIとUIで停止。REST認証と対象サイト専用セッションJSONの取込みを案内。</td></tr>
+<tr><td>保存</td><td>ローカルパスと実行履歴</td><td>/data配下にUI登録サイト・履歴・暗号化認証を永続化。再起動後の登録復元を検証。</td></tr>
+<tr><td>操作の衝突</td><td>既存の1実行制限、設定バージョン照合、回収待ち制御</td><td>同じ仕組みを利用。待ち行列は未実装。試用版はアプリ1台のみで運用。</td></tr>
+<tr><td>操作記録</td><td>テストごとの結果・ログ</td><td>認証済みPOSTの利用者・日時・APIパス・HTTP結果をaudit.jsonlに記録。入力内容・パスワードは監査ログに保存しない。テスト合否は実行履歴で確認。</td></tr>
+<tr><td>配布</td><td>各PCのNode・Playwright環境</td><td>Dockerfile、Compose、Caddy設定、キーと初期アカウントの生成コマンドを追加。アプリは非root実行、日本語フォントを含む。</td></tr>
+</table></section>
+<section><h2>3. サーバー管理者が決めること</h2><ul><li>配置するLinuxホストと社内DNS名、メンバーから接続できるIP・ポート。</li><li>最初の利用者名。全員に全サイトの閲覧・設定・実行権限があります。閲覧専用・サイト別権限はまだありません。</li><li>社内証明書を使うか、試用用Caddy CAを管理端末へ配布するか。</li><li>バックアップ先、結果・画像の保存期間、容量上限の運用。画像や結果にはテストで入力した情報が含まれ得ます。</li><li>対象サイトへの通信許可。信頼できるメンバーだけを登録し、サーバーのクラウドメタデータや管理ネットワークへの不要な外向き通信は制限してください。登録URLの組織別許可リストは未実装です。</li></ul></section>
+<section><h2>4. Linuxへの導入手順</h2><p>ハーネスのディレクトリを作業ディレクトリにします。初期設定コマンドにはNode.js 22以上が必要です。既存の顧客設定・認証・履歴をDockerイメージへコピーしないでください。</p>
+<pre>npm ci
+# 新規のディレクトリにのみ生成。既存キーを上書きしない。
+node bin/init-pilot.mjs deploy/secrets alice bob
+cp deploy/.env.example deploy/.env
+# deploy/.envのDNS名・HTTPS origin・接続ポートを設定
+# WPQA_BIND_IPは初期値127.0.0.1。社内公開前の確認まで維持。
+
+# 標準のrootful Docker、コンテナ内node UID=1000の場合
+sudo chown 1000:1000 deploy/secrets/key deploy/secrets/users.json
+sudo chmod 400 deploy/secrets/key deploy/secrets/users.json
+
+docker compose --env-file deploy/.env -f deploy/compose.yaml config --quiet
+docker compose --env-file deploy/.env -f deploy/compose.yaml build
+docker compose --env-file deploy/.env -f deploy/compose.yaml up -d</pre>
+<p><code>initial-passwords.json</code>は管理者が利用者本人へ個別配布するためのファイルです。コンテナにはマウントしません。配布後は社内の秘密情報管理方針に従って保管または回収してください。rootless DockerではUIDの対応が異なるため、コンテナ内nodeがキーを読める権限を確認してください。</p>
+<p>初期構成はCaddyの内部CAを使います。社内管理者がCA証明書を配布・信頼設定するか、承認済みの社内証明書へ差し替えます。ブラウザーの証明書警告を回避して使う運用にはしません。</p>
+<pre># 公開するのはCAの証明書のみ。秘密鍵を配布しない。
+docker compose --env-file deploy/.env -f deploy/compose.yaml cp proxy:/data/caddy/pki/authorities/local/root.crt ./qa-pilot-root.crt</pre>
+<p>DNS・証明書・ログインを確認後、<code>WPQA_BIND_IP</code>を指定の社内インターフェースIPへ変更し、接続元を社内/VPNに限定するファイアウォール規則とともに反映します。アプリの4310ポートをホストへ直接公開しないでください。複数レプリカでは運用しません。</p>
+<p>根拠：<a href="https://caddyserver.com/docs/running">Caddyのコンテナと証明書の信頼</a>、<a href="https://docs.docker.com/compose/how-tos/use-secrets">Docker ComposeのSecretファイル</a>。</p></section>
+<section><h2>5. メンバーの試用手順</h2><ol><li>共有URLを開き、自分の利用者名と配布されたパスワードでログイン。</li><li>「サイトを登録」でサイト名・URL・環境を入力し、基本テストケースを生成。対象URLと期待値を確認。</li><li>管理画面の検査が必要なら、担当者が用意したREST認証またはPlaywrightのstorageState JSONを設定画面から取り込む。Cookieのホストとoriginは対象サイトに限定。通常のChromeのログイン状態は自動共有されません。</li><li>認証・期待値が揃った検査から実行。他のメンバーの実行中は完了を待つ。</li><li>結果と未確認事項を確認し、「デザイナー向けHTMLを生成」から共有用レポートを取得。</li></ol>
+<p>初版はHTTPS越しのBasic認証です。SSO・MFA・明示的ログアウト・ユーザー管理画面は未実装です。共有PCではブラウザーが認証を保持する点に注意し、個別プロファイルを使用してください。利用者削除やパスワード更新は管理者がハッシュファイルを更新し、アプリを再起動して反映します。暗号化キーを再生成して利用者を更新してはいけません。</p></section>
+<section><h2>6. 万年堂など既存データの移行</h2><p>初版は新しいサイトを共有UIへ登録する方式です。現在のWindows側の外部設定ファイルや履歴は自動移行しません。Windowsの絶対パス、個別操作スクリプト、DPAPIで暗号化した認証をそのままLinuxへコピーしても動きません。</p><ol><li>既存レポートは単体HTMLとして保存して共有可能。</li><li>サイトを共有版へ再登録し、必要なURL・期待値を移す。認証は共有版で再登録。</li><li>個別スクリプトを標準検査へ置き換えるか、Linuxでの依存関係・パスを調査して移行する。</li><li>移行後の結果は新しい実行として記録。Windowsの描画とLinuxの描画は異なり得るため、画像基準は再承認する。</li></ol></section>
+<section><h2>7. 試用開始前の受入確認</h2><ul><li>LinuxでDockerイメージをビルドし、非rootでChromium・Firefoxを起動できる。</li><li>未ログインではHTML・API・結果ファイルを取得できない。誤ったHost・Origin・CSRFトークンが拒否される。</li><li>2名で同じサイトが見え、重複実行が止まり、設定の同時更新が競合として通知される。</li><li>サーバー再起動後もサイト・結果・認証が復元される。暗号化キーとデータを分けて保全する。</li><li>小さな検証サイトで「登録→検査→結果→HTMLダウンロード」を行う。注文・送信は対象と通知先を設定した後に検証環境で確認する。</li><li>本番でテスト投稿・注文・問い合わせ送信の許可を設定できない。</li><li>終了時は検査完了とテストデータ回収を待つ。強制終了した検査を自動再送しない。</li></ul></section>
+<section><h2>8. 次の改修</h2><table><tr><th>優先</th><th>内容</th></tr><tr><td>試用準備</td><td>サーバー配置とDocker実機検証、DNS・証明書・利用者設定、初期サイトの移行。</td></tr><tr><td>使いやすさ</td><td>遠隔ログイン操作を安全に扱う方法、ログイン付き登録ウィザード、認証期限切れ時の更新導線。現状の詳細登録画面は設定担当者の補助が必要。</td></tr><tr><td>運用</td><td>実行待ちキュー、容量・保存期間、定期バックアップと復元検証、異常通知。</td></tr><tr><td>利用拡大</td><td>SSO、サイト別・閲覧専用の権限、対象URL許可リスト、監査ログ保全と利用者管理画面。</td></tr></table></section>
+</main></html>

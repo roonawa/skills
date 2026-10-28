@@ -1,0 +1,69 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../../debug-evidence/mannendo-staging');
+const runId='2026-10-26T02-44-59-829Z-blockers-summary',dir=path.join(root,'runs',runId);
+const read=p=>JSON.parse(fs.readFileSync(p,'utf8'));
+const report=read(path.join(dir,'results.json')),config=read(path.join(dir,'context.json')).config;
+const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const date=v=>new Date(v).toLocaleString('ja-JP',{timeZone:'Asia/Tokyo',hour12:false})+' JST';
+const names={'/':'トップ','/shopguide':'ショッピングガイド','/qa':'よくあるご質問','/usces-cart':'カート','/contact':'お問い合わせ','/archives/2481':'商品詳細','/archives/category/item':'商品一覧'};
+const axes=report.rows.filter(r=>r.status==='fail'&&r.id.startsWith('axe.')).map(row=>{
+ const file=row.evidence.find(e=>/\/axe-[^/]+\.json$/.test(e)),data=read(path.join(dir,file));
+ const mf=row.evidence.find(e=>/\/marked-screenshots[^/]*\.json$/.test(e));
+ return {row,data,shots:mf?read(path.join(dir,mf)).shots:[],width:row.title.match(/(\d+)px/)?.[1],page:new URL(data.url).pathname};
+});
+const all=axes.flatMap(a=>a.data.violations.flatMap(v=>v.nodes.map(n=>({a,v,n}))));
+const selected=[];
+function figure(a,rule,predicate=()=>true){
+ const shot=a.shots.find(s=>s.rule===rule&&s.status==='captured'&&predicate(s));
+ if(!shot)return '<p class="note">この箇所の枠付き画像は未取得です。下の対象要素と再現手順で確認してください。</p>';
+ const f=a.row.evidence.find(f=>path.basename(f).startsWith(shot.id+'-')&&f.endsWith('.png'));
+ if(!f)return '<p>対応する画像ファイルなし</p>';
+ const absolute=path.join(dir,f);selected.push(absolute);
+ return `<figure><img loading="lazy" src="data:image/png;base64,${fs.readFileSync(absolute).toString('base64')}" alt="${esc(names[a.page]??a.page)}：${esc(rule)}の問題箇所を赤枠で表示"><figcaption>${esc(names[a.page]??a.page)} / ${a.width}px / 赤枠 ${shot.number} ／ 撮影 ${esc(date(shot.capturedAt))}<br><code>${esc(shot.target.join(' → '))}</code></figcaption></figure>`;
+}
+const detail=items=>`<details><summary>URL別の検出箇所・測定値（${items.length}要素検出）</summary><div class="table-wrap"><table><thead><tr><th>ページ・幅 / ケースID</th><th>対象要素</th><th>観測結果</th></tr></thead><tbody>${items.map(({a,v,n})=>{const d=n.any?.find(x=>x.data?.contrastRatio)?.data;return `<tr><td><a href="${esc(a.data.url)}">${esc(names[a.page]??a.page)}</a> ${a.width}px<br><small>${esc(a.row.id)}</small></td><td><code>${esc(n.target.join(' → '))}</code></td><td>${d?`${esc(d.fgColor)} / ${esc(d.bgColor)}<br>比率 ${esc(d.contrastRatio)}、期待 ${esc(d.expectedContrastRatio)}`:esc(v.help)}</td></tr>`;}).join('')}</tbody></table></div></details>`;
+function card(id,title,owner,impact,fix,steps,items,images){return `<article id="${id}"><div class="eyebrow">${id} · ${esc(owner)}</div><h2>${esc(title)}</h2><p class="impact">${esc(impact)}</p><div class="two"><section><h3>修正方法（管理画面を優先）</h3><p>${fix}</p></section><section><h3>再現・修正後の確認</h3><ol>${steps.map(s=>`<li>${s}</li>`).join('')}</ol></section></div>${images}${items?detail(items):''}</article>`;}
+const home=axes.find(a=>a.row.id==='axe.home-pc'),shop=axes.find(a=>a.row.id==='axe.shopguide-pc'),contact=axes.find(a=>a.row.id==='axe.coverage-p-contact-pc'),cart=axes.find(a=>a.row.id==='axe.cart-pc');
+const contrast=all.filter(i=>i.v.id==='color-contrast'),mismatch=all.filter(i=>i.v.id==='label-content-name-mismatch'),labels=all.filter(i=>i.v.id==='label'),links=all.filter(i=>i.v.id==='link-name');
+let cards=card('D01','文字と背景の明暗差が不足','デザイン → 管理画面 / CSS',
+ 'フッターの会社情報・メニュー・著作権表記、パンくず、キャッチフレーズで検出。弱視の方や明るい屋外で、文字を読み取りにくくなる可能性があります。',
+ '「外観 → カスタマイズ」で該当するフッター・文字・背景の色設定があれば調整します。設定がない部品はデザイナーが配色案を決め、実装担当が追加CSSまたは子テーマへ反映します。サイト全体のブランド色を一括変更する前に、部品ごとの通常・ホバー・フォーカスを確認してください。<br>配色は下表の実測値と期待比率を使って再測定します。色の候補だけで合格にはしません。',
+ ['対象URLを1280px / 390px幅で開き、フッター・パンくずまで移動する。','文字色と背面色を検査する。下表の期待比率を下回る組合せを修正する。','同じ部品を使う7ページを再検査し、長いメニューの折返しも目視する。'],contrast,
+ figure(home,'color-contrast',s=>s.target.includes('.company-name'))+figure(shop,'color-contrast',s=>s.target.includes('.__home')));
+cards+=card('D02','「カート」の見た目と読み上げ名が不一致','デザイン確認 + 実装',
+ '共通ヘッダーの表示は「カート」ですが、支援技術に伝わる名前は「検索ボタン」です。音声操作や読み上げで、見えている操作と異なる案内になります。',
+ 'SWELLのヘッダー・アイコン設定に該当項目があれば、カートの表示と機能を揃えます。設定で変更できなければ子テーマ等で修正します。<code>aria-label="カート"</code>に揃えるだけでなく、保存済みHTMLの<code>data-onclick="toggleSearch"</code>も確認し、本当にカートを開くかを実装担当へ依頼してください。クリック先の誤動作自体は、この検査だけでは未確定です。',
+ ['ヘッダーの「カート」を見つけ、ブラウザーのアクセシビリティツリーで名前を確認する。','マウス・キーボードで操作し、カートの期待する遷移と一致するか確認する。','PC/SPで表示名・読み上げ名・動作を揃え、再検査する。'],mismatch,figure(home,'label-content-name-mismatch'));
+cards+=card('D03','お問い合わせの項目名と入力欄が結び付いていない','管理画面（CF7）中心',
+ '名前・メール・電話・FAX・郵便番号・住所・本文などでラベルの関連付けが不足。読み上げ利用者が何を入力する欄か判断しにくくなります。検出数は画面幅で異なります。',
+ '「お問い合わせ → 対象フォーム → フォーム」で、表示ラベルと入力欄を<code>for</code> / <code>id</code>で結び付けます。例：<code>&lt;label for="contact-name"&gt;お名前&lt;/label&gt; [text* contact-name id:contact-name]</code>。既存の項目名・必須指定・メールタグは維持します。複数入力を1つのlabelで囲まず、各項目に一意のIDを付けてください。',
+ ['お問い合わせページを開き、各項目の表示名と読み上げ名を照合する。','項目名をクリックしたとき、対応する入力欄にフォーカスが移ることを確認する。','必須エラー・形式エラー・同意を含めて再検査する。送信確認は許可済みの検証環境で行う。'],labels.filter(x=>x.a.page==='/contact'),figure(contact,'label',s=>s.target.some(t=>t.includes('contact-name'))));
+cards+=card('D04','商品・カートの数量入力欄に名前がない','デザイン確認 + Welcart実装',
+ '商品詳細と商品入りカートの数量欄で検出。読み上げで数量欄の用途や対象商品が分かりにくく、誤入力につながる可能性があります。',
+ '商品編集の入力設定でラベルを付けられるか確認します。対応項目がなければWelcart用の子テーマテンプレートで<code>label</code>を関連付けます。複数商品が並ぶカートでは「商品名の数量」と識別できる名前にします。プレースホルダーだけで代用しません。',
+ ['商品 /archives/2481 を開き、数量入力のアクセシブル名を確認する。','商品をカートへ追加して数量欄を確認する（注文確定は不要）。','複数商品時にも対象を識別できること、数量変更と再計算が動くことを確認する。'],labels.filter(x=>x.a.page!=='/contact'),figure(cart,'label'));
+cards+=card('D05','リンクの行き先を伝える名前がない','管理画面 → 必要に応じ実装',
+ 'トップのスライドリンク・SNSリンク、カートの商品サムネイルで検出。リンク一覧や読み上げで、どこへ移動するか分からなくなる可能性があります。',
+ 'トップのメインビジュアル設定・SNS埋め込みブロックで、リンクの目的を表す文言を設定します。サムネイルは「メディア → 対象画像」の代替テキストと、テンプレートがその値を出力するかを確認してください。空の全面リンクは画像altの追加だけでは直らないため、実装側でリンク自身に名前を与えます。装飾画像へ一律に商品名を付けず、リンクの目的に合わせます。',
+ ['トップのスライド・SNSリンク、商品入りカートのサムネイルをTabで辿る。','リンクのアクセシブル名が行き先を説明することを確認する。','スライダーの複製要素・非表示時・表示切替後も再検査する。'],links,
+ figure(cart,'link-name')+'<p class="note">トップのスライドは要素を一意に特定できず、SNSリンクは撮影時に非表示だったため、対応する枠付き画像はありません。推測の枠は付けていません。</p>');
+cards+=card('D06','通信失敗後もお問い合わせが「送信中」のまま','デザイン（失敗表示）+ 実装',
+ '送信通信を遮断した検査で、15秒後もsubmitting状態・応答メッセージなしでした。利用者は送れたか判断できず、再試行できない可能性があります。実サーバーへ転送された送信要求は0件です。',
+ 'CF7の「メッセージ」設定で通信失敗時の案内を確認します。ただし送信中の状態が解除されない問題は文言変更だけでは解決しません。実装担当へエラー時の状態解除・入力内容保持・再試行可能化を依頼し、デザイナーはエラー文と再試行操作の見せ方を用意してください。',
+ ['検証環境の問い合わせにテスト値を入力する。','開発者ツール等でCF7 feedbackへの通信だけを遮断して送信する。実メールを発生させない。','15秒後の状態・メッセージ・再操作可否を確認する。通信を戻した後、二重送信せず再試行できることを別途確認する。'],null,'<p class="note">この内部状態は画面の一箇所だけで示せないため、枠付き画像ではなく保存済み通信検査の結果を根拠にしています。</p>');
+const others=[
+ ['page.stage-9','猫商品カテゴリの正規URL不一致','対象カテゴリを開いた検査の到達URLはトップでした。単なるcanonical文字列の修正で済むとは限りません。','商品カテゴリの存在・リンク先・転送設定を管理画面で確認。意図する一覧表示を確定し、URLとcanonicalを合わせる。'],
+ ['policy.soft-404','存在しないURLが404ではなく302','検査用の不存在URLで302を検出。転送先と閲覧保護の影響を含めて調査が必要です。','実装・運用担当が404方針と転送を確認。デザイナーは必要に応じ404ページの案内を用意。'],
+ ['check.contact-mail-config-review','問い合わせメール設定の警告','10月23日実査の警告を継承。送信元ドメイン不一致2件・防御不足1件。未着を確認した結果ではありません。','CF7のメール設定を確認し、送信元・返信先と防御設定を運用担当と調整。受信確認は別途行う。'],
+ ['check.contact-storage-review','保存された問い合わせの識別タグが未展開','保存本文は存在する一方、件名・送信者に [your-subject] / [your-name] / [your-email] が残った記録があります。','CF7のフォーム項目名とFlamingoの件名・送信者設定を対応付ける。テスト送信後に保存結果を再確認。'],
+ ['check.staging-robots-disallow','検証環境の巡回禁止設定が期待と不一致','robots.txtに期待する User-agent: * / Disallow: / の組合せがない検査結果です。','運用担当が検索非公開方針とrobots出力を確認。巡回禁止とアクセス制限は別管理。本番へ禁止設定を流用しない。']
+];
+const appendix=others.map(([id,title,actual,fix])=>`<tr><td><strong>${esc(title)}</strong><br><code>${esc(id)}</code></td><td>${esc(actual)}</td><td>${esc(fix)}</td></tr>`).join('');
+const matrix=axes.map(a=>`<tr><td><a href="${esc(a.data.url)}">${esc(names[a.page]??a.page)}</a><br><code>${esc(a.page)}</code></td><td>${a.width}px</td><td>${a.data.violations.map(v=>esc({'color-contrast':'D01','label-content-name-mismatch':'D02',label:a.page==='/contact'?'D03':'D04','link-name':'D05'}[v.id]??v.id)).join(' / ')}</td><td>${esc(a.row.id)}</td></tr>`).join('');
+const css=`:root{--ink:#193349;--accent:#146c70;--muted:#526573;--line:#dbe4e8}*{box-sizing:border-box}body{margin:0;background:#eff3f4;color:var(--ink);font:16px/1.8 system-ui,'Yu Gothic',sans-serif}header{background:#17374a;color:white;padding:56px max(24px,calc((100vw - 1100px)/2)) 42px}header p{max-width:850px;color:#d4e5e8}h1{font-size:clamp(28px,4vw,44px);line-height:1.35;margin:12px 0}h2{font-size:25px;line-height:1.5;margin:8px 0 18px}h3{font-size:17px}main{max-width:1150px;padding:24px;margin:auto}.eyebrow{font-size:12px;font-weight:700;letter-spacing:.12em;color:var(--accent)}header .eyebrow{color:#91d8cc}nav{display:flex;gap:10px;flex-wrap:wrap;margin:22px 0}nav a{padding:6px 12px;background:white;border:1px solid var(--line);border-radius:6px;text-decoration:none}a{color:#075f81}article,.panel{background:#fff;border:1px solid var(--line);border-radius:12px;padding:30px;margin:24px 0;scroll-margin-top:20px}.stats{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}.stats div{background:#fff;border:1px solid var(--line);padding:15px;border-radius:8px}.stats b{display:block;font-size:30px}.stats span{font-size:13px;color:var(--muted)}.two{display:grid;grid-template-columns:1fr 1fr;gap:28px}.impact{border-left:4px solid #d19a45;padding:10px 18px;background:#fff8ed}.note{font-size:14px;color:var(--muted)}figure{margin:24px 0;border:1px solid var(--line);border-radius:8px;overflow:hidden}figure img{width:100%;height:auto;display:block}figcaption{background:#f4f8f8;padding:12px 18px;font-size:13px}code{font:12px/1.6 ui-monospace,Consolas,monospace;overflow-wrap:anywhere}table{border-collapse:collapse;width:100%;font-size:13px}td,th{text-align:left;vertical-align:top;padding:12px;border-bottom:1px solid var(--line);overflow-wrap:anywhere}th{background:#edf5f5}summary{cursor:pointer;font-weight:700;padding:14px 0}.table-wrap{overflow:auto}footer{font-size:13px;color:var(--muted);padding:25px 0}button{padding:10px 20px;border:0;border-radius:6px;background:#146c70;color:white;cursor:pointer}@media(max-width:700px){main{padding:14px}.two{grid-template-columns:1fr}.stats{grid-template-columns:repeat(2,1fr)}article,.panel{padding:20px}td,th{min-width:120px}}@media print{body{background:white;font-size:11pt}header{padding:20px;background:white;color:#193349}header p{color:#526573}nav,button{display:none}main{max-width:none;padding:0}article,.panel{break-inside:auto;border-radius:0}figure{break-inside:avoid}details{display:block}.two{display:block}a{color:inherit;text-decoration:none}}`;
+const html=`<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>万年堂｜デザイナー共有用 QAレポート</title><style>${css}</style></head><body><header><div class="eyebrow">MANNENDO / DESIGN QA HANDOFF</div><h1>万年堂<br>デザイナー共有用 QAレポート</h1><p>共通部品の修正から着手できるよう、URL別の重複をまとめました。デザイン上の判断、管理画面でできる変更、実装担当への依頼を分けています。</p><p>対象：<a style="color:#a8e3e0" href="${config.baseURL}">${config.baseURL}</a>（検証環境）<br>作成日：2026年10月26日 ／ 元データ：同日の統合結果。今回は再テストを行わず、保存済み証拠から作成。</p></header><main><div class="stats">${[['245','合格'],['20','不合格ケース'],['11','実行不能'],['30','確認待ち'],['1','対象外']].map(([n,t])=>`<div><b>${n}</b><span>${t}</span></div>`).join('')}</div><p class="note">全307ケース。20件はケース数であり、不具合の種類数ではありません。アクセシビリティ14ケースを5テーマに集約し、通信失敗時の表示を加えた6項目を主な引継ぎ対象としています。</p><nav>${['D01 配色','D02 カートの名称','D03 問い合わせ入力','D04 数量入力','D05 リンクの名前','D06 通信失敗'].map(t=>`<a href="#${t.slice(0,3)}">${t}</a>`).join('')}<a href="#matrix">URL別一覧</a><a href="#handoff">実装・運用へ</a></nav><section class="panel"><h2>修正の進め方</h2><ol><li><strong>共通ヘッダー・フッター・パンくず：</strong>D01・D02を先に修正し、7ページへ反映を確認。</li><li><strong>問い合わせ・購入導線：</strong>D03〜D06を実装担当と対応。ラベルの文言・エラー時の案内を決める。</li><li><strong>仕上げ：</strong>PC 1280px / SP 390pxで再検査し、画像比較の基準をデザイナーが承認。</li></ol><p class="note">修正手順は保存済み検出結果に基づく提案です。管理画面の項目名や設定の有無は利用テーマ・権限で異なるため、項目がなければ子テーマ等の実装修正へ引き継ぎます。</p></section>${cards}<section class="panel" id="matrix"><h2>URL別の不合格一覧</h2><p>対象7ページ × 2幅。行を追加の不具合数として数えず、上のD01〜D05と照合してください。</p><div class="table-wrap"><table><thead><tr><th>ページ</th><th>幅</th><th>対応項目</th><th>元ケースID</th></tr></thead><tbody>${matrix}</tbody></table></div></section><section class="panel" id="handoff"><h2>実装・運用担当への引継ぎ</h2><p>デザイナーだけで完結しない残り5ケースです。D06を含めると、アクセシビリティ以外の不合格は6ケースです。</p><div class="table-wrap"><table><thead><tr><th>指摘</th><th>確認できた事実</th><th>対応候補</th></tr></thead><tbody>${appendix}</tbody></table></div></section><section class="panel"><h2>不具合と区別する確認事項</h2><ul><li><strong>レイアウト・JavaScript：</strong>今回採用した結果では各14ケースが合格。過去のJavaScript例外を現時点のレイアウト崩れとして再掲していません。表示全体の美観や全端末を保証するものではありません。</li><li><strong>画像比較：</strong>14ケースは基準画像の承認待ち。画像差分による不合格とは扱っていません。</li><li><strong>デザイナーに確認してほしい事項：</strong>PC/SPの配色、折返し、余白、画像トリミング、エラー表示、代替文の意味、長文・画像なしページ、対応実機の範囲。</li><li><strong>他の未確認：</strong>メール受信箱への到達、別ロールの権限、匿名キャッシュ、復元等。元の実行不能11件・確認待ち30件を本書で合格へ変更していません。</li></ul></section><section class="panel"><h2>修正完了の確認</h2><p>対応したD番号・修正した設定またはファイル・確認日を添え、対象URLを再検査してください。共通部品は7ページ、商品・カートは商品入り状態で確認します。axeだけでなく、Tab操作・読み上げ名・画面の見やすさを人が確認して完了とします。</p><button onclick="window.print()">印刷 / PDF保存</button></section><footer>出典：${esc(runId)} / results.json と各ケースのaxe・枠付き画像・通信検査の保存証拠。主なアクセシビリティ証拠は${esc(date(home.data.timestamp))}。管理設定の一部は10月23日の実査を継承。統合履歴は異なる日時の検査結果を含み、全件を同時に再実行した結果ではありません。<br>画像・スタイルは本HTML内に格納。パスワード、セッション、管理画面の生データは掲載していません。リンク先の検証サイトには閲覧認証が必要な場合があります。</footer></main></body></html>`;
+const output=path.join(root,'mannendo-designer-report-2026-10-26.html');fs.writeFileSync(output,html);
+fs.writeFileSync(path.join(root,'designer-report-images.json'),JSON.stringify(selected,null,2));
+console.log(JSON.stringify({output,bytes:Buffer.byteLength(html),images:selected.length,axeCases:axes.length,rules:[...new Set(all.map(x=>x.v.id))]}));

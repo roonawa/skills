@@ -14,7 +14,18 @@ export function scopeState(state,baseURL) {
   return {cookies:state.cookies.filter(c=>{const d=c.domain.replace(/^\./,'');return d===host||(c.domain.startsWith('.')&&host.endsWith('.'+d));}).map(c=>({...c,domain:host})),origins:state.origins.filter(o=>o.origin===baseURL)};
 }
 export class BrowserLogin {
-  constructor({launch=()=>chromium.launch({headless:false}),ttlMs=10*60*1000}={}){this.launch=launch;this.ttlMs=ttlMs;this.session=null;}
+  constructor({launch=()=>chromium.launch({headless:false}),ttlMs=10*60*1000,resume}={}){
+    this.launch=launch;this.ttlMs=ttlMs;this.session=null;
+    // Trusted server-side recovery only. Never accept a snapshot from an HTTP request.
+    if(resume){
+      const target=loginTarget(resume);
+      if(resume.phase!=='verified'||!resume.id||resume.projectId||resume.role)throw Error('確認済みの新規登録セッションだけを復元できます');
+      const state=scopeState(resume.state,target.baseURL);
+      if(!state.cookies.some(c=>c.name.startsWith('wordpress_logged_in_')&&c.value))throw Error('復元する認証情報がありません');
+      const s={...target,id:resume.id,environment:resume.environment,projectId:null,role:null,phase:'verified',state};this.session=s;
+      s.timer=setTimeout(()=>{void this.cancel(s.id);},ttlMs);s.timer.unref();
+    }
+  }
   get busy(){return !!this.session;}
   status(){const s=this.session;return s?{id:s.id,projectId:s.projectId,baseURL:s.baseURL,environment:s.environment,phase:s.phase,...(s.role?{role:s.role}:{})}:null;}
   get(id){if(!this.session||this.session.id!==id)throw new Error('ログインが終了または期限切れです。再度ログインしてください');return this.session;}

@@ -11,7 +11,7 @@
   </aside>
   <main>
     <div class="topline"><span>品質検証 <span class="slash">/</span> 実行状況</span><span id="demo-label" class="tag" hidden>デモ環境</span></div>
-    <header class="page-heading"><div><span class="terminal-kicker">WORDPRESS QUALITY INTELLIGENCE / UNIT 07</span><h1>PHANTOM<span> PROTOCOL_</span></h1><p id="project-name">サイトを読み込んでいます</p></div><div class="run-controls"><label class="sr-only" for="suite-select">検査範囲</label><select id="suite-select"><option value="all">すべての検査</option><option value="admin">管理設定</option><option value="audit">URL・公開設定</option><option value="journey">操作・メール</option><option value="visual">表示・アクセシビリティ</option></select><button class="primary" id="run-button" disabled><span aria-hidden="true">▶</span> 検査を実行</button></div></header>
+    <header class="page-heading"><div><span class="terminal-kicker">WORDPRESS QUALITY INTELLIGENCE / UNIT 07</span><h1>PHANTOM<span> PROTOCOL_</span></h1><p id="project-name">サイトを読み込んでいます</p></div><div class="run-controls"><label class="sr-only" for="suite-select">検査範囲</label><select id="suite-select"><option value="all">すべての検査</option><option value="standard">共通自動検査（送信なし）</option><option value="interaction">サイト固有条件の共通操作検査</option><option value="admin">管理設定</option><option value="audit">URL・公開設定</option><option value="journey">操作・メール</option><option value="visual">表示・アクセシビリティ</option></select><button class="primary" id="run-button" disabled><span aria-hidden="true">▶</span> 検査を実行</button></div></header>
     <section class="cinema-deck" aria-label="映画風の装飾パネル">
       <div class="cinema-caption"><span>● SIGNAL INTELLIGENCE / <b>SIMULATED FEED · 演出</b></span><button id="cinema-toggle" type="button" aria-pressed="false">演出を停止 Ⅱ</button></div>
       <div class="cinema-grid" aria-hidden="true">
@@ -33,10 +33,11 @@
       <div class="metric"><span><i class="dot orange"></i>実行不能</span><strong id="metric-blocked">—</strong><small>前提・環境を確認</small></div>
       <div class="metric"><span><i class="dot purple"></i>確認待ち</span><strong id="metric-review">—</strong><small>画像・手動レビュー</small></div>
       <div class="metric"><span><i class="dot gray"></i>未実施</span><strong id="metric-not_run">—</strong><small>未選択・実行待ち</small></div>
+      <div class="metric"><span><i class="dot preparation"></i>準備待ち</span><strong id="metric-preparation">—</strong><small>検査条件・期待値の登録待ち</small></div>
     </section>
     <div class="workspace-grid">
       <section class="panel results-panel"><div class="panel-heading"><h2>検査項目 <span id="row-count" class="count">0</span></h2><a id="report-link" class="text-link" target="_blank" rel="noopener" hidden>HTMLレポート ↗</a></div>
-        <div class="table-tools"><div id="filters" class="filters" aria-label="結果で絞り込み"><button data-filter="all" class="selected" aria-pressed="true">すべて</button><button data-filter="attention" aria-pressed="false">要対応</button><button data-filter="pass" aria-pressed="false">合格</button><button data-filter="not_run" aria-pressed="false">未実施</button></div><label class="search"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="項目を検索" aria-label="検査項目を検索"></label></div>
+        <div class="table-tools"><div id="filters" class="filters" aria-label="結果で絞り込み"><button data-filter="all" class="selected" aria-pressed="true">すべて</button><button data-filter="attention" aria-pressed="false">要対応</button><button data-filter="pass" aria-pressed="false">合格</button><button data-filter="preparation" aria-pressed="false">準備待ち</button><button data-filter="not_run" aria-pressed="false">未実施</button></div><label class="search"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="項目を検索" aria-label="検査項目を検索"></label></div>
         <div class="table-scroll"><table><thead><tr><th>検査項目</th><th class="suite-col">種別</th><th>結果</th><th class="time-col">時間</th></tr></thead><tbody id="test-rows"></tbody></table></div>
         <div id="empty-state" class="empty-state"><div class="empty-icon" aria-hidden="true">✓</div><h3>まだ実行履歴がありません</h3><p>検査範囲を選び「検査を実行」を押してください。<br>進捗と証拠は自動で更新されます。</p></div>
         <div class="table-footer"><span id="table-note">実行結果はこのPCに保存されます</span><span class="live-label"><i class="connection-dot"></i> 自動更新</span></div>

@@ -1,7 +1,18 @@
+import {validateInteractionSettings} from '../../ui/public/interaction-profile.js';
+import {validateAutomationInput} from '../../ui/public/automation-inputs.js';
+
 export function ensure(value, message) {
   if (!value) throw new Error(message);
 }
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+export function validateContactExpectedFields(value) {
+  if(value===undefined)return undefined;
+  const types=new Set(['text','email','tel','url','number','date','textarea','select','checkbox','radio','file']);
+  ensure(Array.isArray(value)&&value.length>=1&&value.length<=100,'BLOCKED: invalid contactExpectedFields array (1..100 fields required)');
+  for(const field of value)ensure(object(field)&&Object.keys(field).length===3&&Object.keys(field).every(k=>['name','type','required'].includes(k))&&typeof field.name==='string'&&/^[a-zA-Z][\w-]{0,99}$/.test(field.name)&&types.has(field.type)&&typeof field.required==='boolean','BLOCKED: invalid contactExpectedFields entry');
+  ensure(new Set(value.map(field=>field.name)).size===value.length,'BLOCKED: contactExpectedFields names must be unique');
+  return value.map(({name,type,required})=>({name,type,required}));
+}
 function json(value, label) {
   try { return JSON.parse(value); } catch { throw new Error(`BLOCKED: invalid ${label} JSON`); }
 }
@@ -15,7 +26,12 @@ export function readSettings(config, env = process.env) {
   const base = sameOrigin(config.baseURL, config.baseURL);
   ensure(base.pathname === '/' && !base.search && !base.hash, 'BLOCKED: baseURL must be an origin');
   const raw = json(env.WPQA_UI_PROFILE, 'profile');
-  ensure(object(raw) && Object.keys(raw).every(k => ['adminPath','contactFormId','writes','timezone','language','indexable','permalink','maxPages','performanceMs','submit','testEmail','contactPath','contactNameField','contactEmailField','contactMessageField','contactConsentField','bankOrder','productPath','cartPath','customerPrefecture','bankPaymentLabel','expectedTotal'].includes(k)), 'BLOCKED: invalid profile');
+  ensure(object(raw) && Object.keys(raw).every(k => ['contactExpectedFields','automation','sitePath','interactions','adminPath','contactFormId','writes','timezone','language','indexable','permalink','maxPages','performanceMs','submit','testEmail','contactPath','contactNameField','contactEmailField','contactMessageField','contactConsentField','bankOrder','productPath','cartPath','customerPrefecture','bankPaymentLabel','expectedTotal'].includes(k)), 'BLOCKED: invalid profile');
+  const contactExpectedFields=validateContactExpectedFields(raw.contactExpectedFields);
+  if(contactExpectedFields!==undefined)raw.contactExpectedFields=contactExpectedFields;
+  try { validateInteractionSettings(raw.interactions); } catch (error) { throw new Error('BLOCKED: '+error.message); }
+  try { const automation=validateAutomationInput(raw.automation);if(raw.automation!==undefined)raw.automation=automation; } catch (error) { throw new Error('BLOCKED: '+error.message); }
+  if(raw.sitePath!==undefined)ensure(typeof raw.sitePath==='string'&&/^\/(?:[a-zA-Z0-9_%-]+\/)*$/.test(raw.sitePath)&&!/%(?:2e|2f|5c)/i.test(raw.sitePath),'BLOCKED: invalid sitePath');
   const profile = {adminPath:'/wp-admin/',contactFormId:null,writes:false,...raw};
   ensure(typeof profile.writes === 'boolean' && (profile.contactFormId === null || (Number.isSafeInteger(profile.contactFormId) && profile.contactFormId > 0)), 'BLOCKED: invalid profile fields');
   ensure(typeof profile.adminPath === 'string' && /^\/(?!\/)[a-zA-Z0-9_/-]+\/$/.test(profile.adminPath) && !profile.adminPath.includes('//'), 'BLOCKED: invalid adminPath');

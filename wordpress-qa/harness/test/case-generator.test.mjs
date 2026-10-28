@@ -8,8 +8,8 @@ test('registration generates explicit tests and preserves unresolved obligations
  assert.deepEqual(generateCases(result),result);
  const config=validateConfig(result);const rows=catalog(config);
  assert.ok(rows.some(x=>x.id==='page.home'));assert.ok(rows.some(x=>x.id==='links.home'));
- assert.equal(config.visuals.length,2);assert.equal(config.checks.length,31);
- assert.ok(config.checks.every(x=>x.required&&x.kind==='unconfigured'));
+ assert.equal(config.visuals.length,2);assert.equal(config.checks.length,39);
+ assert.ok(config.checks.every(x=>x.required&&['unconfigured','standard-public'].includes(x.kind)));
  for(const id of ['notification','order-record','order-notification','order-cleanup','admin-general','contact-errors'])assert.ok(config.checks.some(x=>x.id==='coverage-'+id));
  assert.equal(config.allowTestWrites,false);
 });

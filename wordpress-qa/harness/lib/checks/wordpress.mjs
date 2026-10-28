@@ -1,16 +1,20 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { journalIntent,journalUpdate } from '../recovery.mjs';
+import {load} from 'cheerio';
+import {parseSettings} from '../../builtin/wordpress-profile/helpers.mjs';
+import {envHeaders} from '../mailpit.mjs';
 export const kinds=['wp-lifecycle','wp-scheduled','wp-authz','wp-cache'];
 export function validate(check) {
   assert(kinds.includes(check.kind),'Unknown WordPress check');
   const o=check.options||{};
   assert(o&&typeof o==='object'&&!Array.isArray(o),'options must be an object');
-  const allowed=['headersEnv','storageStateEnv','restPath','pollIntervalMs','maxWaitMs','scheduleDelayMs','postType','ownership','expectations','listingURLs','searchURLs','cacheRoles',...(check.kind==='wp-authz'?['role','roleHeadersEnv','expectedUserId','expectedRoles','readStatus','readCode','updateStatus','updateCode']:[])];
+  const allowed=['adminPath','headersEnv','storageStateEnv','restPath','pollIntervalMs','maxWaitMs','scheduleDelayMs','postType','ownership','expectations','listingURLs','searchURLs','cacheRoles',...(check.kind==='wp-authz'?['role','roleHeadersEnv','expectedUserId','expectedRoles','readStatus','readCode','updateStatus','updateCode']:[])];
   for(const key of Object.keys(o))assert(allowed.includes(key),`Unknown WordPress option: ${key}`);
   for(const key of ['pollIntervalMs','maxWaitMs','scheduleDelayMs'])if(o[key]!==undefined)assert(Number.isInteger(o[key])&&o[key]>0&&o[key]<=600000,`${key} must be 1..600000`);
   for(const key of ['headersEnv','roleHeadersEnv','storageStateEnv'])if(o[key]!==undefined)assert(/^[A-Z_][A-Z0-9_]*$/.test(o[key]),`Invalid ${key}`);
   if(o.restPath!==undefined)assert(typeof o.restPath==='string'&&o.restPath.startsWith('/')&&!o.restPath.startsWith('//')&&!/[?#]/.test(o.restPath),'restPath must be a same-origin absolute path');
+  if(o.adminPath!==undefined)assert(typeof o.adminPath==='string'&&/^\/(?:[a-zA-Z0-9_-]+\/)*wp-admin\/$/.test(o.adminPath),'Invalid adminPath');
   if(o.postType!==undefined)assert(/^[a-z][a-z0-9_-]*$/.test(o.postType),'Invalid postType');
   if(o.ownership!==undefined)assert(['own','other'].includes(o.ownership),'Invalid ownership');
   for(const key of ['listingURLs','searchURLs'])if(o[key]!==undefined)assert(Array.isArray(o[key])&&o[key].every(u=>typeof u==='string'&&u.startsWith('/')&&!u.startsWith('//')),'Invalid cache URLs');
@@ -41,11 +45,13 @@ export async function run({check,config,requestFactory,runDir,signal,record=()=>
   if(config.environment==='production'||config.allowTestWrites!==true)throw new Error('BLOCKED: WordPress mutations require non-production and allowTestWrites=true');
   validate(check);
   const o=check.options||{}, base=new URL(config.baseURL), rest=o.restPath||'/wp-json/wp/v2';
-  const adminHeaders=headers(o.headersEnv||'WPQA_UI_ADMIN_HEADERS');
-  const state=['wp-lifecycle','wp-cache'].includes(check.kind)?browserState(o.storageStateEnv||'WPQA_UI_ADMIN_STATE',base):undefined;
+  const credentialEnv=o.headersEnv||'WPQA_UI_ADMIN_HEADERS';
+  const browserFallback=!process.env[credentialEnv];
+  let adminHeaders=browserFallback?null:headers(credentialEnv);
+  const state=browserFallback||['wp-lifecycle','wp-cache'].includes(check.kind)?browserState(o.storageStateEnv||'WPQA_UI_ADMIN_STATE',base):undefined;
   const roleHeaders=check.kind==='wp-authz'?headers(o.roleHeadersEnv||`WPQA_ROLE_${o.role.toUpperCase().replaceAll('-','_')}_HEADERS`):null;
   const collection=rest+'/'+(o.postType||'posts');const abort=()=>{if(signal?.aborted)throw new Error('BLOCKED: cancelled WordPress check cancelled');};
-  const contexts=[];let owned=null, failure, publicURL;const result={kind:check.kind,phases:[],cleanedUp:false};
+  const contexts=[];let owned=null, failure, publicURL,admin;const result={kind:check.kind,phases:[],cleanedUp:false};
   const marker=`wpqa-${randomUUID()}`, first=`${marker}-v1`, second=`${marker}-v2`;
   async function context(extraHTTPHeaders={},storageState){let c;try{c=await requestFactory.newContext({extraHTTPHeaders,storageState,timeout:config.timeoutMs||30000,ignoreHTTPSErrors:false});}catch{throw new Error('BLOCKED: request context unavailable');}contexts.push(c);return c;}
   async function req(c,path,method='GET',data,cleanup=false){if(!cleanup)abort();
@@ -61,8 +67,32 @@ export async function run({check,config,requestFactory,runDir,signal,record=()=>
   async function hidden(anon,url,until){const r=await req(anon,url);const body=await r.text();if(until!==undefined&&Date.now()>=until)return;assert(!body.includes(marker),'Non-public content leaked anonymously');assert([200,401,403,404].includes(r.status()),'Unexpected anonymous visibility status');}
   async function poll(fn,label){const end=Date.now()+(o.maxWaitMs||(check.kind==='wp-scheduled'?(o.scheduleDelayMs||120000)+30000:30000));let count=0;do{abort();count++;if(await fn()){result.phases.push({phase:label,attempts:count});return;}await new Promise(r=>setTimeout(r,o.pollIntervalMs||1000));}while(Date.now()<end);assert.fail(`${label}: expected content/state not observed before timeout`);}
   try{
-    const admin=await context(adminHeaders),anon=await context();
     const htmlAdmin=state?await context({},state):null;
+    if(browserFallback){
+      // Read only the authenticated admin document. No navigation, script
+      // execution, redirects or nonce/cookie transfer to the public client.
+      const inferred=rest.match(/^(.*\/)wp-json\/wp\/v2\/?$/)?.[1];
+      const adminPath=o.adminPath||(inferred?inferred+'wp-admin/':null);
+      if(!adminPath)throw new Error('BLOCKED: adminPath required for browser cache authentication');
+      const r=await req(htmlAdmin,adminPath);
+      if(r.status()!==200)throw new Error('BLOCKED: admin HTML authentication failed');
+      const body=await r.text();
+      if(Buffer.byteLength(body)>2*1024*1024)throw new Error('BLOCKED: admin HTML exceeds discovery limit');
+      const $=load(body);
+      if($('#wpadminbar').length!==1||$('#loginform').length)throw new Error('BLOCKED: admin HTML authentication failed');
+      let settings;
+      try{settings=parseSettings($('script:not([src])').map((_,el)=>$(el).text()).get().join('\n'),base.href);}catch{throw new Error('BLOCKED: admin REST settings unavailable');}
+      if(new URL('wp/v2',settings.root).href.replace(/\/$/,'')!==new URL(rest,base).href.replace(/\/$/,''))throw new Error('BLOCKED: admin REST root differs from configured restPath');
+      adminHeaders={'X-WP-Nonce':settings.nonce};
+    }
+    admin=await context(adminHeaders,browserFallback?state:undefined);
+    const publicHeaders={};
+    if(config.headersEnv){
+      const supplied=envHeaders(config.headersEnv);
+      const cookie=Object.entries(supplied).find(([key])=>key.toLowerCase()==='cookie')?.[1];
+      if(cookie){const gate=cookie.split(';').map(v=>v.trim()).filter(v=>/^password_protected_[a-zA-Z0-9_-]+=[^;\r\n]*$/.test(v)&&!v.startsWith('password_protected_cookie_test='));if(gate.length)publicHeaders.Cookie=gate.join('; ');}
+    }
+    const anon=await context(publicHeaders);
     const meResponse=await req(admin,`${rest}/users/me?context=edit`);
     if(meResponse.status()!==200)throw new Error('BLOCKED: admin authentication positive control failed');
     const me=await json(meResponse);if(!Number.isInteger(me.id)||!me.roles?.includes('administrator'))throw new Error('BLOCKED: configured owner is not an administrator');
@@ -98,7 +128,7 @@ export async function run({check,config,requestFactory,runDir,signal,record=()=>
     if(result.coverage)result.coverage.urls=[publicURL,...(o.listingURLs||[]),...(o.searchURLs||[])];
   }catch(e){failure=e;}
   finally{
-    if(owned){try{const r=await req(contexts[0],`${collection}/${owned.id}?force=true`,'DELETE',undefined,true);assert.equal(r.status(),200,'Owned test post cleanup failed');assert.equal((await json(r)).deleted,true,'Deletion not confirmed');result.cleanedUp=true;await journalUpdate(runDir,marker,{state:"deleted"});}catch(e){failure=new Error(`${failure?failure.message+'; ':''}cleanup failed for owned post ${owned.id}: ${e.message}`);}}
+    if(owned){try{const r=await req(admin,`${collection}/${owned.id}?force=true`,'DELETE',undefined,true);assert.equal(r.status(),200,'Owned test post cleanup failed');assert.equal((await json(r)).deleted,true,'Deletion not confirmed');result.cleanedUp=true;await journalUpdate(runDir,marker,{state:"deleted"});}catch(e){failure=new Error(`${failure?failure.message+'; ':''}cleanup failed for owned post ${owned.id}: ${e.message}`);}}
     for(const c of contexts)await c.dispose().catch(()=>{});
   }
   if(failure)throw failure;

@@ -220,7 +220,7 @@ test('journey-only public gate preparation obtains bid cookie without any admin 
       assert.equal(new URLSearchParams(data).get('password_protected_pwd'),'fixture-password');
       res.setHeader('Set-Cookie',['bid_1_password_protected_auth=fresh-gate; Path=/','wordpress_logged_in_fixture=admin; Path=/']);
     }
-    res.end('fixture');
+    res.end('<input name="password_protected_pwd">');
   });
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
   try{

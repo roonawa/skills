@@ -13,6 +13,7 @@ export function escapeHTML(value) { return String(value??'').replace(/[&<>"']/g,
 export function writeReport(runDir, report) {
   report.gatePassed = releaseGate(report.rows) && !(report.errors?.length) && !report.recovery?.pending && report.runStatus==='finished';
   report.summary = Object.fromEntries(['pass','fail','blocked','not_run','not_applicable','review'].map(s=>[s,report.rows.filter(r=>r.status===s).length]));
+  report.preparationCount=report.rows.filter(r=>r.preparationRequired).length;
   const pending=path.join(runDir,`results.${process.pid}.tmp`);
   fs.writeFileSync(pending,JSON.stringify(report,null,2));
   // Windows readers/virus scanners may briefly hold the destination open.

@@ -14,11 +14,28 @@ const recipes={
  membership:['browser-flow','ロール別ログインを登録し、ブラウザー認証名、対象URL、閲覧・操作手順と期待する表示／拒否結果を設定する。'],
  multilingual:['browser-flow','言語切替の操作手順と、切替後のURL・文言・langやhreflangの期待値を設定する。']
 };
+const inputs={
+ publishing:['wp-lifecycle','対象・期待値（options JSON）','管理者認証と変更許可を設定。標準の投稿作成・更新・削除を検査する場合は {}。'],
+ authz:['wp-authz','対象・期待値（options JSON）','role に登録済みロール名、expectedRoles に期待ロール、readStatus・updateStatus に期待HTTP状態、readCode・updateCode に拒否コードを入力。'],
+ cache:['wp-cache','対象・期待値（options JSON）','一覧・検索URLと非公開記事の閲覧可否を設定します。ひな形だけでは運用条件は確定しません。'],
+ scheduled:['wp-scheduled','対象・期待値（options JSON）','予約公開なら scheduleDelayMs（予約までの時間）と maxWaitMs（待機上限）をミリ秒で入力。例：120000、180000。'],
+ operations:['operation-drill','対象・期待値（options JSON）','adapter に実行担当者が登録した別名、operation に update / restore / cron、before・after に検証URL・HTTP状態・期待文字列を入力。'],
+ delivery:['mail-delivery または browser-flow','対象・期待値（options JSON）','メール到達なら source.url にテスト受信APIのURL、expected.to に宛先、subject に識別文字列 {{token}}、count に期待通数を設定。フォーム操作なら browser-flow の steps に操作と期待結果を設定。'],
+ performance:['performance-navigation','対象・期待値（options JSON）','path に測定対象、samples に回数、cache に cold / warm、budgets に合意済みの上限を設定。例：durationMs: 3000 は3秒です。例の数値を合意済み値として使用しないでください。'],
+ compatibility:['compatibility-screen','対象・期待値（options JSON）','path に対象、engine に chromium / firefox / webkit、viewport に width・height、visible に表示される要素のセレクターを入力。'],
+ seo:['seo-robots / seo-sitemap / redirect','対象・期待値（options JSON）','robotsなら path と rules、サイトマップなら path と requiredUrls・excludedUrls、転送なら path・status・location を入力。複数種類を検査する場合は検査を追加してください。'],
+ accessibility:['keyboard-sequence','対象・期待値（options JSON）','path と steps を設定。各操作の key（例：Tab）と focus（その操作後にフォーカスする要素のCSSセレクター）を入力。実際の操作順に合わせます。'],
+ commerce:['browser-flow','対象・期待値（options JSON）','sandbox と steps を設定。テスト商品への移動・入力・注文確定・注文結果の確認と取消手順を用意します。実決済の情報は入力しません。'],
+ membership:['browser-flow','対象・期待値（options JSON）','ロール別認証を登録し、steps に対象画面への移動と、許可・拒否される表示の検証を入力。'],
+ multilingual:['browser-flow','対象・期待値（options JSON）','steps に言語切替の操作と assertURL / assertText / assertAttribute による切替後の期待値を入力。']
+};
 export function guidance({config,row,env={},changed=false,managed=false}){
  const check=row.id.startsWith('check.')?(config.checks??[]).find(c=>'check.'+c.id===row.id):null;
  const admin=row.id.startsWith('admin.')?(config.admin??[]).find(c=>'admin.'+c.id===row.id):null;
- const issues=preflight({...config,checks:check?[check]:[],admin:admin?[admin]:[]},env).issues;
+ const preparation=preflight({...config,checks:check?[check]:[],admin:admin?[admin]:[]},env);
+ const issues=[...preparation.issues,...preparation.preparations];
  const missing=issues.map(i=>i.message),steps=[];
+ if(check?.kind==='site-interaction')steps.push('登録・設定画面の「共通操作テスト」で、この検査のURL・対象要素・期待値を確認する。対象機能が存在しない場合は理由を記録して、その操作だけ選択を解除する。');
  if(check?.kind==='unconfigured'){
   missing.splice(0,missing.length,'検査方法が「unconfigured（未設定）」のため、実行する処理と期待値が未定義です。');
   const recipe=recipes[check.suite];if(recipe)steps.push('「機能・運用の検査」でID「'+check.id+'」を探し、検査方法を '+recipe[0]+' に変更する。','ひな形を入力し、'+recipe[1]);
@@ -41,5 +58,9 @@ export function guidance({config,row,env={},changed=false,managed=false}){
  if(!missing.length)missing.push('現在の設定で、自動的に特定できる不足はありません。前回の実行不能が解消したかは再実行で確認してください。');
  if(!steps.length)steps.push('判定理由と実行ログを確認する。原因は設定だけでは特定できないため、記録されたエラーに対応して再実行する。');
  steps.push('設定を保存し「実行前の確認」を行ってから、この検査範囲を再実行する。保存だけでは過去の判定は変わりません。');
- return {missing,steps:[...new Set(steps)],changed,location:managed?'「設定を編集」':'このサイトは起動時の設定ファイルで管理されています。設定ファイルを編集するか、「サイトを登録」で実サイト用設定を作成してください。',scope:'現在の設定に基づく案内です。認証成功・接続成功・検査合格は再実行で確認します。'};
+ const recipe=check&&inputs[check.suite];
+ const fields=check?[{label:'項目名・ID',value:`${check.title??check.id}（${check.id}）`},{label:'検査方法',value:check.kind==='unconfigured'?(recipe?.[0]??'検査内容に対応する方法を選択'):check.kind},{label:recipe?.[1]??'対象・期待値（options JSON）',value:recipe?.[2]??'この検査に必要な対象URL・操作・期待する結果を入力してください。'}]:[];
+ if(check?.options?.instructions)fields.push({label:'この項目固有の条件（こちらを優先）',value:check.options.instructions});
+ if(check?.kind==='unconfigured')steps.splice(1,0,'「検査方法」を選択した後、「選択した検査方法のひな形を入力」を押す。次の入力欄の案内に従い、例のURL・値を実際の条件に置き換える。ひな形は未確認の入力例です。');
+ return {missing,fields,target:check?{checkId:check.id}:null,external:check&&['operations','delivery','authz','membership'].includes(check.suite)?'メール受信API・ロール別アカウント・運用アダプターなどは、必要に応じて実行環境の担当者が準備します。設定画面への入力だけでは用意されません。':null,steps:[...new Set(steps)],changed,location:managed?check?`「設定を編集」→「機能・運用の検査」→「${check.title??check.id}」（ID: ${check.id}）`:'「設定を編集」':'このサイトは起動時の設定ファイルで管理されています。設定ファイルを編集するか、「サイトを登録」で実サイト用設定を作成してください。',scope:'現在の設定に基づく案内です。認証成功・接続成功・検査合格は再実行で確認します。'};
 }

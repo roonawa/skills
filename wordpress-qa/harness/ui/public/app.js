@@ -1,6 +1,7 @@
 import {initSettings} from './settings.js';
 import {initExternalAuth} from './external-auth.js';
 import {initRegistration} from './registration.js';
+import {initDesignerReport} from './designer-report.js';
 import {extendedSuites} from './coverage-editor.js';
 const $=selector=>document.querySelector(selector);
 const state={token:'',projects:[],projectId:'',project:null,runId:null,report:null,detail:null,filter:'all',search:'',busy:false,active:null,follow:true,lastActive:false,notice:'',detailKey:'',rowsKey:'',historyKey:'',requesting:false};
@@ -20,7 +21,7 @@ function showVerdict(report,exitCode){
  panel.querySelector('button').onclick=()=>{panel.hidden=true;clearTimeout(verdictTimer);};
  verdictTimer=setTimeout(()=>{panel.hidden=true;},7500);
 }
-const names={pass:'合格',fail:'不合格',blocked:'実行不能',not_run:'未実施',review:'確認待ち',not_applicable:'対象外',running:'実行中'};
+const names={preparation:'準備待ち',pass:'合格',fail:'不合格',blocked:'実行不能',not_run:'未実施',review:'確認待ち',not_applicable:'対象外',running:'実行中'};
 const suites={admin:'管理設定',audit:'URL・公開設定',journey:'操作・メール',visual:'表示検査',manual:'手動確認',...extendedSuites};
 for(const [value,label] of Object.entries(extendedSuites))$('#suite-select').add(new Option(label,value));
 const escape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -29,6 +30,10 @@ const duration=ms=>typeof ms==='number'?`${(ms/1000).toFixed(1)}s`:'—';
 const projectAPI=()=>`/api/projects/${encodeURIComponent(state.projectId)}`;
 const runAPI=()=>`${projectAPI()}/runs/${encodeURIComponent(state.runId)}`;
 const fileURL=file=>`${runAPI()}/files?path=${encodeURIComponent(file)}`;
+$('#report-link').insertAdjacentHTML('afterend','<a id="results-download" class="text-link" download hidden>結果をPCに保存（ZIP）</a><label><input id="auto-download-results" type="checkbox">実行完了後にPCへダウンロード</label>');
+$('#auto-download-results').checked=localStorage.getItem('wpqa-auto-download')!=='off';
+$('#auto-download-results').onchange=e=>localStorage.setItem('wpqa-auto-download',e.target.checked?'on':'off');
+const downloadedRuns=new Set();
 $('#filters').insertAdjacentHTML('beforeend','<button data-filter="review" aria-pressed="false">確認待ち</button>');
 $('#run-button').insertAdjacentHTML('beforebegin','<button id="operation-tests" type="button">注文・問い合わせを自動テスト</button>');
 $('.page-heading').insertAdjacentHTML('afterend','<section id="operation-panel" class="confirmation-panel" hidden></section>');
@@ -112,13 +117,16 @@ $('#issue-report-generate').onclick=async()=>{
   finally{state.requesting=false;render();}
 };
 $('.page-heading').insertAdjacentHTML('afterend','<div id="preflight-result" role="status"></div>');
+const designerReportUI=initDesignerReport({state,api,render,showError});
 function notify(message){state.notice=message;$('#toast').textContent=message;$('#toast').hidden=!message;}
 function showError(message){$('#error').textContent=message;$('#error').hidden=!message;}
 async function api(url,options={}){
   const response=await fetch(url,{...options,headers:{...(options.body?{'Content-Type':'application/json','X-QA-Token':state.token}:{}),...options.headers}});
   const data=await response.json();if(!response.ok)throw new Error(data.error??data.message??'処理に失敗しました');return data;
 }
-function badge(row){const status=row.active?'running':row.status;return `<span class="pill ${escape(status)}">${escape(names[status]??status)}</span>`;}
+const needsPreparation=row=>row.preparationRequired===true;
+const displayStatus=row=>needsPreparation(row)?'preparation':row.active?'running':row.status;
+function badge(row){const status=displayStatus(row);return `<span class="pill ${escape(status)}">${escape(names[status]??status)}</span>`;}
 function renderHistory(runs){
   const key=JSON.stringify([runs,state.runId]);if(key===state.historyKey)return;state.historyKey=key;
   $('#history-count').textContent=runs.length;
@@ -162,13 +170,16 @@ function renderRows(){
     if(!groups.has(id))groups.set(id,{id,title,description,rows:[]});
     groups.get(id).rows.push(r);
   }
-  const visible=[...groups.values()].map(g=>({...g,matches:g.rows.filter(r=>(state.filter==='all'||(state.filter==='attention'?['fail','blocked','review'].includes(r.status):r.status===state.filter))&&`${g.title} ${g.description} ${r.id} ${r.title}`.toLowerCase().includes(state.search.toLowerCase()))})).filter(g=>g.matches.length);
+  const visible=[...groups.values()].map(g=>({...g,matches:g.rows.filter(r=>(state.filter==='all'||(state.filter==='attention'?['fail','blocked','review','preparation'].includes(displayStatus(r)):displayStatus(r)===state.filter))&&`${g.title} ${g.description} ${r.id} ${r.title}`.toLowerCase().includes(state.search.toLowerCase()))})).filter(g=>g.matches.length);
   const key=JSON.stringify([visible,state.detail,[...openGroups]]);if(key!==state.rowsKey){
-    state.rowsKey=key;$('#test-rows').innerHTML=visible.map((g,index)=>{
+    const causes=new Map();
+    for(const g of visible)for(const r of g.matches)for(const f of r.failures??[]){if(!causes.has(f.key))causes.set(f.key,{...f,rows:[]});causes.get(f.key).rows.push(r);}
+    const causeHTML=causes.size?`<tr><td colspan="4"><section class="preparation-help"><h3>不合格の理由・対応方法（${causes.size}項目）</h3><p>同じ不一致・検出ルールをまとめています。共通の根本原因が確定した件数ではありません。複数の問題を持つケースは各項目に表示します。</p>${[...causes.values()].map(f=>`<details><summary><strong>${escape(f.title)}</strong> — ${f.rows.length}ケース</summary>${failureHTML(f)}<h4>対象URL・条件</h4>${f.rows.map(r=>`<button class="row-button" data-row="${escape(r.id)}">${escape(r.title)} — 詳細・証拠を確認</button>`).join('')}</details>`).join('')}</section></td></tr>`:'';
+    state.rowsKey=key;$('#test-rows').innerHTML=causeHTML+visible.map((g,index)=>{
       const expanded=openGroups.has(g.id),counts={};
-      for(const r of g.rows){const status=r.active?'running':r.status;counts[status]=(counts[status]??0)+1;}
+      for(const r of g.rows){const status=displayStatus(r);counts[status]=(counts[status]??0)+1;}
       const summary=Object.entries(counts).map(([status,count])=>`${names[status]??status} ${count}`).join(' / ');
-      const status=['fail','blocked','running','review','not_run','pass','not_applicable'].find(s=>counts[s])??'not_run';
+      const status=['fail','blocked','running','review','preparation','not_run','pass','not_applicable'].find(s=>counts[s])??'not_run';
       const children=g.matches.map(r=>`<tr class="group-child ${state.detail===r.id?'row-selected':''}"><td><button class="row-button" data-row="${escape(r.id)}"><strong>${escape(r.title)}</strong><small>${escape(r.id)}${r.required?' · 必須':''}</small></button></td><td class="suite-col">${escape(suites[r.suite]??r.suite)}</td><td>${badge(r)}</td><td class="time-col">${duration(r.durationMs)}</td></tr>`).join('');
       return `<tr class="group-heading"><td colspan="2"><button class="row-button group-toggle" data-group="${escape(g.id)}" aria-expanded="${expanded}" aria-controls="group-${index}"><strong>${expanded?'▾':'▸'} ${escape(g.title)} <span class="count">${g.rows.length}</span></strong><small>${escape(g.description)}</small><small>全体: ${escape(summary)}${g.matches.length!==g.rows.length?` · 絞り込み一致 ${g.matches.length}件`:''}</small></button></td><td>${badge({status})}</td><td class="time-col">${duration(g.rows.reduce((total,r)=>total+(r.durationMs??0),0))}</td></tr><tr id="group-${index}" class="group-results" ${expanded?'':'hidden'}><td colspan="4">${expanded?`<p class="group-caption">URL・条件ごとの結果（${g.matches.length}件）。項目を選ぶと判定理由・証拠を表示します。</p><table class="group-table"><thead><tr><th>URL・条件</th><th class="suite-col">種別</th><th>結果</th><th class="time-col">時間</th></tr></thead><tbody>${children}</tbody></table>`:''}</td></tr>`;
     }).join('');
@@ -178,34 +189,46 @@ function renderRows(){
   else if(!rows.length){$('#empty-state h3').textContent=state.active?'検査を準備しています':'まだ実行履歴がありません';$('#empty-state p').textContent=state.active?'結果の保存を待っています。自動で更新されます。':'検査範囲を選び「検査を実行」を押してください。進捗と証拠は自動で更新されます。';}
   $('#table-note').textContent=rows.length?`${visible.length} / ${groups.size}分類 · URL・条件別 ${rows.length}件（絞り込み一致 ${visible.reduce((n,g)=>n+g.matches.length,0)}件） · 上部の集計はURL・条件別の件数`:'実行結果はこのPCに保存されます';
 }
+function failureHTML(f){return `<dl><dt>不合格の理由・取得結果</dt><dd>${escape(f.actual)}</dd><dt>利用者への影響</dt><dd>${escape(f.impact)}</dd><dt>管理画面での対応・確認方法</dt><dd>${escape(f.admin)}</dd><dt>設定で直らない場合</dt><dd>${escape(f.code)}</dd><dt>修正後の確認</dt><dd>${escape(f.verify)}</dd></dl>`;}
 function renderDetail(){
   const r=state.report?.report?.rows.find(r=>r.id===state.detail);
   const key=JSON.stringify([state.runId,r,state.report?.canApprove,state.report?.candidates,state.busy]);if(key===state.detailKey)return;state.detailKey=key;
   if(!r){$('#detail').innerHTML='<div class="detail-placeholder"><span aria-hidden="true">↖</span><h3>確認したい項目を選択</h3><p>結果の理由、スクリーンショット、<br>ログをここで確認できます。</p></div>';return;}
-  const files=r.evidence??[],candidate=state.report.candidates.includes(r.id),canApprove=state.report.canApprove&&!state.busy;
-  const descriptions={pass:'この検査は期待した結果に一致しました。',not_run:'この実行では確認していません。対象の検査範囲を選んで実行してください。',review:'人による確認が必要です。証拠と期待する状態を照合してください。',blocked:'前提条件や実行環境を確認してから再実行してください。',not_applicable:'このサイトでは適用外として登録されています。',fail:'期待結果との違いがあります。証拠から原因を確認してください。'};
-  $('#detail').innerHTML=`${badge(r)}<h3 class="detail-title">${escape(r.title)}</h3><div class="detail-id">${escape(r.id)}</div><span class="detail-label">判定の内容</span><p class="detail-description">${escape(descriptions[r.status]??'')}</p>${r.setting?`<span class="detail-label">設定の照合</span><dl><dt>取得方法</dt><dd>${escape(r.setting.source)}</dd><dt>期待値</dt><dd>${escape(JSON.stringify(r.setting.expected))}</dd><dt>取得した値</dt><dd>${escape(JSON.stringify(r.setting.actual))}</dd></dl>`:''}${r.reason?`<pre class="reason">${escape(r.reason.replace(/\x1b\[[0-9;]*m/g,''))}</pre>`:''}${files.length?'<span class="detail-label">証拠ファイル</span>':''}<div class="evidence-list">${files.map(f=>`<a class="evidence-link" href="${fileURL(f)}" target="_blank" rel="noopener">${escape(f.split('/').at(-1))} ↗</a>${/\.png$/i.test(f)?`<a href="${fileURL(f)}" target="_blank" rel="noopener"><img class="evidence-image" src="${fileURL(f)}" alt="${escape(f.split('/').at(-1))}"></a>`:''}`).join('')}</div>${candidate?`<div class="approval"><span class="detail-label">基準画像のレビュー</span><p class="detail-description">表示が意図どおりか確認した画像のみ承認します。承認後も、再実行するまで以前の判定は変わりません。</p>${canApprove?'<label><input type="checkbox" id="approve-check">候補画像を確認し、意図した表示であることを確認しました</label><button class="primary" id="approve-button" disabled>この画像を基準として承認</button>':'<p class="approval-note">実行中、または現在の設定と異なる履歴のため承認できません。必要に応じて再実行してください。</p>'}</div>`:''}`;
-  if(r.status==='blocked'){
+  const preparing=needsPreparation(r),files=r.evidence??[],candidate=!preparing&&state.report.candidates.includes(r.id),canApprove=state.report.canApprove&&!state.busy;
+  const descriptions={preparation:'検査条件や期待値が未定義のため、実行対象に含めていません。設定を登録してから検査してください。',pass:'この検査は期待した結果に一致しました。',not_run:'この実行では確認していません。対象の検査範囲を選んで実行してください。',review:'人による確認が必要です。証拠と期待する状態を照合してください。',blocked:'前提条件や実行環境を確認してから再実行してください。',not_applicable:'このサイトでは適用外として登録されています。',fail:'期待結果との違いがあります。証拠から原因を確認してください。'};
+  $('#detail').innerHTML=`${badge(r)}<h3 class="detail-title">${escape(r.title)}</h3><div class="detail-id">${escape(r.id)}</div><span class="detail-label">判定の内容</span><p class="detail-description">${escape(descriptions[displayStatus(r)]??'')}</p>${r.setting?`<span class="detail-label">設定の照合</span><dl><dt>取得方法</dt><dd>${escape(r.setting.source)}</dd><dt>期待値</dt><dd>${escape(JSON.stringify(r.setting.expected))}</dd><dt>取得した値</dt><dd>${escape(JSON.stringify(r.setting.actual))}</dd></dl>`:''}${r.reason?`<pre class="reason">${escape(r.reason.replace(/\x1b\[[0-9;]*m/g,''))}</pre>`:''}${files.length?'<span class="detail-label">証拠ファイル</span>':''}<div class="evidence-list">${files.map(f=>`<a class="evidence-link" href="${fileURL(f)}" target="_blank" rel="noopener">${escape(f.split('/').at(-1))} ↗</a>${/\.png$/i.test(f)?`<a href="${fileURL(f)}" target="_blank" rel="noopener"><img class="evidence-image" src="${fileURL(f)}" alt="${escape(f.split('/').at(-1))}"></a>`:''}`).join('')}</div>${candidate?`<div class="approval"><span class="detail-label">基準画像のレビュー</span><p class="detail-description">表示が意図どおりか確認した画像のみ承認します。承認後も、再実行するまで以前の判定は変わりません。</p>${canApprove?'<label><input type="checkbox" id="approve-check">候補画像を確認し、意図した表示であることを確認しました</label><button class="primary" id="approve-button" disabled>この画像を基準として承認</button>':'<p class="approval-note">実行中、または現在の設定と異なる履歴のため承認できません。必要に応じて再実行してください。</p>'}</div>`:''}`;
+  if(r.failures?.length)$('#detail .detail-id').insertAdjacentHTML('afterend',r.failures.map(f=>`<section class="preparation-help"><h4>${escape(f.title)}</h4>${failureHTML(f)}</section>`).join(''));
+  if(preparing){
+    $('#detail .detail-id').insertAdjacentHTML('afterend',`<section class="preparation-help"><h4>検査の準備が必要です</h4><p>${r.required?'必須条件は未充足です。設定と検査が完了するまでリリース判定を通過しません。':'設定と検査が完了するまで未確認として残ります。'}</p><button type="button" data-open-settings ${state.busy?'disabled':''}>設定画面を開く</button></section>`);
+    $('#detail [data-open-settings]').remove();
+  }
+  if(preparing||r.status==='blocked'){
+
     const help=document.createElement('section');help.className='blocked-help';help.setAttribute('aria-live','polite');help.textContent='不足している設定を確認しています…';$('#detail .detail-id').after(help);
     const url=runAPI()+'/guidance/'+encodeURIComponent(r.id);
     api(url).then(g=>{
       if(!help.isConnected)return;
       help.innerHTML=`<h4>実行できるようにするには</h4>${g.changed?'<p class="guidance-history">この履歴の実行後に設定が変わっています。以下は現在の設定の案内です。</p>':''}<h5>不足・確認が必要なもの</h5><ul>${g.missing.map(x=>`<li>${escape(x)}</li>`).join('')}</ul><h5>設定する場所</h5><p>${escape(g.location)}</p><h5>対応手順</h5><ol>${g.steps.map(x=>`<li>${escape(x)}</li>`).join('')}</ol><p class="quiet">${escape(g.scope)}</p><button type="button" data-open-settings ${state.busy?'disabled':''}>設定画面を開く</button>`;
-      help.querySelector('[data-open-settings]').onclick=()=>$('#edit-site').click();
+      if(preparing)help.innerHTML=`<h4>かんたん設定</h4><p>サイト・管理画面から取得できる情報を補い、必要な宛先・期待する結果・操作の許可を入力します。取得できない情報は空欄でお知らせします。</p>${g.changed?'<p>現在の設定に合わせて準備します。過去の結果は保存だけでは変わりません。</p>':''}<button type="button" data-open-settings ${state.busy?'disabled':''}>かんたん設定を開く</button>`;
+      const fields=document.createElement('div');fields.hidden=preparing;fields.innerHTML=`${g.fields?.length?`<h5>入力する欄と内容</h5><dl>${g.fields.map(f=>`<dt>${escape(f.label)}</dt><dd>${escape(f.value)}</dd>`).join('')}</dl>`:''}${g.external?`<p>${escape(g.external)}</p>`:''}`;
+      help.querySelector('[data-open-settings]').before(fields);
+      help.querySelector('[data-open-settings]').textContent=preparing?'かんたん設定を開く':g.target?'該当する検査の設定を開く':'設定画面を開く';
+      help.querySelector('[data-open-settings]').onclick=async e=>{const button=e.currentTarget;const label=button.textContent;button.disabled=true;button.textContent='サイト情報を取得しています…';try{await settingsEditor.open(state.projectId,g.target?{...g.target,fields:g.fields,steps:g.steps}:null);}finally{button.disabled=state.busy;button.textContent=label;}};
     }).catch(e=>{if(help.isConnected)help.textContent='設定案内を取得できませんでした。項目を選び直してください：'+e.message;});
   }
   if(r.details)$('#detail').insertAdjacentHTML('beforeend',`<details class="check-details"><summary>期待値と取得結果</summary><pre class="reason">${escape(JSON.stringify(r.details,null,2))}</pre></details>`);
   if(r.diagnostics)$('#detail').insertAdjacentHTML('beforeend',`<details class="check-details" open><summary>実行経過・失敗時の証拠</summary><pre class="reason">${escape(JSON.stringify(r.diagnostics,null,2))}</pre></details>`);
   if(r.instructions)$('#detail').insertAdjacentHTML('beforeend',`<p class="detail-description">${escape(r.instructions)}</p>`);
-  if(r.manualReview)$('#detail').insertAdjacentHTML('beforeend',`<form id="manual-review" class="manual-review"><h4>人手による判定を記録</h4>${r.review?`<p>前回: ${escape(r.review.reviewer)} · ${escape(date(r.review.timestamp))} · ${escape(names[r.review.outcome])}</p>`:''}<label>確認者<input name="reviewer" required maxlength="10000" value="${escape(r.review?.reviewer??'')}"></label><label>判定<select name="outcome"><option value="pass">合格</option><option value="fail">不合格</option><option value="not_applicable">対象外</option></select></label><label>確認内容・判断理由<textarea name="notes" required maxlength="10000" rows="4">${escape(r.review?.notes??'')}</textarea></label><label>証拠・実施環境（1行に1件）<textarea name="evidence" required rows="4">${escape((r.review?.evidence??[]).join('\n'))}</textarea></label><button type="submit" class="primary" ${state.busy?'disabled':''}>判定を保存</button></form>`);
-  if(r.manualReview){
+  if(!preparing&&r.manualReview)$('#detail').insertAdjacentHTML('beforeend',`<form id="manual-review" class="manual-review"><h4>人手による判定を記録</h4>${r.review?`<p>前回: ${escape(r.review.reviewer)} · ${escape(date(r.review.timestamp))} · ${escape(names[r.review.outcome])}</p>`:''}<label>確認者<input name="reviewer" required maxlength="10000" value="${escape(r.review?.reviewer??'')}"></label><label>判定<select name="outcome"><option value="pass">合格</option><option value="fail">不合格</option><option value="not_applicable">対象外</option></select></label><label>確認内容・判断理由<textarea name="notes" required maxlength="10000" rows="4">${escape(r.review?.notes??'')}</textarea></label><label>証拠・実施環境（1行に1件）<textarea name="evidence" required rows="4">${escape((r.review?.evidence??[]).join('\n'))}</textarea></label><button type="submit" class="primary" ${state.busy?'disabled':''}>判定を保存</button></form>`);
+  if(!preparing&&r.manualReview){
     $('#manual-review').hidden=true;
     $('#detail .detail-id').insertAdjacentHTML('afterend',`<section class="confirmation-panel"><button type="button" id="start-confirmation" ${!canApprove?'disabled':''}>確認を進める</button><p>手順ごとに確認し、途中結果・証拠を保存できます。サイトへの送信は自動実行しません。</p><div id="confirmation-workspace"></div></section>`);
-  }else if(['review','blocked','fail','not_run'].includes(r.status)){
+  }else if(!preparing&&['review','blocked','fail','not_run'].includes(r.status)){
     $('#detail').insertAdjacentHTML('beforeend',`<section class="confirmation-panel"><p>${candidate?'候補画像を上の欄で確認・承認してから比較を実行します。':'登録済みの検査処理をこの項目だけ実行します。'}</p><button id="execute-case" type="button" ${!canApprove?'disabled':''}>この項目を再検査</button></section>`);
   }
 }
 function render(){
+  designerReportUI.render();
   renderOperationScope();
   const report=state.report?.report,rows=report?.rows??[],active=state.active?.projectId===state.projectId;
   const live=active&&(!state.runId||state.active.runId===state.runId);
@@ -230,12 +253,17 @@ function render(){
   else if(report?.runStatus==='planned'){title='テストケースを実行できます';subtitle='未実施のケース一覧です。検査範囲を選び「検査を実行」を押してください。';label='未実施';tone='not_run';icon='○';}
   else if(report){title=report.gatePassed?'必須条件を満たしています':report.summary?.fail?'不合格の項目を確認してください':'確認が必要な項目が残っています';subtitle=`${date(report.startedAt)} の実行結果 · 手動確認と未実施の項目も確認してください`;label=report.gatePassed?'必須条件充足':report.summary?.fail?'不合格あり':'未確認あり';tone=report.gatePassed?'pass':report.summary?.fail?'fail':'review';icon=report.gatePassed?'✓':report.summary?.fail?'!':'○';}
   if(report?.aggregation&&!live){title='実行結果・実査レビューの統合';subtitle='複数の実行履歴を統合した結果です。新たな全件実行ではありません。各項目の採用元・確認日を参照してください。';}
+  const preparationCount=rows.filter(needsPreparation).length;
+  if(preparationCount)subtitle+=` · 準備待ち ${preparationCount}件は実行対象外です。必須の未解決項目はリリース判定を妨げます。`;
   $('#run-title').textContent=title;$('#run-subtitle').textContent=subtitle;$('#run-badge').className=`pill ${tone}`;$('#run-badge').textContent=label;
   $('#run-indicator').className=`status-icon ${live?'running':tone==='pass'?'good':tone==='fail'?'bad':''}`;$('#run-indicator').textContent=icon;
   $('#progress-fill').style.width=`${percent}%`;$('.progress-track').setAttribute('aria-valuenow',percent);$('#progress-label').textContent=`${completed} / ${selected.length} 項目`;
   if(report?.aggregation&&!live)$('#progress-label').textContent=`${rows.length}項目の保存証拠を統合`;
   for(const status of ['pass','fail','blocked','review','not_run'])$(`#metric-${status}`).textContent=report?.summary?.[status]??'—';
+  $('#metric-preparation').textContent=report?preparationCount:'—';
+  $('#metric-not_run').textContent=report?rows.filter(r=>r.status==='not_run'&&!needsPreparation(r)).length:'—';
   $('#report-link').hidden=!report;if(report)$('#report-link').href=fileURL(report.aggregation&&rows.some(r=>r.evidence?.includes('followup-summary.html'))?'followup-summary.html':'report.html');
+  $('#results-download').hidden=!report||['running','starting','planned'].includes(report.runStatus);if(report)$('#results-download').href=runAPI()+'/download';
   $('#issue-report-panel').hidden=!report;
   $('#issue-report-generate').disabled=state.requesting||report?.runStatus!=='finished';
   const reportScope=`${state.projectId}/${state.runId}`;
@@ -267,6 +295,9 @@ async function refresh(){
     state.lastActive=running;state.runId=runId;state.report=report;
     renderHistory(data.runs);render();
     if(completedReport)showVerdict(completedReport.report,data.lastJob.exitCode);
+    if(completedReport&&$('#auto-download-results').checked&&!downloadedRuns.has(expectedProject+'/'+completedId)){
+      downloadedRuns.add(expectedProject+'/'+completedId);const link=document.createElement('a');link.href=`/api/projects/${encodeURIComponent(expectedProject)}/runs/${encodeURIComponent(completedId)}/download`;link.download='';document.body.append(link);link.click();link.remove();notify('結果のダウンロードを開始しました。保存されない場合は「結果をPCに保存（ZIP）」を押してください。');
+    }
   }catch(e){if(current())showError('状態を取得できませんでした：'+e.message);}
 }
 $('#project-select').addEventListener('change',async e=>{++refreshTicket;state.projectId=e.target.value;state.project=null;localStorage.setItem('wpqa-project',state.projectId);state.runId=null;state.report=null;state.detail=null;state.follow=true;state.lastActive=false;state.rowsKey='';state.historyKey='';notify('');showError('');render();await refresh();});
@@ -278,7 +309,12 @@ $('#run-button').addEventListener('click',async()=>{
 });
 $('#preflight-button').onclick=async()=>{
  const projectId=state.projectId;
- try{const result=await api(projectAPI()+'/preflight');if(state.projectId!==projectId)return;$('#preflight-result').innerHTML=`<p>${result.ready?'設定上の前提条件を満たしています。':'設定に確認事項があります。'}</p><ul>${result.issues.map(i=>`<li>${escape(i.id)}: ${escape(i.message)}</li>`).join('')}</ul><p>${escape(result.scope)}</p>`;}catch(e){showError(e.message);}
+ try{
+   const result=await api(projectAPI()+'/preflight');if(state.projectId!==projectId)return;
+   const issues=result.issues??[],preparations=result.preparations??[];
+   $('#preflight-result').innerHTML=`<p>${issues.length?'実行前に解消が必要な問題があります。':preparations.length?'実行可能な項目の前提条件を満たしています。準備待ちの項目は実行しません。':result.ready?'設定上の前提条件を満たしています。':'設定に確認事項があります。'}</p>${issues.length?`<section><h3>実行前の問題 ${issues.length}件</h3><ul>${issues.map(i=>`<li>${escape(i.id)}: ${escape(i.message)}</li>`).join('')}</ul></section>`:''}${preparations.length?`<section class="preparation-help"><h3>準備待ち ${preparations.length}件</h3><p>検査条件・期待値の登録が必要です。必須条件は未充足のまま残り、設定と検査が完了するまでリリース判定を通過しません。</p><ul>${preparations.map(i=>`<li>${escape(i.id)}: ${escape(i.message??i.reason)}${i.instructions?`<p>${escape(i.instructions)}</p>`:''}</li>`).join('')}</ul><button type="button" data-open-settings>設定画面を開く</button></section>`:''}<p>${escape(result.scope)}</p>`;
+   const settings=$('#preflight-result [data-open-settings]');if(settings)settings.onclick=()=>$('#edit-site').click();
+ }catch(e){showError(e.message);}
 };
 $('#project-select').addEventListener('change',()=>$('#preflight-result').replaceChildren());
 for(const [id,suffix,message] of [['stop-button','/stop','停止を要求しました。安全な後始末の完了を待っています。'],['recover-button','/recover','回収結果を更新しました。']]){
@@ -340,7 +376,7 @@ $('#detail').addEventListener('click',async e=>{
   catch(error){showError(error.message);}finally{state.requesting=false;state.detailKey='';await refresh();}
 });
 try{
-  const boot=await api('/api/bootstrap');state.token=boot.token;state.projects=boot.projects;$('#demo-label').hidden=!boot.demo;
+  const boot=await api('/api/bootstrap');state.shared=boot.shared===true;state.token=boot.token;state.projects=boot.projects;$('#demo-label').hidden=!boot.demo;
   $('#project-select').innerHTML=boot.projects.map(p=>`<option value="${escape(p.id)}">${escape(p.name)}</option>`).join('');
   const saved=localStorage.getItem('wpqa-project');state.projectId=boot.projects.some(p=>p.id===saved)?saved:boot.projects[0]?.id;
   $('#project-select').value=state.projectId;await refresh();
@@ -356,8 +392,9 @@ const siteSaved=async id=>{
   $('#project-select').innerHTML=boot.projects.map(p=>`<option value="${escape(p.id)}">${escape(p.name)}</option>`).join('');$('#project-select').value=id;
   localStorage.setItem('wpqa-project',id);notify('サイト設定を保存しました');render();await refresh();
 };
-initSettings({api,currentProject:()=>state.projectId,onSaved:siteSaved});
-initRegistration({api,onSaved:siteSaved});
+const settingsEditor=initSettings({api,currentProject:()=>state.projectId,onSaved:siteSaved,shared:state.shared});
+if(!state.shared)initRegistration({api,onSaved:siteSaved});
+else {const notice=document.createElement("p");notice.id="shared-pilot-notice";notice.textContent="社内試用版：登録・設定から認証を取り込めます。全利用者が同じサイトを操作できます。検査は1件ずつ実行します。";document.querySelector(".page-heading").after(notice);}
 
 // Movie-prop telemetry: entirely local decoration, independent of QA state.
 const cinemaToggle=document.querySelector('#cinema-toggle');

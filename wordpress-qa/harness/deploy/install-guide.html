@@ -1,0 +1,37 @@
+<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>WordPress QA 社内Linuxサーバー導入手順書</title><style>body{font:16px/1.8 system-ui,sans-serif;background:#eef3f7;color:#203242;margin:0}main{max-width:1000px;margin:auto;padding:32px}section{background:white;padding:24px;margin:20px 0;border-radius:12px}h1{font-size:28px}h2{font-size:22px}pre{background:#142739;color:#eff8ff;padding:18px;white-space:pre-wrap;overflow-wrap:anywhere}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccd5dd;padding:10px;text-align:left}.note{border-left:4px solid #cf8b21;padding:16px;background:#fff6de}code{overflow-wrap:anywhere}@media print{body{background:white}section{break-inside:avoid}pre{color:black;background:#eee}}</style>
+<main><h1>WordPress QA 社内Linuxサーバー導入手順書</h1><p>配布版：2026-10-28／少人数・社内LANまたはVPN向け／サーバー担当者用</p>
+<p class="note">この配布ZIPに、認証情報・登録サイト・テスト結果・画像基準は含まれていません。Linux上で新規導入します。ソースと自動テストは確認していますが、Linuxコンテナのビルド・起動と社内HTTPSの接続確認は導入先で実施してください。</p>
+<section><h2>1. 構成と事前準備</h2><pre>利用者PC → HTTPS:8443 → Caddy → QAアプリ:4310（Docker内部）
+                                      ├ Playwright（Chromium・Firefox）
+                                      └ /data（設定・履歴・一時生成する結果）
+検査完了 → 結果ZIPを利用者PCへダウンロード</pre><ul><li>LinuxホストにDocker EngineとComposeプラグインを準備。まず通常のrootful Docker・1台構成で導入します。</li><li>社内DNS名、ホストの社内IP、接続元のLAN/VPN、利用者名を決定。</li><li>ビルド時はDocker Hub・npm・Playwrightブラウザー・Debianパッケージ配布先への通信が必要。実行時は検査対象サイトと必要なメール受信サービスへ接続します。</li><li>検査は全体で同時に1件。全利用者が同じサイト・結果を閲覧し設定できます。サイト別権限・SSOは未実装です。</li></ul><p>Dockerの導入はOSに対応する<a href="https://docs.docker.com/engine/install/">公式手順</a>を使用してください。Dockerが公開するポートはUFW等の規則を迂回する場合があるため、Docker対応の接続制限または上位ネットワークでLAN/VPNに限定します。</p></section>
+<section><h2>2. 配置と配布物の確認</h2><p>管理者が書き込める作業ディレクトリへZIPを展開し、<code>wordpress-qa-linux</code>フォルダーに移動します。以下のコマンドはそのフォルダーで実行します。</p><pre>unzip wordpress-qa-linux-2026-10-28.zip
+cd wordpress-qa-linux
+sha256sum -c SHA256SUMS
+docker version
+docker compose version</pre><p>ZIPの外側にある .sha256 ファイルで配布ZIP自体も照合できます。ファイル一覧はMANIFEST.json、各ファイルのハッシュはSHA256SUMSです。配布物を置いたディレクトリ名を運用途中で変える場合は、既存のDockerボリュームを引き続き使えるようComposeのプロジェクト名を維持します。</p></section>
+<section><h2>3. 初回の利用者・暗号化キーを生成</h2><p>alice・bobを利用者名に変更します。Node.jsをホストへ入れず、公式Nodeコンテナで初期設定を生成できます。</p><pre>docker run --rm --user "$(id -u):$(id -g)" \
+  --mount "type=bind,src=$PWD,dst=/work" -w /work \
+  node:22-bookworm node bin/init-pilot.mjs deploy/secrets alice bob
+
+sudo chown 1000:1000 deploy/secrets/key deploy/secrets/users.json
+sudo chmod 400 deploy/secrets/key deploy/secrets/users.json
+cp deploy/.env.example deploy/.env</pre><p><code>deploy/secrets/initial-passwords.json</code>の初期パスワードを、管理者が本人へ個別に渡します。これはコンテナへマウントされません。ファイルの保管・回収は社内の秘密情報管理ルールに従います。</p><p class="note">初期生成は1回だけです。既存のsecretsフォルダーがあると生成を拒否します。暗号化キーを更新時に作り直すと保存済み認証を復号できなくなります。rootless Dockerの場合はUIDの対応が異なるため、コンテナ内nodeユーザーがsecretを読める権限を別途確認してください。</p></section>
+<section><h2>4. URLを設定しビルド・起動</h2><p><code>deploy/.env</code>を編集します。ドメインとHTTPS URLは実際の社内DNS名に変更。最初の接続IPはloopbackのままにします。</p><pre>WPQA_DOMAIN=qa.internal.example
+WPQA_PUBLIC_ORIGIN=https://qa.internal.example:8443
+WPQA_PORT=8443
+WPQA_BIND_IP=127.0.0.1</pre><pre>docker compose --env-file deploy/.env -f deploy/compose.yaml config --quiet
+docker compose --env-file deploy/.env -f deploy/compose.yaml build
+docker compose --env-file deploy/.env -f deploy/compose.yaml up -d
+docker compose --env-file deploy/.env -f deploy/compose.yaml ps
+docker compose --env-file deploy/.env -f deploy/compose.yaml logs --tail=100</pre><p>通常利用者権限のnodeプロセスで動作します。アプリの4310番はホストへ公開しません。既存の社内リバースプロキシを使う場合は、本構成と同等にHTTPS・Host・公開URLの一致を保って設定してください。</p></section>
+<section><h2>5. 証明書と社内接続</h2><p>標準構成はCaddyの内部CAです。CAの公開証明書だけを取り出し、端末管理者が利用端末に信頼設定してください。CAの秘密鍵は配布しません。社内発行証明書へ変更する場合はCaddyのTLS設定を変更します。</p><pre>docker compose --env-file deploy/.env -f deploy/compose.yaml \
+  cp proxy:/data/caddy/pki/authorities/local/root.crt ./qa-pilot-root.crt</pre><p>DNS・証明書・接続制限の準備後、.envのIPを実際の社内インターフェースへ変更します。</p><pre>WPQA_BIND_IP=192.168.10.50</pre><pre>docker compose --env-file deploy/.env -f deploy/compose.yaml up -d</pre><p>利用者PCで <code>https://qa.internal.example:8443</code> を開き、個別アカウントでログイン。証明書警告が出る場合は信頼設定を修正します。<a href="https://caddyserver.com/docs/running">Caddy公式の運用・証明書説明</a>。</p></section>
+<section><h2>6. 初期サイト登録と利用者への案内</h2><ol><li>共有UIにサイトを新規登録。Windowsの保存フォルダー・認証を丸ごとコピーしないでください。</li><li>共有版の登録は詳細設定画面です。WordPressのログインは担当者PCで対象サイト用のPlaywrightセッションを用意し、設定画面から取り込みます。サーバー上の専用ブラウザーを利用者PCへ表示する機能はありません。</li><li>認証保存後、「かんたん設定」では取得できるURL・フォーム情報を補えます。宛先・期待値・許可を確認し、保存してから検査を実行します。</li><li>最初は小さな検証サイトで、送信・注文を許可せず表示検査を実施。必要な操作だけ明示的に許可します。</li><li>WindowsとLinuxでは描画差が出る場合があります。Linuxで初回画像を確認し、基準画像を承認します。</li></ol></section>
+<section><h2>7. テスト結果をPCに保存する</h2><p>UIの「実行完了後にPCへダウンロード」は初期状態でオンです。UIを開いて実行完了を検知すると、そのブラウザーが結果ZIPの保存を開始します。保存場所は利用者のブラウザー設定です。</p><p>ブラウザーを閉じていた、接続が切れた、自動ダウンロードが制限された場合は、履歴を選択して「結果をPCに保存（ZIP）」を押します。ファイル保存完了をサーバーが検証する仕組みではありません。ダウンロードに失敗しても「保存済み」とは扱いません。</p><ul><li>ZIPを展開し、index.htmlを開くと判定一覧と同梱レポートを閲覧できます。</li><li>同梱：標準HTML、生成済みの不具合・デザイナー向けHTML、results.json、台帳に登録された証拠画像。未生成の報告書は生成後に再ダウンロードしてください。</li><li>認証セッション・サイト設定・通信トレース・生ログは同梱しません。それらへのリンクはサーバーUIで確認します。</li><li>1ファイル128MB、対象ファイルの合計250MB（ZIP生成全体256MB）の範囲。大きい場合は個別HTML・画像を取得します。</li><li>結果と画像には対象サイトの情報が含まれます。利用者PCで社内ルールに沿って保管してください。</li></ul><p class="note">サーバーは検査実行・再ダウンロード・画像比較に必要な結果を保存します。「PCだけに保存してサーバーから即削除」ではありません。自動削除・保存期間の管理機能は未実装です。容量を監視し、削除は結果と画像基準・設定の関係を確認して別途計画してください。</p></section>
+<section><h2>8. 運用・更新・受入チェック</h2><p>バックアップ対象はqa_data（設定・履歴）、暗号化キー、利用者設定、.env・Compose/Caddy設定です。CaddyのCAを維持するためcaddy_dataも保全します。キーとデータのバックアップはアクセスを制限して保管します。</p><pre># 更新：検査完了・テストデータ回収を確認してから、新版ソースを配置
+# deploy/.env、deploy/secrets と既存ボリュームを維持
+docker compose --env-file deploy/.env -f deploy/compose.yaml up -d --build
+
+# 停止（データボリュームは保持）
+docker compose --env-file deploy/.env -f deploy/compose.yaml stop</pre><p><code>down -v</code>は保存データを削除するため使用しません。利用者追加・パスワード変更はハッシュ設定を更新してアプリを再起動します。初期生成コマンドで既存キーを置き換えないでください。</p><table><tr><th>受入確認</th><th>期待結果</th></tr><tr><td>HTTPS・未認証アクセス</td><td>証明書を信頼でき、認証なしでは画面・API・結果ZIPを取得できない</td></tr><tr><td>実行と保存</td><td>小さな検証サイトで実行でき、PCへZIPを取得・展開・閲覧できる</td></tr><tr><td>複数利用者</td><td>同時実行が制限され、設定の競合が通知される</td></tr><tr><td>再起動</td><td>サイト・認証・結果を引き継げる</td></tr><tr><td>バックアップ</td><td>隔離した環境でデータとキーから復元できる</td></tr></table><p>不具合時はcompose logsで確認。permission deniedはsecretとボリュームの権限、403はDNS・Host・公開URLとポートの一致、管理画面検査の認証エラーは対象サイトのセッション期限を確認します。</p></section></main></html>

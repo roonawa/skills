@@ -1,6 +1,10 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {BrowserLogin,loginTarget,scopeState} from '../ui/browser-login.mjs';
+test('trusted restart snapshot restores verified state without opening a browser',async()=>{
+ const resume={id:'resumed',baseURL:'https://example.test',environment:'staging',phase:'verified',state:{cookies:[{domain:'example.test',path:'/',name:'wordpress_logged_in_x',value:'fixture'}],origins:[]}};
+ const login=new BrowserLogin({resume});assert.equal(login.status().phase,'verified');assert.equal((await login.verify('resumed')).phase,'verified');assert(!JSON.stringify(login.status()).includes('fixture'));await login.close();
+});
 test('login targets normalize origin and reject off-site or insecure destinations',()=>{
  const t=loginTarget({baseURL:'https://example.test/',loginPath:'/blog/wp-login.php',adminPath:'/blog/wp-admin/'});
  assert.equal(t.profileURL,'https://example.test/blog/wp-admin/profile.php');

@@ -189,7 +189,7 @@ export const viewpoints=[
 ];
 export function generateCases(input){
  const c=structuredClone(input);c.checks??=[];c.manual??=[];c.visuals??=[];
- for(const p of c.pages??[]){
+ for(const p of (c.pages??[]).slice(0,5)){
   p.links??=true;
   for(const [suffix,width,height] of [['pc',1280,900],['sp',390,844]]){
    if(!c.visuals.some(v=>v.pageId===p.id&&v.width===width)){
@@ -202,5 +202,46 @@ export function generateCases(input){
  const ids=new Set(c.checks.map(x=>x.id));
  for(const [suite,key,title,instructions] of viewpoints){const id='coverage-'+key;if(!ids.has(id))c.checks.push({id,title,suite,kind:'unconfigured',required:true,options:{instructions:instructions+' 対象・期待値が未確定のため実行前に設定してください。非該当は根拠と証拠を残し、手動判定で適用外にしてください。'}});}
  if(!c.manual.some(x=>x.id==='coverage-design'))c.manual.push({id:'coverage-design',title:'デザイン・文章・使いやすさ',required:true,reason:'担当者・対象・日時・操作・証拠を記録する。'});
+ const paths=(c.pages??[]).slice(0,5).map(p=>p.path).filter(p=>typeof p==='string');
+ if(c.baseURL&&paths.length){
+  const auto=[['metadata','seo','SEO構造：title・lang・重複description・JSON-LD構文'],['navigation','delivery','ページ内リンクの参照先'],['forms','delivery','フォーム：宣言済み必須・メール形式（送信なし）'],['keyboard','accessibility','キーボード：Tab到達・不可視フォーカス'],['integrations','delivery','計測タグの検出・混在コンテンツ'],['multilingual','multilingual','多言語：宣言済みhreflangの構文・重複'],['performance','performance','性能の参考測定（予算判定なし）'],['crawl','seo','存在しないページの404応答']];
+  for(const [area,suite,title] of auto)if(!c.checks.some(x=>x.id==='auto-'+area))c.checks.push({id:'auto-'+area,title,suite,kind:'standard-public',required:true,timeoutMs:300000,options:{area,paths:area==='crawl'||area==='performance'?paths.slice(0,1):paths}});
+ }
+ return c;
+}
+
+// Generated registration obligations only: never overwrite explicit custom checks.
+export function linkRegistrationCoverage(input,profile={}){
+ const c=structuredClone(input),covered=new Set();
+ const journeys=new Set((c.journeys??[]).map(j=>j.id)),admin=new Set((c.admin??[]).map(a=>a.id));
+ if(journeys.has('profile-inventory'))covered.add('inventory');
+ if(['siteurl','home','timezone','language'].every(id=>admin.has(id)))covered.add('admin-general');
+ if(admin.has('permalinks'))covered.add('admin-permalink');
+ if(journeys.has('profile-post-lifecycle'))covered.add('publishing');
+ if(journeys.has('profile-scheduled'))covered.add('scheduled');
+ if(journeys.has('profile-contact-submit'))covered.add('contact-success');
+ if(journeys.has('profile-bank-order'))for(const id of ['order','order-record','order-cleanup'])covered.add(id);
+ if(profile.performanceMs)covered.add('performance');
+ const residual={
+  metadata:'自動検査はtitle/langと構造化データ構文を確認します。文章・SEO効果・OGP内容の妥当性は担当者が確認してください。',
+  navigation:'ページ内参照先と内部リンクは自動検査します。検索語ごとの期待結果・メニューの開閉操作はサイト固有の検査設定が必要です。',
+  'contact-errors':'宣言済みの必須・メール形式は自動検査します。独自JS、文字数・添付境界値、サーバー側検証はフォーム仕様の設定が必要です。',
+  keyboard:'Tab到達は自動検査します。意味のあるフォーカス順、モーダル操作、読み上げの利用感は手動確認が必要です。',
+  analytics:'タグの有無と混在コンテンツは自動調査します。イベント名・値・回数・同意別の期待値と送信先を設定してください。',
+  multilingual:'宣言済みhreflangは自動検査します。多言語機能の要否、翻訳の意味と切替先は確認してください。',
+  performance:'参考測定は自動実行します。性能の合否には登録画面で合意した上限msを指定してください。',
+  crawl:'存在しないURLの404は自動検査します。robotsのbot別方針・サイトマップ掲載範囲・旧URL転送は期待値を設定してください。',
+  'visual-selection':'代表ページ最大5件のPC・スマホ表示、画像読込、横はみ出し、axeは自動検査します。重要テンプレートや例外の選定漏れは確認してください。'
+ };
+ c.checks=c.checks.filter(row=>{
+  if(row.kind==='unconfigured'&&row.id.startsWith('coverage-')&&covered.has(row.id.slice(9)))return false;
+  const generated=['unconfigured','human-review'].includes(row.kind)&&/対象・期待値が未確定|登録時に自動確定できない範囲/.test(row.options?.instructions??'');
+  if(!generated)return true;
+  const key=row.id.replace(/^coverage-/,'');if(covered.has(key))return false;
+  if(residual[key])row.options.instructions=residual[key];
+  const human=['metadata','keyboard','multilingual','visual-selection'].includes(key);
+  row.kind=human?'human-review':'unconfigured';
+  return true;
+ });
  return c;
 }

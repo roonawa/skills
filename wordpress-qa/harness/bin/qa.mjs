@@ -29,7 +29,7 @@ function options(args) {
 async function main() {
   const [command,...args]=process.argv.slice(2);
   if(!command || command==='help' || command==='--help') {
-    console.log('qa validate --config site.json\nqa discover --config site.json --sitemap /wp-sitemap.xml --output inventory.json\nqa run --config site.json [--suite all|audit|journey|visual|admin|publishing|authz|cache|operations|scheduled|delivery|performance|compatibility|seo|accessibility|commerce|membership|multilingual]\nqa approve-baseline --config site.json --run <run-directory> --id snapshot.<id>\nqa recover --config site.json --run <run-directory>\nExit: 0=command succeeded / required checks satisfied; 1=test failure; 2=incomplete/configuration/environment issue.'); return;
+    console.log('qa validate --config site.json\nqa discover --config site.json --sitemap /wp-sitemap.xml --output inventory.json\nqa run --config site.json [--suite all|standard|interaction|audit|journey|visual|admin|publishing|authz|cache|operations|scheduled|delivery|performance|compatibility|seo|accessibility|commerce|membership|multilingual]\nqa approve-baseline --config site.json --run <run-directory> --id snapshot.<id>\nqa recover --config site.json --run <run-directory>\nExit: 0=command succeeded / required checks satisfied; 1=test failure; 2=incomplete/configuration/environment issue.'); return;
   }
   if(!['validate','discover','run','approve-baseline','recover'].includes(command)) throw new Error(`Unknown command: ${command}`);
   const opts=options(args),ctx=loadConfig(opts.config),c=ctx.config;

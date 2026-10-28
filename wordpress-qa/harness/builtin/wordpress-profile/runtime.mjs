@@ -1,6 +1,7 @@
 import {randomUUID} from 'node:crypto';
 import {readFile} from 'node:fs/promises';
 import path from 'node:path';
+import {schemaExpectations,inventoryPolicy} from './expectations.mjs';
 import {journalIntent,journalUpdate,readJournal} from '../../lib/recovery.mjs';
 import {ensure,readSettings,requireWrites,sameOrigin,parseSettings,serverTime,scheduleAt,pageCount,inventoryLinks,contactFields,assertOwned} from './helpers.mjs';
 
@@ -91,7 +92,8 @@ export async function runProfile(kind,args) {
       const types = await api(new URL('types?context=edit',rest).href);
       ensure(types.status === 200 && types.data && typeof types.data === 'object' && !Array.isArray(types.data), 'BLOCKED: REST types unavailable');
       const availableTypes = Object.keys(types.data),items = [],scopes = [];
-      for (const type of ['post','page']) {
+      const policy=inventoryPolicy(profile);
+      for (const type of policy.postTypes) {
         const info = types.data[type];
         ensure(info && /^[a-zA-Z0-9_-]+$/.test(info.rest_base) && /^[a-zA-Z0-9_-]+\/[a-zA-Z0-9_-]+$/.test(info.rest_namespace || 'wp/v2'), 'BLOCKED: standard REST collection unavailable');
         const collection = new URL((info.rest_namespace || 'wp/v2')+'/'+info.rest_base,settings.root);
@@ -106,9 +108,30 @@ export async function runProfile(kind,args) {
         }
         scopes.push({type,pages});
       }
-      const coverage = inventoryLinks(items,config.pages || [],base.href);
+      const supplemental=[];
+      for(const route of policy.supplementalPaths){
+        const target=sameOrigin(route,base.href),r=await page.goto(target.href);
+        ensure(r?.status()===200&&page.url()===target.href,'Supplemental URL response/redirect mismatch');
+        ensure(await page.title() && await page.locator('link[rel="canonical"]').getAttribute('href')===target.href,'Supplemental URL title/canonical mismatch');
+        supplemental.push({path:target.pathname,status:200});
+      }
+      const components=[];
+      for(const rule of policy.componentRedirects)for(const item of items.filter(p=>p.type===rule.postType)){
+        const target=sameOrigin(rule.path,base.href),source=sameOrigin(item.link,base.href);
+        // A direct request makes each redirect hop explicit; no credentials leave this origin.
+        let current=source,ended=false;
+        for(let hop=0;hop<8;hop++){
+          const r=await context.request.get(current.href,{maxRedirects:0});
+          const status=r.status(),location=r.headers().location;await r.dispose();
+          if(status>=300&&status<400&&location){current=sameOrigin(new URL(location,current).href,base.href);continue;}
+          ensure(status===200&&current.href===target.href,'Component redirect expectation mismatch');ended=true;break;
+        }
+        ensure(ended,'Component redirect loop');components.push({id:item.id,path:source.pathname,target:target.pathname});
+      }
+      const independent=items.filter(p=>!policy.componentRedirects.some(r=>r.postType===p.type));
+      const coverage = inventoryLinks(independent,[...(config.pages || []),...policy.supplementalPaths.map(path=>({path}))],base.href);
       // Only paths are attached; do not copy unrestricted API response fields.
-      await attach('cms-inventory',{availableTypes,scopes,count:items.length,items:items.map(p=>({id:p.id,type:p.type,path:p.link ? sameOrigin(p.link,base.href).pathname+new URL(p.link,base).search : null})),...coverage});
+      await attach('cms-inventory',{availableTypes,scopes,count:items.length,supplemental,components,items:items.map(p=>({id:p.id,type:p.type,path:p.link ? sameOrigin(p.link,base.href).pathname+new URL(p.link,base).search : null})),...coverage});
       ensure(!coverage.missing.length && !coverage.missingLinks.length, 'Published posts/pages have missing links or are absent from configured pages');
     } else if (kind === 'contact-schema') {
       const url = new URL('admin.php',new URL(profile.adminPath,base));
@@ -117,7 +140,9 @@ export async function runProfile(kind,args) {
       ensure(response?.status() === 200 && await page.locator('#wpcf7-form').count() === 1, 'BLOCKED: CF7 editor unavailable');
       const fields = contactFields(await page.locator('#wpcf7-form').inputValue());
       ensure(fields.length > 0, 'BLOCKED: CF7 schema contains no supported fields');
-      await attach('contact-schema',{contactFormId:profile.contactFormId,fields,scope:'Schema only; no submission, notification or validation execution.'});
+      const validation=schemaExpectations(profile,fields);
+      await attach('contact-schema',{contactFormId:profile.contactFormId,fields,...validation,scope:'Configured required fields/types and bounds; no submission or notification delivery.'});
+      ensure(!validation.missing.length,'CF7 required fields/types differ from configured expectations');
     } else {
       entry = {marker:'wpqa-'+randomUUID(),site:base.origin,rest:rest.pathname.replace(/\/$/,''),collection:new URL('posts',rest).pathname,owner:me.data.id,kind};
       await journalIntent(runDir,entry);
@@ -142,10 +167,19 @@ export async function runProfile(kind,args) {
       }
       await read('draft','v1');
       if (kind === 'post-lifecycle') {
-        await update({status:'publish'}); await read('publish','v1');
-        await update({content:entry.marker+'-v2'}); await read('publish','v2');
+        async function rendered(post,version,repeats){
+          const url=sameOrigin(post.data.link,base.href);
+          for(let i=0;i<repeats;i++){
+            const response=await page.goto(url.href);
+            ensure(response?.status()===200,'Published render unavailable');
+            const text=await page.locator('body').innerText();
+            ensure(text.includes(entry.marker+'-'+version)&&!text.includes(entry.marker+'-'+(version==='v1'?'v2':'v1')),'Published content render stale or missing');
+          }
+        }
+        await update({status:'publish'}); await rendered(await read('publish','v1'),'v1',1);
+        await update({content:entry.marker+'-v2'}); await rendered(await read('publish','v2'),'v2',3);
         await update({status:'private'}); await read('private','v2');
-        await attach(kind,{events,scope:'Authenticated REST read-back; public rendering and anonymous cache behavior are outside scope.'});
+        await attach(kind,{events,authenticatedFreshReads:3,scope:'REST read-back and authenticated published rendering; anonymous cache behavior is outside scope.'});
       } else {
         const clock = await read('draft','v1');
         const date = scheduleAt(clock.headers.date),at = Date.parse(date+'Z');

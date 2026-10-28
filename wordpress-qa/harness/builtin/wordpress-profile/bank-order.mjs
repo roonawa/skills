@@ -12,18 +12,14 @@ import {preparePublicGate} from '../../lib/registration-gate.mjs';
 // Checkout evidence: operations/common.mjs and bank-submission-evidence.json.
 // Admin controls were subsequently verified by authorized read-only inspection.
 export const bankOrderSupport=Object.freeze({checkout:'complete',submission:true,cancellation:true});
-// Local evidence audit (no network): operations/*.mjs, staging-mannendo-*.mjs,
-// submit-tests/admin-followup.json, coverage-evidence/admin-observations.json,
-// both cancelled-order screenshots, blockers22-discovery.json and 16 trace ZIPs.
-// Follow-up: authorized read-only staging inspection on 2026-10-26 verified
-// note search and canceled order 1036. No order/update POST was executed.
+// Adapter contract, not proof about the current site's orders. Each run must
+// pass live preflight, exact-marker matching, and persisted cancellation checks.
 export const bankCancellationEvidence=Object.freeze({
+  scope:'Welcart adapter contract; current-run proof is recorded in the order journal',
   verified:Object.freeze([
-    'Order list menu target: admin.php?page=usces_orderlist (blockers22-discovery.json and saved admin HTML).',
-    'Edit screenshots: 対応状況 displays キャンセル; two 設定を更新 buttons; 備考, 支払方法 and 総合計金額 are visible.',
-    'Order 1035 screenshot shows 受注データを更新しました。; order 1036 report records list and reopened-detail verification.',
-    'Read-only HTML: form_tablesearch, search[order_column][0]=note, search[order_word_term][0]=contain, searchIn; historical exact token returns only order 1036.',
-    'Read-only HTML: order_editpost_form POST page=usces_orderlist&order_action=editpost; offer[taio]=cancel, update_order_edit; persisted order 1036 status=cancel.',
+    'Order list target: admin.php?page=usces_orderlist; authenticated form and search controls must match the adapter.',
+    'Search by the unique current-run note; require exactly one order and matching note, customer, payment and total.',
+    'Cancellation form: order_editpost_form, offer[taio]=cancel, update_order_edit; reopen the exact order and verify persisted cancel status.',
   ]),
   missing:Object.freeze([]),
 });
@@ -89,6 +85,11 @@ export function beginBankAttempt(config,context,marker){
   ensure(context?.config?.baseURL===config.baseURL&&context.config.environment===config.environment&&context.config.allowTestWrites===true,'BLOCKED: runner context mismatch');
   const dir=context.configPath?path.dirname(context.configPath):context.configDir;
   ensure(typeof dir==='string'&&path.isAbsolute(dir)&&typeof context.runDir==='string'&&path.isAbsolute(context.runDir),'BLOCKED: durable bank directories required');
+  const legacy=path.join(fs.realpathSync(dir),'operations','bank-pending.json');
+  if(fs.existsSync(legacy)){
+    let prior;try{prior=JSON.parse(fs.readFileSync(legacy,'utf8'));}catch{throw Error('BLOCKED: unreadable legacy bank attempt; reconcile before migration');}
+    ensure(prior.status==='cancelled'||prior.cancelled===true||prior.submissionStarted===false,'BLOCKED: legacy bank attempt has no verified cancellation; reconcile the existing order before a new submission');
+  }
   const pending=path.join(fs.realpathSync(dir),'profile-bank-pending.json');
   const evidence=path.join(fs.realpathSync(context.runDir),marker+'.json');
   const mutex=pending+'.lock';

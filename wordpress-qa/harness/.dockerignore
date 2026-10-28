@@ -1,0 +1,10 @@
+**
+!package.json
+!package-lock.json
+!Dockerfile
+!bin/**
+!lib/**
+!builtin/**
+!tests/**
+!ui/**
+!playwright.config.*

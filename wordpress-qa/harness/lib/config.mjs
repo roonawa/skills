@@ -1,4 +1,4 @@
-import {validateChecks,suites as extendedSuites} from './checks/index.mjs';
+import {validateChecks,preparationReason,suites as extendedSuites} from './checks/index.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
@@ -100,7 +100,7 @@ export function loadConfig(file) {
   return { config, configPath:absolute, configDir:path.dirname(absolute), configHash:createHash('sha256').update(JSON.stringify(config)).digest('hex') };
 }
 export function catalog(c, suite='all') {
-  if(!['all','audit','journey','visual','admin',...Object.keys(extendedSuites)].includes(suite)) fail(`Unknown suite: ${suite}`);
+  if(!['all','standard','interaction','audit','journey','visual','admin',...Object.keys(extendedSuites)].includes(suite)) fail(`Unknown suite: ${suite}`);
   const rows=[];
   const add=(id,kind,title,required)=>rows.push({id,suite:kind,title,required,status:'not_run',selected:suite==='all'||suite===kind,reason:'未実行'});
   for(const p of c.pages) { add(`page.${p.id}`,'audit',`${p.path}: HTTP / metadata`,p.required); if(p.links) add(`links.${p.id}`,'audit',`${p.path}: internal links`,p.required); }
@@ -114,6 +114,12 @@ export function catalog(c, suite='all') {
     if(v.axe) add(`axe.${v.id}`,'visual',`${v.pageId}: ${v.width}px accessibility`,v.required);
   }
   for(const check of c.checks??[]) {add('check.'+check.id,check.suite,check.title,check.required);Object.assign(rows.at(-1),{kind:check.kind,manualReview:check.kind==='human-review',instructions:check.options.instructions});}
+  if(suite==='standard')for(const row of rows)row.selected=row.kind==='standard-public';
+  if(suite==='interaction')for(const row of rows)row.selected=row.kind==='site-interaction';
+  for(const check of c.checks??[]){
+    const reason=preparationReason(check,c);
+    if(reason)Object.assign(rows.find(r=>r.id==='check.'+check.id),{selected:false,preparationRequired:true,reason:'準備待ち: '+reason});
+  }
   for(const m of c.manual) rows.push({id:`manual.${m.id}`,suite:'manual',manualReview:true,title:m.title,required:m.required,status:m.status,reason:m.reason,selected:false});
   return rows;
 }

@@ -1,0 +1,4 @@
+{$WPQA_DOMAIN} {
+    tls internal
+    reverse_proxy qa:4310
+}

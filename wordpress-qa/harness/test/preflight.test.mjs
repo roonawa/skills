@@ -11,8 +11,9 @@ test('preflight identifies missing prerequisites without certifying network auth
  assert.equal(r.ready,false);
  assert(r.issues.some(i=>i.message.includes('WPQA_ROLE_SUBSCRIBER_HEADERS')));
  assert(r.issues.some(i=>i.message.includes('アダプター')));
- assert(r.issues.some(i=>i.id==='todo'));
- assert(r.scope.includes('保証するものではありません'));
+ assert(!r.issues.some(i=>i.id==='todo'));
+ assert(r.preparations.some(i=>i.id==='todo'));
+ assert(r.scope.includes('認証の有効期限'));
  config.environment='local';config.allowTestWrites=true;config.trustedAdapters={restore:'test.mjs'};config.checks.pop();
  assert.equal(preflight(config,{WPQA_UI_ADMIN_HEADERS:'{}',WPQA_ROLE_SUBSCRIBER_HEADERS:'{}'}).ready,true);
 });

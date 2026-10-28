@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {protect} from './project-store.mjs';
+import {validateProfile} from './registration.mjs';
 export class ExternalAuth {
  constructor(directory,{codec=protect}={}){this.directory=directory;this.codec=codec;}
  file(id){if(!/^[a-f0-9]{12}$/.test(id))throw Error('Invalid external project id');return path.join(this.directory,id+'.json');}
@@ -10,11 +11,14 @@ export class ExternalAuth {
   const host=new URL(config.baseURL).hostname;
   if(!state||!Array.isArray(state.cookies)||!Array.isArray(state.origins)||state.cookies.some(c=>c.domain.replace(/^\./,'')!==host)||state.origins.some(o=>o.origin!==config.baseURL))throw Error('認証状態が対象サイトと一致しません');
   if(!state.cookies.some(c=>c.name.startsWith('wordpress_logged_in_')&&c.value))throw Error('WordPressの認証情報がありません');
-  const value={baseURL:config.baseURL,savedAt:new Date().toISOString(),sealed:this.codec(JSON.stringify(state))};fs.mkdirSync(this.directory,{recursive:true});const f=this.file(id);fs.writeFileSync(f+'.tmp',JSON.stringify(value),{mode:0o600});fs.renameSync(f+'.tmp',f);
+  const value={baseURL:config.baseURL,savedAt:new Date().toISOString(),sealed:this.codec(JSON.stringify(state)),...(this.read(id,config)?.profile?{profile:this.read(id,config).profile}:{})};fs.mkdirSync(this.directory,{recursive:true});const f=this.file(id);fs.writeFileSync(f+'.tmp',JSON.stringify(value),{mode:0o600});fs.renameSync(f+'.tmp',f);
  }
  prepare(id,config){
   const r=this.read(id,config);if(!r)return {env:{}};
   const state=JSON.parse(this.codec(r.sealed,true)),env={};
+  // Older externally registered sites can use the same built-in profile journeys.
+  // This non-secret profile is stored beside their existing encrypted authentication.
+  if(r.profile){env.WPQA_UI_PROFILE=JSON.stringify(validateProfile(r.profile,config.environment));env.WPQA_UI_ADMIN_STATE=JSON.stringify(state);}
   for(const a of config.admin??[])if(a.source==='browser'&&a.storageStateEnv)env[a.storageStateEnv]=JSON.stringify(state);
   // Public-site checks receive only the site-viewing gate, never WordPress admin cookies.
   const gate=state.cookies.filter(c=>/password_protected/.test(c.name)&&c.name!=='password_protected_cookie_test');

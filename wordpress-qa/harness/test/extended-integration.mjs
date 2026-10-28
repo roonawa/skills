@@ -22,7 +22,7 @@ try{
  const run=path.join(config.outputDir,fs.readdirSync(config.outputDir).at(-1));const report=JSON.parse(fs.readFileSync(path.join(run,'results.json')));
  assert.equal(result.code,2,result.log);assert.equal(report.gatePassed,false);
  for(const id of ['seo','screen','keyboard'])assert.equal(report.rows.find(r=>r.id==='check.'+id)?.status,'pass',result.log);
- assert.equal(report.rows.find(r=>r.id==='check.pending').status,'blocked');assert.equal(report.rows.find(r=>r.id==='check.human').status,'review');
+ assert.equal(report.rows.find(r=>r.id==='check.pending').status,'not_run');assert.equal(report.rows.find(r=>r.id==='check.pending').preparationRequired,true);assert.equal(report.rows.find(r=>r.id==='check.pending').selected,false);assert.equal(report.rows.find(r=>r.id==='check.human').status,'review');
  const screen=report.rows.find(r=>r.id==='check.screen');assert.equal(screen.details.actual.verified,true);assert.ok(screen.evidence.some(e=>e.endsWith('.png')));
  for(const e of screen.evidence)assert.ok(fs.existsSync(path.join(run,e)));
  console.log('Extended CLI/report integration passed: '+dir);

@@ -1,9 +1,25 @@
 import * as wordpress from './wordpress.mjs';
 import * as reading from './read-only.mjs';
 import * as workflows from './workflows.mjs';
+import * as standard from './standard.mjs';
+import * as interaction from './site-interaction.mjs';
+import * as discovered from './discovered.mjs';
 
 export const suites={publishing:'投稿・公開',authz:'権限・非公開',cache:'キャッシュ',operations:'更新・復元',scheduled:'予約・定期処理',delivery:'フォーム・配送',performance:'性能',compatibility:'ブラウザー互換性',seo:'SEO・移行',accessibility:'キーボード・手動評価',commerce:'EC・決済',membership:'会員・データ分離',multilingual:'多言語'};
-const handlers=[wordpress,reading,workflows];
+const handlers=[wordpress,reading,workflows,standard,interaction,discovered];
+// Deterministic preparation only. Network failures and assertion failures must
+// remain actual execution results, never be converted into preparation states.
+export function preparationReason(check,config){
+ if(check.kind==='unconfigured')return check.options.instructions;
+ const handler=handlers.find(h=>h.kinds.includes(check.kind));
+ if(handler?.validateRuntime){
+  try{handler.validateRuntime(check,config);}catch(error){
+   if(error.message.startsWith('BLOCKED: '))return error.message.slice(9);
+   throw error;
+  }
+ }
+ return null;
+}
 export function validateChecks(config){
  config.checks??=[];config.allowTestWrites??=false;
  if(!Array.isArray(config.checks)||typeof config.allowTestWrites!=='boolean')throw new Error('checksは配列、allowTestWritesは真偽値で指定してください');
