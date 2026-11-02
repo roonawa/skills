@@ -34,7 +34,8 @@ import {buildExam,validateExamItems,customerExamHtml,customerImageWarnings} from
 import {summarizeRecovery} from '../lib/recovery.mjs';
 import {preflight} from '../lib/preflight.mjs';
 import {guidance} from '../lib/guidance.mjs';
-import {confirmationPlan,validateConfirmation,selectSingleTest} from '../lib/confirmation.mjs';
+import {confirmationPlan,validateConfirmation,selectSingleTest,selectTests} from '../lib/confirmation.mjs';
+import {triage} from './todo-triage.mjs';
 import {operationRequest} from '../lib/operations.mjs';
 import {buildIssueReport} from '../lib/issue-report.mjs';
 import {buildDesignerReport} from '../lib/designer-report.mjs';
@@ -405,6 +406,11 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
           const file=path.join(storeDir,p.id,'preparation-summary.json');
           return json(200,fs.existsSync(file)?readJSON(file):{mode:'not-recorded',remaining:unresolvedPreparation(store.record(p.id).config,store.record(p.id).profile??{})});
         }
+        if(segments[3]==='todo'&&segments.length===4&&req.method==='GET'){
+          if(!p.managed)return json(200,{managed:false});
+          const record=store.record(p.id),profile=record.profile??{};
+          return json(200,{managed:true,environment:record.config.environment,version:record.version,...triage(addSecurityChecks(structuredClone(record.config),profile.adminPath??'/wp-admin/'),profile)});
+        }
         if(segments[3]==='rediscover'&&segments.length===4&&req.method==='POST'){
           if(!p.managed)reject(403,'外部設定のサイトは再取得できません');
           if(active||closing||logins.busy||projectIsAlive(p.outputDir))reject(409,'検査・ログインの完了後に再取得してください');
@@ -489,8 +495,13 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
           return json(200,{...latestResults(catalog(current.config),current.configHash,reports),unreadableRuns});
         }
         if(segments[3]==='runs'&&segments.length===4&&req.method==='POST') {
-          const data=await body(req);if(!['all','standard','interaction','audit','journey','visual','admin',...Object.keys(extendedSuites)].includes(data.suite))reject(400,'検査範囲が不正です');if(p.managed&&!active&&!preparing&&!logins.busy){const saved=store.record(p.id),config=addSecurityChecks(structuredClone(saved.config),saved.profile?.adminPath??'/wp-admin/');if(config.checks.length!==(saved.config.checks??[]).length){store.save({id:p.id,version:saved.version,config,profile:saved.profile});registerManaged(p.id);}}const preparation=await autoPrepare(p);const current=projectInfo(p);
-          const operations=!profileScope(p,current)&&['all','journey'].includes(data.suite)?current.config.journeys.filter(j=>j.runWithSuite&&j.explicitOnly):[];
+          const data=await body(req);if(!['all','standard','interaction','audit','journey','visual','admin',...Object.keys(extendedSuites)].includes(data.suite))reject(400,'検査範囲が不正です');
+          let ids=null;if(data.ids!==undefined){if(!Array.isArray(data.ids)||!data.ids.length||data.ids.some(x=>typeof x!=='string'||!x||x.length>200||x.includes(',')))reject(400,'実行する検査はidsに行IDの配列で指定してください');ids=[...new Set(data.ids)];if(ids.length>50)reject(400,'一度に指定できる検査は50件までです');}
+          // ids は指定した行だけを実行する。設定が必要・対象外・存在しない行が1つでもあれば実行しない。
+          const pickIds=config=>{if(!ids)return;if(ids.some(id=>config.journeys.some(j=>j.explicitOnly&&id==='journey.'+j.id)))reject(400,'操作テストの画面で送信内容を確認して実行してください');try{selectTests(catalog(config,data.suite),ids);}catch(e){reject(400,e.message);}};
+          if(ids){const before=projectInfo(p).config;pickIds(p.managed?addSecurityChecks(structuredClone(before),store.record(p.id).profile?.adminPath??'/wp-admin/'):before);}
+          if(p.managed&&!active&&!preparing&&!logins.busy){const saved=store.record(p.id),config=addSecurityChecks(structuredClone(saved.config),saved.profile?.adminPath??'/wp-admin/');if(config.checks.length!==(saved.config.checks??[]).length){store.save({id:p.id,version:saved.version,config,profile:saved.profile});registerManaged(p.id);}}const preparation=await autoPrepare(p);const current=projectInfo(p);pickIds(current.config);
+          const operations=!ids&&!profileScope(p,current)&&['all','journey'].includes(data.suite)?current.config.journeys.filter(j=>j.runWithSuite&&j.explicitOnly):[];
           let env={};if(operations.length){
             const options={configHash:current.configHash,mode:'preview',password:'',...data.operation};
             // Preview is the normal default; real submission requires an explicit checkbox.
@@ -498,7 +509,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
             try{env=operationRequest(current.config,current.configHash,operations[0].id,options).env;}catch(e){reject(400,e.message);}
             env.WPQA_OPERATION_ID='suite';
           }
-          const {job}=launch(p,['run','--config',p.file,'--suite',data.suite],'run',env);if(preparation)job.log='設定の自動補完: '+preparation.adopted+'件を紐付け・生成。'+(preparation.warning??'')+'\n';return json(202,{...jobState(job),preparation});
+          const {job}=launch(p,['run','--config',p.file,'--suite',data.suite,...(ids?['--id',ids.join(',')]:[])],'run',env);if(preparation)job.log='設定の自動補完: '+preparation.adopted+'件を紐付け・生成。'+(preparation.warning??'')+'\n';return json(202,{...jobState(job),preparation});
         }
         if(segments[3]==='runs'&&segments[4]) {
           const id=segments[4],report=readRun(p,id),directory=runPath(p,id);

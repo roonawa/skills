@@ -7,7 +7,7 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { loadConfig,catalog } from '../lib/config.mjs';
 import { writeReport } from '../lib/results.mjs';
-import {selectSingleTest} from '../lib/confirmation.mjs';
+import {selectSingleTest,selectTests} from '../lib/confirmation.mjs';
 import { discover } from '../lib/discovery.mjs';
 import { envHeaders } from '../lib/mailpit.mjs';
 import {cancellationRequested} from '../lib/cancellation.mjs';
@@ -29,13 +29,14 @@ function options(args) {
 async function main() {
   const [command,...args]=process.argv.slice(2);
   if(!command || command==='help' || command==='--help') {
-    console.log('qa validate --config site.json\nqa discover --config site.json --sitemap /wp-sitemap.xml --output inventory.json\nqa run --config site.json [--suite all|standard|interaction|audit|journey|visual|admin|publishing|authz|cache|operations|scheduled|delivery|performance|compatibility|seo|accessibility|commerce|membership|multilingual]\nqa approve-baseline --config site.json --run <run-directory> --id snapshot.<id>\nqa recover --config site.json --run <run-directory>\nExit: 0=command succeeded / required checks satisfied; 1=test failure; 2=incomplete/configuration/environment issue.'); return;
+    console.log('qa validate --config site.json\nqa discover --config site.json --sitemap /wp-sitemap.xml --output inventory.json\nqa run --config site.json [--suite all|standard|interaction|audit|journey|visual|admin|publishing|authz|cache|operations|scheduled|delivery|performance|compatibility|seo|accessibility|commerce|membership|multilingual] [--id <row-id>[,<row-id>...]]\nqa approve-baseline --config site.json --run <run-directory> --id snapshot.<id>\nqa recover --config site.json --run <run-directory>\nExit: 0=command succeeded / required checks satisfied; 1=test failure; 2=incomplete/configuration/environment issue.'); return;
   }
   if(!['validate','discover','run','approve-baseline','recover'].includes(command)) throw new Error(`Unknown command: ${command}`);
   const opts=options(args),ctx=loadConfig(opts.config),c=ctx.config;
   const rows=catalog(c,opts.suite??'all');
   if(command==='run'&&opts.id){const operation=c.journeys.find(j=>j.explicitOnly&&'journey.'+j.id===opts.id);if(operation)ctx.operation={id:operation.id,mode:process.env.WPQA_OPERATION_MODE,handlesAuthentication:operation.handlesAuthentication===true};}
-  if(command==='run'&&opts.id)selectSingleTest(rows,opts.id);
+  // --id a,b,c は指定した行だけを実行する。1件のときは従来どおり。
+  if(command==='run'&&opts.id){const ids=[...new Set(opts.id.split(','))];if(ids.length>1)selectTests(rows,ids);else selectSingleTest(rows,ids[0]);}
   if(command==='run'&&!isolatedAuthOnly({config:c,report:{rows}}))await preparePublicGate(c);
   if(command==='run')for(const j of c.journeys.filter(j=>j.explicitOnly&&rows.some(r=>r.id==='journey.'+j.id&&r.selected))){
     if(!(process.env.WPQA_OPERATION_ID===j.id||process.env.WPQA_OPERATION_ID==='suite'&&j.runWithSuite)||!['preview','submit'].includes(process.env.WPQA_OPERATION_MODE)||!c.allowTestWrites||!['local','staging'].includes(c.environment))throw Error('BLOCKED: configure operation test execution in the UI');

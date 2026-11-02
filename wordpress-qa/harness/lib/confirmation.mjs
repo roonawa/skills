@@ -26,10 +26,12 @@ export function validateConfirmation(plan,data){
  const outcome=!data.finish?'review':steps.some(s=>s.status==='fail')?'fail':steps.every(s=>s.status==='not_applicable')?'not_applicable':'pass';
  return {steps,reviewer:data.reviewer.trim(),notes:data.notes.trim(),outcome};
 }
+const refusal=row=>!row?'検査が見つかりません':row.manualReview?'手動確認は確認手順から実施してください':row.autoNotApplicable?'このサイトでは対象外と自動判定した項目です。関係ありに戻してから実行してください。':row.preparationRequired?'設定が必要の項目です。設定画面で対象・期待値を保存してから実行してください。':null;
 export function selectSingleTest(rows,id){
- const row=rows.find(r=>r.id===id);if(!row)throw Error('検査が見つかりません');
- if(row.manualReview)throw Error('手動確認は確認手順から実施してください');
- if(row.autoNotApplicable)throw Error('このサイトでは対象外と自動判定した項目です。関係ありに戻してから実行してください。');
- if(row.preparationRequired)throw Error('設定が必要の項目です。設定画面で対象・期待値を保存してから実行してください。');
+ const error=refusal(rows.find(r=>r.id===id));if(error)throw Error(error);
  for(const r of rows)r.selected=r.id===id;
+}
+export function selectTests(rows,ids){
+ const errors=ids.map(id=>[id,refusal(rows.find(r=>r.id===id))]).filter(([,e])=>e);if(errors.length)throw Error(errors.map(([id,e])=>id+'：'+e).join('\n'));
+ const chosen=new Set(ids);for(const r of rows)r.selected=chosen.has(r.id);
 }
