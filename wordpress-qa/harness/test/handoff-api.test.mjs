@@ -8,10 +8,10 @@ import {writeReport} from '../lib/results.mjs';
 
 const STATE='zq7',SECRET='pw-Very-Secret-77',TOKEN='zzSecretToken42',baseURL='http://127.0.0.1:4300';
 const row=(id,status,evidence=[],title=id)=>({id,title,required:true,status,evidence});
-function writeRun(dir,runId,finishedAt,rows,files={},runStatus='finished'){
+function writeRun(dir,runId,finishedAt,rows,files={},runStatus='finished',extra={}){
   const runDir=path.join(dir,'runs',runId);
   for(const [file,data] of Object.entries(files)){fs.mkdirSync(path.dirname(path.join(runDir,file)),{recursive:true});fs.writeFileSync(path.join(runDir,file),JSON.stringify(data));}
-  fs.mkdirSync(runDir,{recursive:true});writeReport(runDir,{runId,name:'Handoff',baseURL,environment:'local',runStatus,startedAt:finishedAt,finishedAt,configHash:'x',rows});
+  fs.mkdirSync(runDir,{recursive:true});writeReport(runDir,{runId,name:'Handoff',baseURL,environment:'local',runStatus,startedAt:finishedAt,finishedAt,configHash:'x',rows,...extra});
 }
 const auditRow=()=>row('check.audit-home','fail',['evidence/audit-home.json'],'トップページ');
 const auditFile={'evidence/audit-home.json':{url:baseURL+'/?session=abc',errors:[`unexpected header Authorization: Bearer ${TOKEN} ${SECRET}`]}};
@@ -33,7 +33,7 @@ async function setup(t){
   const boot=await(await fetch(app.url+'/api/bootstrap')).json(),id=boot.projects[0].id,texts=[];
   const post=async(runId,kind,value,headers={'X-QA-Token':boot.token})=>{const r=await fetch(`${app.url}/api/projects/${id}/runs/${runId}/${kind}`,{method:'POST',headers:{'Content-Type':'application/json',Origin:app.url,...headers},body:JSON.stringify(value)});const text=await r.text();texts.push(text);return {status:r.status,data:JSON.parse(text)};};
   const handoffs=path.join(dir,'handoffs-runs'),saved=()=>fs.existsSync(handoffs)?fs.readdirSync(handoffs).filter(f=>f.endsWith('.json')):[];
-  return {post,saved,handoffs,texts};
+  return {post,saved,handoffs,texts,dir};
 }
 
 test('handoff preview does not save; save:true saves once per id',async t=>{
@@ -142,4 +142,16 @@ test('a supplied handoffId cannot overwrite a record made from another run',asyn
   const r=await post('run-a','handoff',{handoffId:cmp.handoffId,excludedKeys:[],save:true});assert.equal(r.status,400);assert.equal(r.data.error,'引き継ぎIDが不正です');
   assert.equal(read(cmp.handoffId).sourceRunId,'run-b');
   assert.equal((await post('run-b','handoff-compare',{handoffId:cmp.handoffId,uncheckedAddedKeys:[],save:true})).data.baseline.handoffId,pre.handoffId);
+});
+
+test('aggregated runs and rows copied from older runs are not treated as re-checks',async t=>{
+  const {post,saved,dir}=await setup(t);
+  const pre=(await post('run-a','handoff',{excludedKeys:[],save:false})).data,audit=pre.issues.find(i=>i.rowTitle==='トップページ');
+  await post('run-a','handoff',{handoffId:pre.handoffId,excludedKeys:[],save:true});
+  writeRun(dir,'run-f','2026-10-06T01:00:00.000Z',[{...row('check.audit-home','pass'),sourceRunId:'run-x'}],{},'finished',{aggregation:{notAFreshRun:true,sourceRuns:['run-x']}});
+  const agg=await post('run-f','handoff-compare',{uncheckedAddedKeys:[],save:true});assert.equal(agg.status,409);
+  assert.equal(agg.data.error,'集約結果は再診断として比較できません。新しい実行を選択してください');assert.equal(saved().length,1);
+  writeRun(dir,'run-g','2026-10-07T01:00:00.000Z',[{...row('check.audit-home','pass'),sourceRunId:'run-x'},row('check.links-a','pass'),row('security.baseline','pass')]);
+  const c=(await post('run-g','handoff-compare',{uncheckedAddedKeys:[],save:false})).data;
+  assert.deepEqual(c.comparison.unverified.map(i=>i.key),[audit.key]);assert.equal(c.comparison.resolved.length,2);assert.ok(!c.comparison.resolved.some(i=>i.key===audit.key));assert.equal(c.scopeGap,0);
 });

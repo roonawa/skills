@@ -594,6 +594,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
               if(data.save)try{saveHandoff(dir,{handoffId,createdAt:new Date().toISOString(),actor:actorName??'',sourceRunId:id,sourceFinishedAt:report.finishedAt,siteName,issues:text.included,excludedKeys});}catch(e){reject(400,e.message);}
               return json(200,{handoffId,subject:text.subject,body:text.body,truncated:text.truncated,issues:issues.map(i=>({...brief(i),owner:i.owner})),excludedKeys,unconfirmed});
             }
+            if(report.aggregation?.notAFreshRun)reject(409,'集約結果は再診断として比較できません。新しい実行を選択してください');
             const record=latestHandoff(dir,{exclude:own?.handoffId}),at=r=>Date.parse(r?.finishedAt??r?.startedAt);
             let source=null;try{source=record&&readRun(p,record.sourceRunId);}catch{}
             if(!record||record.sourceRunId===id||!((source?at(source):Date.parse(record.sourceFinishedAt))<at(report)))reject(409,'比較できる引き継ぎ記録がありません');
