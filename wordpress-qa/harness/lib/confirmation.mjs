@@ -29,6 +29,7 @@ export function validateConfirmation(plan,data){
 export function selectSingleTest(rows,id){
  const row=rows.find(r=>r.id===id);if(!row)throw Error('検査が見つかりません');
  if(row.manualReview)throw Error('手動確認は確認手順から実施してください');
+ if(row.autoNotApplicable)throw Error('このサイトでは対象外と自動判定した項目です。関係ありに戻してから実行してください。');
  if(row.preparationRequired)throw Error('設定が必要の項目です。設定画面で対象・期待値を保存してから実行してください。');
  for(const r of rows)r.selected=r.id===id;
 }

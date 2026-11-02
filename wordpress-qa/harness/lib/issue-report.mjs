@@ -83,7 +83,7 @@ export function buildIssueReport({current,previous=[],includeHistory=false,readE
     }
     if(!found)add(row.id.split('.')[0],row.title,entry,{reason:row.reason??'詳細証拠なし。原因未確定。'});
   }
-  const issues=[...groups.values()],pending=selected.filter(({row})=>['review','not_run','blocked'].includes(row.status));
+  const issues=[...groups.values()],autoNA=selected.filter(({row})=>row.status==='not_applicable'&&row.autoNotApplicable),pending=selected.filter(({row})=>['review','not_run','blocked'].includes(row.status));
   const counts=Object.fromEntries(Object.keys(labels).filter(s=>s!=='caution'||selected.some(x=>displayStatus(x.row)===s)).map(s=>[s,selected.filter(x=>displayStatus(x.row)===s).length]));
   const configs=new Map();
   const screenshotHTML=({row,run,details=[]})=>{
@@ -113,7 +113,7 @@ export function buildIssueReport({current,previous=[],includeHistory=false,readE
     const r=reproduction(entry,kind,configs.get(entry.run.runId));
     return `<h3>再現手順・期待結果・実際の挙動</h3><p>${e(r.condition)}</p><ol>${r.steps.map(s=>`<li>${e(s)}</li>`).join('')}</ol><p><b>期待される挙動：</b>${e(r.expected)}</p><p><b>実際の結果（保存済み証拠）：</b></p><pre>${e(r.actual)}</pre><p><b>画面・操作への影響の確認範囲：</b>${e(r.visible)}</p><p><b>手順の根拠・未確認事項：</b>${e(r.limit)}</p>`;
   };
-  const caseHTML=({row,run,details=[]})=>`<details><summary>${e(row.title)} — ${e(row.id)}（${e(labels[displayStatus(row)])}）${run.runId!==current.runId?'【過去結果】':''}</summary><p>出典：${e(run.runId)} / ${e(run.startedAt)}</p>${row.status==='fail'?screenshotHTML({row,run,details}):''}<pre>${e(row.reason??'')}</pre>${details.map(d=>`<pre>${e(JSON.stringify(d,null,2))}</pre>`).join('')}</details>`;
+  const caseHTML=({row,run,details=[]})=>`<details><summary>${e(row.title)} — ${e(row.id)}（${e(labels[displayStatus(row)])}${row.autoNotApplicable?'・自動判定':''}）${run.runId!==current.runId?'【過去結果】':''}</summary><p>出典：${e(run.runId)} / ${e(run.startedAt)}</p>${row.status==='fail'?screenshotHTML({row,run,details}):''}<pre>${e(row.reason??'')}</pre>${details.map(d=>`<pre>${e(JSON.stringify(d,null,2))}</pre>`).join('')}</details>`;
   const html=`<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${e(current.name)} 不具合報告書</title><style>body{font:16px/1.8 system-ui;color:#253347;max-width:1120px;margin:32px auto;padding:0 20px}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccd6df;text-align:left;padding:10px;vertical-align:top}th{background:#edf2f7}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f3f6f9;padding:12px}section{border-top:2px solid #dce4ed;margin-top:28px}details{border:1px solid #ccd6df;padding:12px;margin:12px 0}summary{cursor:pointer}a{color:#155ca2}.note{background:#fff5dc;padding:16px}h1,h2{line-height:1.5}@media print{body{font-size:11px}}</style></head><body>
   <h1>${e(current.name)}：不具合報告書</h1><p>対象：${e(current.baseURL)} / ${e(current.environment)}<br>選択した実行：${e(current.runId)} / ${e(current.startedAt)}<br>生成日時：${e(new Date().toISOString())} / 実行状態：${e(current.runStatus)}</p>
   <p><strong>不合格 ${counts.fail}ケース${counts.caution?`・注意 ${counts.caution}ケース`:''} → 修正候補 ${issues.length}項目</strong>。同じルール・対象部品・例外メッセージをまとめています。共通の根本原因が確定した件数ではありません。</p>
@@ -124,6 +124,7 @@ export function buildIssueReport({current,previous=[],includeHistory=false,readE
   <table><thead><tr><th>項目</th><th>対象ケース数</th><th>管理画面での対応候補</th></tr></thead><tbody>${issues.map((g,i)=>`<tr><td><a href="#issue-${i+1}">${i+1}. ${e(g.title)}</a></td><td>${g.cases.size}</td><td>${e(g.admin)}</td></tr>`).join('')}</tbody></table>
   ${issues.map((g,i)=>`<section id="issue-${i+1}"><h2>${i+1}. ${e(g.title)}</h2><p><b>利用者への影響：</b>${e(g.impact)}</p><p><b>管理画面での修正候補：</b>${e(g.admin)}</p><p><b>設定で直らない場合：</b>${e(g.code)}</p><p><b>修正後の確認：</b>${e(g.verify)}</p><p>URL・画面幅別の再現手順と証拠を以下で展開できます。準備段階で停止した検査は、本来の判定に未到達の可能性があります。</p>${[...g.cases.values()].map(entry=>`<details><summary>再現手順：${e(entry.row.title)} — ${e(entry.row.id)}</summary>${reproHTML(entry,g.kind)}</details>${caseHTML(entry)}`).join('')}</section>`).join('')}
   <section><h2>未実施・要確認・実行不能（${pending.length}ケース）</h2><p>画像比較の基準未承認は画像の不具合とは別です。手動確認・未実施を合格に置き換えていません。</p>${pending.map(caseHTML).join('')}</section>
+  ${autoNA.length?`<section><h2>対象外（自動判定）（${autoNA.length}ケース）</h2><p>サイトの設定と有効なプラグインから、このサイトに関係しないと自動で判定した検査です。根拠を確認してください。</p>${autoNA.map(caseHTML).join('')}</section>`:''}
   ${warnings.length?`<section><h2>証拠の読取りに関する注意</h2><pre>${e(warnings.join('\n'))}</pre></section>`:''}
   ${notes.trim()?`<section><h2>担当者の補足（自動検証していない記載）</h2><pre>${e(notes.trim())}</pre></section>`:''}
   <section><h2>再検証と公開判断</h2><p>該当ケースの再実行、共通部品のPC・スマホ確認、購入・問い合わせ・メール等の関連する手動操作を実施してください。HTTP・JavaScript等の短い検査はCI候補、画像・axe・操作検査はQA工程の候補です。残存不合格と未確認事項を確認して公開判断を行います。この報告書はサイト全体の適合や公開を自動承認しません。</p></section></body></html>`;

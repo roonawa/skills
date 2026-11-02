@@ -4,6 +4,7 @@ import {randomUUID,createHash} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
 import {validateConfig} from '../lib/config.mjs';
 import {builtinModules,validateProfile,profileJourneys} from './registration.mjs';
+import {notApplicableChecks} from './todo-triage.mjs';
 
 export function protect(value,decode=false) {
   if(process.platform!=='win32')throw new Error('認証情報の保存はWindowsのユーザー暗号化に対応しています');
@@ -87,6 +88,8 @@ export class ProjectStore {
       const {headersEnv,storageStateEnv,...clean}=a;
       return {...clean,...(a.source==='rest'&&secrets.rest?{headersEnv:'WPQA_UI_ADMIN_HEADERS'}:{}),...(a.source==='browser'&&secrets.browser?{storageStateEnv:'WPQA_UI_ADMIN_STATE'}:{})};
     });
+    // 関係しない検査は、保存した時点の profile から根拠付きの対象外として記録する。
+    config.autoNotApplicable=profile?notApplicableChecks(config,profile):{};
     config=validateConfig(config);
     const credentials={rest:!!secrets.rest,browser:!!secrets.browser,roles:Object.fromEntries(Object.entries(secrets.roles).map(([name,value])=>[name,{rest:!!value.rest,browser:!!value.browser}]))};
     const record={version:randomUUID(),config,credentials,...(profile?{profile}:{}),sealed:credentials.rest||credentials.browser||secrets.publicPassword||Object.keys(credentials.roles).length?this.codec(JSON.stringify(secrets)):null};

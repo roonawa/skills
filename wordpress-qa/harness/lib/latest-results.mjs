@@ -9,7 +9,7 @@ export function latestResults(planned,configHash,reports){
   if(row.selected===false&&!row.manualReview)continue;
   selected.set(row.id,{id:row.id,status:row.status,...(row.level?{level:row.level}:{}),sourceRunId:report.runId,checkedAt:report.finishedAt});
  }
- const rows=planned.map(row=>({id:row.id,title:row.title,suite:row.suite,status:row.preparationRequired?'preparation':'not_run',...selected.get(row.id)}));
+ const rows=planned.map(row=>({id:row.id,title:row.title,suite:row.suite,status:row.preparationRequired?'preparation':row.autoNotApplicable?'not_applicable':'not_run',...(row.autoNotApplicable?{autoNotApplicable:true,reason:row.reason}:selected.get(row.id))}));
  const counts={};for(const row of rows){const s=displayStatus(row);counts[s]=(counts[s]??0)+1;}
  return {configHash,rows,counts,compatibleRuns:eligible.length,excludedRuns:reports.length-eligible.length};
 }
