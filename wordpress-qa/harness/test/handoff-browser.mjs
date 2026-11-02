@@ -22,6 +22,10 @@ writeRun('run-b','2026-10-02T01:00:00.000Z',[row('check.audit-x','pass',[],XSS),
 const app=await startUI({configPaths:[file],port:0});
 const browser=await chromium.launch();const context=await browser.newContext();await context.grantPermissions(['clipboard-read','clipboard-write'],{origin:app.url});
 const page=await context.newPage();const dialogs=[];page.on('dialog',d=>{dialogs.push(d.message());d.dismiss();});
+// クリップボードが使えないときは、押したボタンの文面が選択され、保存済みと案内されること。
+const deny=on=>page.evaluate(on=>{const c=navigator.clipboard;c.__write??=c.writeText.bind(c);c.writeText=on?()=>Promise.reject(new Error('denied')):c.__write;},on);
+const selected=()=>page.evaluate(()=>{const el=document.activeElement;return {id:el.id,visible:!!el.offsetParent,all:el.selectionStart===0&&el.selectionEnd===el.value.length&&el.value.length>0};});
+const FALLBACK='引き継ぎ記録は保存済みです。表示中の文面を Ctrl+C でコピーしてください';
 const saved=()=>{const dir=path.join(scratch,'handoffs-runs');return fs.existsSync(dir)?fs.readdirSync(dir).filter(f=>f.endsWith('.json')):[];};
 try{
   await page.goto(app.url);await expect(page.locator('#metadata')).toContainText('run-b');
@@ -41,6 +45,12 @@ try{
   await expect.poll(()=>page.evaluate(()=>navigator.clipboard.readText())).toMatch(/^引き継ぎUIテスト：/);
   assert.equal(saved().length,1,'copying repeatedly keeps one record');
   assert.equal(await page.locator('#handoff-issues img').count(),0);
+  await deny(true);
+  for(const [button,id] of [['#handoff-copy-subject','handoff-subject'],['#handoff-copy-body','handoff-body']]){
+    await page.evaluate(()=>{document.querySelector('#handoff-status').textContent='';document.activeElement?.blur();});
+    await page.locator(button).click();await expect(page.locator('#handoff-status')).toContainText(FALLBACK);assert.deepEqual(await selected(),{id,visible:true,all:true},button);
+  }
+  assert.equal(saved().length,1);await deny(false);
   await page.locator('[data-run="run-b"]').click();await expect(page.locator('#metadata')).toContainText('run-b');
   await expect(page.locator('#handoff-compare-open')).toBeVisible();
   await page.locator('#handoff-compare-open').click();
@@ -48,6 +58,9 @@ try{
   await expect(page.locator('#handoff-compare-body')).toHaveValue(/SITE EXAM 再診断結果/);
   await page.locator('#handoff-compare-copy').click();await expect(page.locator('#handoff-status')).toContainText('コピーしました');
   assert.equal(saved().length,2);
+  await deny(true);await expect(page.locator('#handoff-result')).toBeHidden();
+  await page.locator('#handoff-compare-copy').click();await expect(page.locator('#handoff-status')).toContainText(FALLBACK);
+  assert.deepEqual(await selected(),{id:'handoff-compare-body',visible:true,all:true});assert.equal(saved().length,2);await deny(false);
   await page.setViewportSize({width:390,height:844});assert(await page.locator('#handoff-panel').evaluate(el=>el.getBoundingClientRect().width>250));
   assert.equal(dialogs.length,0,'no script executed from evidence text');
   console.log('Handoff UI, preview, exclusion, single record, compare and escaping checks passed');

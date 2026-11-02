@@ -96,9 +96,10 @@ async function handoffCompare(save,fresh){
   if(!handoffCurrent(scope))return null;
   handoff.cmpId=data.handoffId;return data;
 }
-function handoffCopy(text,done){
-  const fallback=()=>{const area=$('#handoff-body');area.hidden=false;area.focus();area.select();$('#handoff-status').textContent='自動コピーできませんでした。Ctrl+C でコピーしてください。';};
-  (navigator.clipboard?.writeText?navigator.clipboard.writeText(text).then(()=>{$('#handoff-status').textContent=done;},fallback):Promise.resolve().then(fallback));
+// コピーできないときは、押したボタンの文面（件名・本文・比較文面）を表示して全選択する。
+function handoffCopy(text,done,el){
+  const fallback=()=>{for(let n=el;n&&n.id!=='handoff-panel';n=n.parentElement)n.hidden=false;el.focus();el.select();$('#handoff-status').textContent='自動コピーできませんでした。引き継ぎ記録は保存済みです。表示中の文面を Ctrl+C でコピーしてください。';};
+  return navigator.clipboard?.writeText?navigator.clipboard.writeText(text).then(()=>{$('#handoff-status').textContent=done;},fallback):Promise.resolve().then(fallback);
 }
 async function handoffAction(task){
   if(state.requesting)return;const scope=`${state.projectId}/${state.runId}`;state.requesting=true;render();showError('');
@@ -107,10 +108,10 @@ async function handoffAction(task){
 }
 $('#handoff-make').onclick=()=>handoffAction(async()=>{$('#handoff-status').textContent='文面を作成しています…';if(await handoffPreview(true,false))$('#handoff-status').textContent='プレビューです。コピーすると引き継ぎ記録として保存します。';});
 $('#handoff-issues').onchange=()=>handoffAction(()=>handoffPreview(false,false));
-for(const [id,field,label] of [['#handoff-copy-subject','subject','件名'],['#handoff-copy-body','body','本文']])$(id).onclick=()=>handoffAction(async()=>{const data=await handoffPreview(false,true);if(data)await handoffCopy(data[field],`${label}をコピーしました。引き継ぎ記録を保存しました。`);});
+for(const [id,field,label] of [['#handoff-copy-subject','subject','件名'],['#handoff-copy-body','body','本文']])$(id).onclick=()=>handoffAction(async()=>{const data=await handoffPreview(false,true);if(data)await handoffCopy(data[field],`${label}をコピーしました。引き継ぎ記録を保存しました。`,$('#handoff-'+field));});
 $('#handoff-compare-open').onclick=()=>handoffAction(async()=>{const data=await handoffCompare(false,true);if(data)handoffShowCompare(data,true);});
 $('#handoff-compare-added').onchange=()=>handoffAction(async()=>{const data=await handoffCompare(false,false);if(data)handoffShowCompare(data,false);});
-$('#handoff-compare-copy').onclick=()=>handoffAction(async()=>{const data=await handoffCompare(true,false);if(data){handoffShowCompare(data,false);await handoffCopy(data.body,'比較結果をコピーしました。引き継ぎ記録を保存しました。');}});
+$('#handoff-compare-copy').onclick=()=>handoffAction(async()=>{const data=await handoffCompare(true,false);if(data){handoffShowCompare(data,false);await handoffCopy(data.body,'比較結果をコピーしました。引き継ぎ記録を保存しました。',$('#handoff-compare-body'));}});
 function handoffShowCompare(data,fresh){
   const c=data.comparison;
   $('#handoff-compare-counts').textContent=[['解消',c.resolved],['未解消',c.unresolved],['再確認できず',c.unverified],['新たに発生',c.added],['除外のまま',c.carriedExcluded]].map(([label,list])=>`${label} ${list.length}件`).join(' / ')+(data.scopeGap?`（前回と検査範囲が違う項目：${data.scopeGap}件）`:'');
