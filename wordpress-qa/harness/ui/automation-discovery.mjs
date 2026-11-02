@@ -12,7 +12,7 @@ const discussion = ['default_pingback_flag','default_ping_status','default_comme
  * request headers, REST nonce, mail destinations or exception text are returned.
  */
 export async function discoverAutomation({baseURL, profile = {}, adminPage, adminContext, publicHeaders = {}, pages = [], restSettings} = {}) {
-  const out = {version:1, observedAt:new Date().toISOString(), admin:{reading:[],discussion:[],permalink:[],plugins:[]}, activePlugins:[], public:{forms:[],sitemaps:[],fieldLabels:[]}, warnings:['Admin observations are regression baselines, not validated business requirements.'], sources:[]};
+  const out = {version:1, observedAt:new Date().toISOString(), admin:{reading:[],discussion:[],permalink:[],plugins:[]}, activePlugins:[], pluginInventory:{observed:false,slugs:[]}, public:{forms:[],sitemaps:[],fieldLabels:[]}, warnings:['Admin observations are regression baselines, not validated business requirements.'], sources:[]};
   let origin;
   try { const u = new URL(baseURL); if(!/^https?:$/.test(u.protocol) || u.username || u.password) throw Error(); origin=u.origin; }
   catch {out.warnings.push('Invalid base URL.'); return out;}
@@ -74,15 +74,18 @@ export async function discoverAutomation({baseURL, profile = {}, adminPage, admi
       }
       if(group==='discussion')for(const id of discussion)if($(`input[type="checkbox"]#${id}`).length===1)row(id,`input[type="checkbox"]#${id}`,'checked',$('#'+id).is(':checked'));
       if(group==='permalink' && $('#permalink_structure').length===1){const v=$('#permalink_structure').val();if(typeof v==='string' && /^[\w%/.-]{0,200}$/.test(v))row('permalink_structure','#permalink_structure','value',v);}
+      let unread=false;
       if(group==='plugins')$('tr.active[data-plugin]').each((_,el)=>{
-        const plugin=$(el).attr('data-plugin'); if(!/^[\w-]+(?:\/[\w.-]+)?\.php$/.test(plugin || ''))return;
+        const plugin=$(el).attr('data-plugin'); if(!/^[\w-]+(?:\/[\w.-]+)?\.php$/.test(plugin || '')){unread=true;return;}
         const selector=`tr.active[data-plugin=${quoted(plugin)}] .plugin-title strong`;
         const label=$(selector),title=label.text().trim();
-        if(label.length!==1 || !title || title.length>150 || /@|nonce|secret|password/i.test(title))return;
+        if(label.length!==1 || !title || title.length>150 || /@|nonce|secret|password/i.test(title)){unread=true;return;}
         const slug=plugin.includes('/')?plugin.split('/')[0]:plugin.replace(/\.php$/,'');
         if(out.admin.plugins.some(row=>row.id==='plugin-'+slug))return;
         out.activePlugins.push(slug);row('plugin-'+slug,selector,'text',title,title);
       });
+      // 一覧を最後まで読めたと言えるときだけ observed。ページ送り・読めない行・200件超は未観測にする。
+      if(group==='plugins'){const paged=$('.tablenav-pages .total-pages').toArray().some(el=>Number($(el).text().replace(/\D/g,''))>1)||$('.tablenav-pages a.next-page,.tablenav-pages a.last-page').length>0;if(!paged&&!unread&&out.activePlugins.length<=200)out.pluginInventory={observed:true,slugs:[...out.activePlugins]};}
     }
   } else warn('Admin authentication unavailable; no admin baseline was inferred.');
   const sitemapPaths=new Set();

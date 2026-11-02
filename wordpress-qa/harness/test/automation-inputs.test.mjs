@@ -182,3 +182,10 @@ test('registration role credentials are sent separately, excluded from drafts, a
  }finally{await browser.close();}
 });
 
+
+test('automation input accepts pluginInventory and relevantOverrides, rejects bad shapes',()=>{
+ assert.deepEqual(validateAutomationInput({useObservedBaselines:true,additionalChecks:[]}),{useObservedBaselines:true,additionalChecks:[]});
+ const input={pluginInventory:{observed:true,slugs:['woocommerce','contact-form-7']},relevantOverrides:['coverage-order','coverage-membership']};
+ assert.deepEqual(validateAutomationInput(input),{useObservedBaselines:true,additionalChecks:[],...input});
+ for(const bad of [{pluginInventory:null},{pluginInventory:{observed:'yes',slugs:[]}},{pluginInventory:{observed:true}},{pluginInventory:{observed:true,slugs:[1]}},{pluginInventory:{observed:true,slugs:Array(201).fill('a')}},{pluginInventory:{observed:true,slugs:[],extra:1}},{relevantOverrides:'coverage-order'},{relevantOverrides:['Coverage-Order']},{relevantOverrides:['1abc']},{relevantOverrides:['a'.repeat(65)]},{relevantOverrides:Array(101).fill('a')}])assert.throws(()=>validateAutomationInput(bad),bad.toString());
+});

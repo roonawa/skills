@@ -10,10 +10,16 @@ function requireValue(ok,label){if(!ok)throw new Error('自動取得と追加条
 export function validateAutomationInput(value){
  if(value===undefined)return {useObservedBaselines:true,additionalChecks:[]};
  requireValue(object(value),'automation はオブジェクトで指定してください');
- requireValue(Object.keys(value).every(k=>['useObservedBaselines','additionalChecks'].includes(k)),'未対応の automation 項目があります');
- const {useObservedBaselines=true,additionalChecks=[]}=value;
+ requireValue(Object.keys(value).every(k=>['useObservedBaselines','additionalChecks','pluginInventory','relevantOverrides'].includes(k)),'未対応の automation 項目があります');
+ const {useObservedBaselines=true,additionalChecks=[],pluginInventory,relevantOverrides}=value;
  requireValue(typeof useObservedBaselines==='boolean','useObservedBaselines は真偽値で指定してください');
  requireValue(Array.isArray(additionalChecks),'additionalChecks は配列で指定してください');
+ if(pluginInventory!==undefined){
+  requireValue(object(pluginInventory)&&Object.keys(pluginInventory).every(k=>['observed','slugs'].includes(k)),'pluginInventory は observed と slugs だけのオブジェクトで指定してください');
+  requireValue(typeof pluginInventory.observed==='boolean','pluginInventory.observed は真偽値で指定してください');
+  requireValue(Array.isArray(pluginInventory.slugs)&&pluginInventory.slugs.length<=200&&pluginInventory.slugs.every(s=>typeof s==='string'&&/^[\w-]{1,100}$/.test(s)),'pluginInventory.slugs は200件以内の文字列配列で指定してください');
+ }
+ if(relevantOverrides!==undefined)requireValue(Array.isArray(relevantOverrides)&&relevantOverrides.length<=100&&relevantOverrides.every(s=>typeof s==='string'&&/^[a-z][a-z0-9-]{0,63}$/.test(s)),'relevantOverrides は100件以内の検査ID配列で指定してください');
  const seen=new Set();
  for(const check of additionalChecks){
   requireValue(object(check),'各検査はオブジェクトで指定してください');
@@ -28,7 +34,7 @@ export function validateAutomationInput(value){
   requireValue(check.required===undefined||typeof check.required==='boolean',check.id+' の required は真偽値で指定してください');
   requireValue(check.timeoutMs===undefined||(Number.isInteger(check.timeoutMs)&&check.timeoutMs>=1000&&check.timeoutMs<=900000),check.id+' の timeoutMs は1000〜900000の整数で指定してください');
  }
- return structuredClone({useObservedBaselines,additionalChecks});
+ return structuredClone({useObservedBaselines,additionalChecks,...(pluginInventory!==undefined&&{pluginInventory}),...(relevantOverrides!==undefined&&{relevantOverrides})});
 }
 
 export const automationExamples=Object.freeze([

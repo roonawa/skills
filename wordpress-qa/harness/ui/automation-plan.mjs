@@ -15,7 +15,8 @@ export function resolveAutomationProfile(input, discovery={}) {
   }
   for(const [key,value] of Object.entries({contactFormId:f.formId,contactPath:f.path,contactNameField:unique('text')??(()=>{const names=f.fields.filter(x=>x.type==='text'&&/^(?:your[-_])?(?:full[-_])?name$/i.test(x.name));return names.length===1?names[0].name:undefined;})(),contactEmailField:unique('email'),contactMessageField:unique('textarea'),contactConsentField:unique('checkbox')}))if(p[key]===undefined&&value!==undefined)p[key]=value;
  }
- p.automation=validateAutomationInput(p.automation);
+ const inv=discovery.automation?.pluginInventory;
+ p.automation=validateAutomationInput(inv?{...p.automation,pluginInventory:inv}:p.automation);
  return p;
 }
 

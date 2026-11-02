@@ -45,3 +45,9 @@ test('an observed form without a usable submit control stays pending',()=>{
  for(const id of ['coverage-contact-errors','coverage-contact-retry'])assert.equal(result.checks.find(c=>c.id===id).kind,'unconfigured');
 });
 
+test('resolveAutomationProfile copies pluginInventory and keeps relevantOverrides',()=>{
+ const inv={observed:true,slugs:['fixture']};
+ const p=resolveAutomationProfile({automation:{relevantOverrides:['coverage-order']}},{automation:{...discovery.automation,pluginInventory:inv}});
+ assert.deepEqual(p.automation.pluginInventory,inv);assert.deepEqual(p.automation.relevantOverrides,['coverage-order']);
+ assert.equal(resolveAutomationProfile({},discovery).automation.pluginInventory,undefined);
+});

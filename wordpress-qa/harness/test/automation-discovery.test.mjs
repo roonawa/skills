@@ -210,3 +210,24 @@ test('multisite Password Protected gate is retained while admin cookies and test
  const {requests}=await run(t,{publicHeaders:{Cookie:'wordpress_logged_in_secret=ADMIN; bid_1_password_protected_auth=GATE; bid_1_password_protected_cookie_test=TEST; unrelated=NO'}});
  const publicRequest=requests.find(r=>r.kind==='public');assert.equal(publicRequest.headers.Cookie,'bid_1_password_protected_auth=GATE');
 });
+
+test('plugin inventory observed only when plugins page read',async t=>{
+  const ok=await run(t);
+  assert.deepEqual(ok.result.pluginInventory,{observed:true,slugs:['contact-form-7']});
+  const ng=await run(t,{page:{url:()=>baseURL+'/wp-admin/',locator:()=>({count:async()=>0})}});
+  assert.deepEqual(ng.result.pluginInventory,{observed:false,slugs:[]});
+  const forbidden=await run(t,{adminFixture:{...fixture,'/wp-admin/plugins.php':''}});
+  assert.deepEqual(forbidden.result.pluginInventory,{observed:false,slugs:[]});
+  const unreadable=await run(t,{adminFixture:{...fixture,'/wp-admin/plugins.php':auth+'<table><tr class="active" data-plugin="bad name.php"><td class="plugin-title"><strong>Bad</strong></td></tr></table>'}});
+  assert.equal(unreadable.result.pluginInventory.observed,false);
+  const empty=await run(t,{adminFixture:{...fixture,'/wp-admin/plugins.php':auth+'<table></table>'}});
+  assert.deepEqual(empty.result.pluginInventory,{observed:true,slugs:[]});
+});
+
+test('paginated plugin list not fully read is not observed',async t=>{
+  const row='<tr class="active" data-plugin="a/a.php"><td class="plugin-title"><strong>A</strong></td></tr>';
+  const {result}=await run(t,{adminFixture:{...fixture,'/wp-admin/plugins.php':auth+'<div class="tablenav-pages"><span class="total-pages">3</span><a class="next-page" href="?paged=2">next</a></div><table>'+row+'</table>'}});
+  assert.deepEqual(result.pluginInventory,{observed:false,slugs:[]});
+  const single=await run(t,{adminFixture:{...fixture,'/wp-admin/plugins.php':auth+'<div class="tablenav-pages one-page"><span class="total-pages">1</span></div><table>'+row+'</table>'}});
+  assert.deepEqual(single.result.pluginInventory,{observed:true,slugs:['a']});
+});
