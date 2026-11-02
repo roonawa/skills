@@ -85,7 +85,7 @@ export async function discoverAutomation({baseURL, profile = {}, adminPage, admi
         out.activePlugins.push(slug);row('plugin-'+slug,selector,'text',title,title);
       });
       // 一覧を最後まで読めたと言えるときだけ observed。ページ送り・読めない行・200件超は未観測にする。
-      if(group==='plugins'){const paged=$('.tablenav-pages .total-pages').toArray().some(el=>Number($(el).text().replace(/\D/g,''))>1)||$('.tablenav-pages a.next-page,.tablenav-pages a.last-page').length>0;if(!paged&&!unread&&out.activePlugins.length<=200)out.pluginInventory={observed:true,slugs:[...out.activePlugins]};}
+      if(group==='plugins'){const paged=$('.tablenav-pages .total-pages').toArray().some(el=>Number($(el).text().replace(/\D/g,''))>1)||$('.tablenav-pages a.next-page,.tablenav-pages a.last-page').length>0;if($('table.plugins,#the-list').length&&!$('body').is('.multisite,.network-admin')&&!$('.network-active').length&&!paged&&!unread&&out.activePlugins.length<=200)out.pluginInventory={observed:true,slugs:[...out.activePlugins]};}
     }
   } else warn('Admin authentication unavailable; no admin baseline was inferred.');
   const sitemapPaths=new Set();

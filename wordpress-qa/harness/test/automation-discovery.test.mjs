@@ -14,7 +14,7 @@ const fixture={
   '/wp-admin/options-reading.php':auth+'<input name="show_on_front" type="radio" value="page" checked><select id="page_on_front"><option selected value="12">Secret page title</option></select><select id="page_for_posts"><option selected value="0">None</option></select>',
   '/wp-admin/options-discussion.php':auth+'<input id="default_comment_status" type="checkbox" checked><input id="require_name_email" type="checkbox"><input name="_wpnonce" value="RAW_ADMIN_NONCE">',
   '/wp-admin/options-permalink.php':auth+'<input id="permalink_structure" value="/%postname%/">',
-  '/wp-admin/plugins.php':auth+'<table><tr class="active" data-plugin="contact-form-7/wp-contact-form-7.php"><td class="plugin-title"><strong>Contact Form 7</strong><a href="?action=deactivate&_wpnonce=RAW_ACTION_SECRET">Deactivate</a></td></tr><tr data-plugin="inactive/plugin.php"><td class="plugin-title"><strong>Inactive</strong></td></tr></table>',
+  '/wp-admin/plugins.php':auth+'<table class="plugins"><tr class="active" data-plugin="contact-form-7/wp-contact-form-7.php"><td class="plugin-title"><strong>Contact Form 7</strong><a href="?action=deactivate&_wpnonce=RAW_ACTION_SECRET">Deactivate</a></td></tr><tr data-plugin="inactive/plugin.php"><td class="plugin-title"><strong>Inactive</strong></td></tr></table>',
   '/':`<button aria-label="検索を開く">Search</button><form method="get" action="/"><input name="s" value="RAW_SEARCH_VALUE"><button type="submit">Go</button></form>
     <button aria-controls="mobile-menu" aria-expanded="false">Menu</button><nav id="mobile-menu"></nav>
     <div class="wpcf7" id="wpcf7-f42-p1-o1"><form class="wpcf7-form">
@@ -220,14 +220,24 @@ test('plugin inventory observed only when plugins page read',async t=>{
   assert.deepEqual(forbidden.result.pluginInventory,{observed:false,slugs:[]});
   const unreadable=await run(t,{adminFixture:{...fixture,'/wp-admin/plugins.php':auth+'<table><tr class="active" data-plugin="bad name.php"><td class="plugin-title"><strong>Bad</strong></td></tr></table>'}});
   assert.equal(unreadable.result.pluginInventory.observed,false);
-  const empty=await run(t,{adminFixture:{...fixture,'/wp-admin/plugins.php':auth+'<table></table>'}});
+  const empty=await run(t,{adminFixture:{...fixture,'/wp-admin/plugins.php':auth+'<table class="plugins"></table>'}});
   assert.deepEqual(empty.result.pluginInventory,{observed:true,slugs:[]});
 });
 
 test('paginated plugin list not fully read is not observed',async t=>{
   const row='<tr class="active" data-plugin="a/a.php"><td class="plugin-title"><strong>A</strong></td></tr>';
-  const {result}=await run(t,{adminFixture:{...fixture,'/wp-admin/plugins.php':auth+'<div class="tablenav-pages"><span class="total-pages">3</span><a class="next-page" href="?paged=2">next</a></div><table>'+row+'</table>'}});
+  const {result}=await run(t,{adminFixture:{...fixture,'/wp-admin/plugins.php':auth+'<div class="tablenav-pages"><span class="total-pages">3</span><a class="next-page" href="?paged=2">next</a></div><table class="plugins">'+row+'</table>'}});
   assert.deepEqual(result.pluginInventory,{observed:false,slugs:[]});
-  const single=await run(t,{adminFixture:{...fixture,'/wp-admin/plugins.php':auth+'<div class="tablenav-pages one-page"><span class="total-pages">1</span></div><table>'+row+'</table>'}});
+  const single=await run(t,{adminFixture:{...fixture,'/wp-admin/plugins.php':auth+'<div class="tablenav-pages one-page"><span class="total-pages">1</span></div><table class="plugins">'+row+'</table>'}});
   assert.deepEqual(single.result.pluginInventory,{observed:true,slugs:['a']});
+});
+
+test('plugin inventory is not observed on multisite or when the plugin table is missing',async t=>{
+  const table='<table class="plugins"><tr class="active" data-plugin="a/a.php"><td class="plugin-title"><strong>A</strong></td></tr></table>';
+  const ms=await run(t,{adminFixture:{...fixture,'/wp-admin/plugins.php':auth+'<body class="wp-admin multisite">'+table}});
+  assert.equal(ms.result.pluginInventory.observed,false);
+  const na=await run(t,{adminFixture:{...fixture,'/wp-admin/plugins.php':auth+table.replace('<tr class="active"','<tr class="active network-active"')}});
+  assert.equal(na.result.pluginInventory.observed,false);
+  const other=await run(t,{adminFixture:{...fixture,'/wp-admin/plugins.php':auth+'<div>Dashboard</div>'}});
+  assert.deepEqual(other.result.pluginInventory,{observed:false,slugs:[]});
 });
