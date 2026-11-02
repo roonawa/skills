@@ -6,7 +6,7 @@ const DAY=864e5;
 export function evaluateCertificate({validTo,authorized,authorizationError,hostnameError},now=new Date()){
   if(!(validTo instanceof Date)||Number.isNaN(validTo.getTime()))throw new Error('証明書の有効期限を読み取れません');
   const out=[],left=validTo-now;if(left<=0)out.push('cert-expired');else if(left<14*DAY)out.push('cert-expiring');
-  if(!authorized&&authorizationError!=='CERT_HAS_EXPIRED')out.push('cert-untrusted');if(hostnameError)out.push('cert-hostname-mismatch');
+  if(!authorized&&!(authorizationError==='CERT_HAS_EXPIRED'&&left<=0))out.push('cert-untrusted');if(hostnameError)out.push('cert-hostname-mismatch');
   return out;
 }
 // 証明書を観測するためだけの接続。rejectUnauthorized:false は不正な証明書も読むためで、ハンドシェイク後に証明書と authorized を読むだけでデータは送らず、すぐ destroy() する。

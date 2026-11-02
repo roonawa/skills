@@ -30,6 +30,7 @@ test('evaluateCertificate thresholds',()=>{
   assert.deepEqual(evaluateCertificate({validTo:days(-1),authorized:true},now),['cert-expired']);
   assert.deepEqual(evaluateCertificate({validTo:days(-1),authorized:false,authorizationError:'CERT_HAS_EXPIRED'},now),['cert-expired']);
   assert.deepEqual(evaluateCertificate({validTo:days(90),authorized:false,authorizationError:'DEPTH_ZERO_SELF_SIGNED_CERT'},now),['cert-untrusted']);
+  assert.deepEqual(evaluateCertificate({validTo:days(90),authorized:false,authorizationError:'CERT_HAS_EXPIRED'},now),['cert-untrusted']);
   assert.deepEqual(evaluateCertificate({validTo:days(90),authorized:true,hostnameError:'mismatch'},now),['cert-hostname-mismatch']);
   assert.throws(()=>evaluateCertificate({validTo:new Date('x'),authorized:true},now));
 });
