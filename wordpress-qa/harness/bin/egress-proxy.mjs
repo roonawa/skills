@@ -8,11 +8,11 @@ let active=0;
 const server=http.createServer(async(req,res)=>{
   if(active>=32){res.writeHead(503);return res.end();}active++;res.once('close',()=>active--);
   try{
-    const d=await resolveDestination(req.url,policy());if(d.url.protocol!=='http:')throw Error('CONNECT required');
+    const d=await resolveDestination(req.url,policy(),undefined,{method:req.method,hasBody:Number(req.headers['content-length']||0)>0||!!req.headers['transfer-encoding']});if(d.url.protocol!=='http:')throw Error('CONNECT required');
     const headers={...req.headers,host:d.url.host};delete headers['proxy-authorization'];delete headers['proxy-connection'];
     const out=http.request({host:d.address,port:d.port,family:d.family,method:req.method,path:d.url.pathname+d.url.search,headers,timeout:30000},r=>{res.writeHead(r.statusCode,r.headers);r.pipe(res);});
     out.on('error',()=>{if(!res.headersSent)res.writeHead(502);res.end();});out.on('timeout',()=>out.destroy());req.on('aborted',()=>out.destroy());req.pipe(out);
-  }catch{res.writeHead(403);res.end('接続先が許可されていません');}
+  }catch{res.writeHead(403,{'x-wpqa-egress':'denied'});res.end('接続先が許可されていません');}
 });
 server.on('connect',async(req,socket,head)=>{
   if(active>=32)return socket.destroy();active++;socket.once('close',()=>active--);

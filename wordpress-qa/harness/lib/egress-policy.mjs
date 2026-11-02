@@ -28,9 +28,11 @@ export function validateDestinations(entries){
     return {origin:u.origin,privateIPs};
   });
 }
-export async function resolveDestination(url,entries,resolver=lookup){
+export async function resolveDestination(url,entries,resolver=lookup,{method,hasBody}={}){
   const u=new URL(url);if(u.username||u.password||!['http:','https:'].includes(u.protocol))throw Error('接続先が許可されていません');
-  const rule=validateDestinations(entries).find(e=>e.origin===u.origin);
+  const all=validateDestinations(entries);
+  let rule=all.find(e=>e.origin===u.origin);
+  if(!rule&&u.protocol==='http:'&&u.port===''&&method==='GET'&&hasBody===false&&u.pathname==='/'&&u.search===''&&all.some(e=>e.origin==='https://'+u.host))rule={origin:u.origin,privateIPs:[]};
   if(!rule)throw Error('接続先を管理者の「接続先の許可設定」に登録してください');
   const host=u.hostname.replace(/^\[|\]$/g,'');
   const addresses=isIP(host)?[{address:host,family:isIP(host)}]:await timedLookup(resolver,host);
