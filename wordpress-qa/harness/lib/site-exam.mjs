@@ -9,7 +9,7 @@ export function riskLevel(score){return score===null?'採点保留':score>=80?'�
 export function examGroups(report){
  const groups=new Map();
  for(const row of report.rows.filter(r=>r.status==='fail'))for(const f of row.failures?.length?row.failures:[{key:'unknown:'+row.id,title:'期待する結果と一致しませんでした',impact:'具体的な影響は追加確認が必要です。',admin:'証拠と期待条件を照合してから、修正箇所を判断してください。'}]){
-  const id=hash(f.key).slice(0,24);if(!groups.has(id))groups.set(id,{id,key:f.key,kind:f.key.startsWith('axe:')?'accessibility':f.key.startsWith('javascript:')?'javascript':f.key.startsWith('metadata:')||f.key.startsWith('indexable:')?'metadata':'other',title:f.title,impact:f.impact,action:f.admin,repro:row.customerRepro?.[f.key],cases:[]});
+  const id=hash(f.key).slice(0,24);if(!groups.has(id))groups.set(id,{id,key:f.key,kind:f.key.startsWith('axe:')?'accessibility':f.key.startsWith('javascript:')?'javascript':f.key.startsWith('metadata:')||f.key.startsWith('indexable:')?'metadata':'other',title:(row.level==='caution'?'注意：':'')+f.title,level:row.level==='caution'?'caution':undefined,impact:f.impact,action:f.admin,repro:row.customerRepro?.[f.key],cases:[]});
   const g=groups.get(id);if(!g.cases.some(c=>c.id===row.id))g.cases.push({id:row.id,title:row.title,locations:row.customerLocations?.[f.key]??[],evidence:row.evidence??[],evidenceState:row.evidenceState??{},observations:row.assessmentObservations??[],images:(row.customerImages??[]).filter(i=>f.key==='axe:'+i.rule)});
  }
  return [...groups.values()];

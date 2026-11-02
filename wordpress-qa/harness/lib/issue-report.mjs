@@ -1,6 +1,6 @@
-import {escapeHTML as e} from './results.mjs';
+import {displayStatus,escapeHTML as e} from './results.mjs';
 
-const labels={pass:'合格',fail:'不合格',blocked:'実行不能',review:'要確認',not_run:'未実施',not_applicable:'対象外'};
+const labels={pass:'合格',fail:'不合格',blocked:'実行不能',review:'要確認',not_run:'未実施',not_applicable:'対象外',caution:'注意'};
 // Match signatures, not just test titles. A group is a repair candidate, not a proven common cause.
 function component(node){
   const html=node.html??'';
@@ -68,7 +68,7 @@ export function buildIssueReport({current,previous=[],includeHistory=false,readE
     if(!found)add(row.id.split('.')[0],row.title,entry,{reason:row.reason??'詳細証拠なし。原因未確定。'});
   }
   const issues=[...groups.values()],pending=selected.filter(({row})=>['review','not_run','blocked'].includes(row.status));
-  const counts=Object.fromEntries(Object.keys(labels).map(s=>[s,selected.filter(x=>x.row.status===s).length]));
+  const counts=Object.fromEntries(Object.keys(labels).filter(s=>s!=='caution'||selected.some(x=>displayStatus(x.row)===s)).map(s=>[s,selected.filter(x=>displayStatus(x.row)===s).length]));
   const configs=new Map();
   const screenshotHTML=({row,run,details=[]})=>{
     const manifests=(row.evidence??[]).filter(f=>/marked-screenshots[^/]*\.json$/.test(f));
@@ -97,7 +97,7 @@ export function buildIssueReport({current,previous=[],includeHistory=false,readE
     const r=reproduction(entry,kind,configs.get(entry.run.runId));
     return `<h3>再現手順・期待結果・実際の挙動</h3><p>${e(r.condition)}</p><ol>${r.steps.map(s=>`<li>${e(s)}</li>`).join('')}</ol><p><b>期待される挙動：</b>${e(r.expected)}</p><p><b>実際の結果（保存済み証拠）：</b></p><pre>${e(r.actual)}</pre><p><b>画面・操作への影響の確認範囲：</b>${e(r.visible)}</p><p><b>手順の根拠・未確認事項：</b>${e(r.limit)}</p>`;
   };
-  const caseHTML=({row,run,details=[]})=>`<details><summary>${e(row.title)} — ${e(row.id)}（${e(labels[row.status])}）${run.runId!==current.runId?'【過去結果】':''}</summary><p>出典：${e(run.runId)} / ${e(run.startedAt)}</p>${row.status==='fail'?screenshotHTML({row,run,details}):''}<pre>${e(row.reason??'')}</pre>${details.map(d=>`<pre>${e(JSON.stringify(d,null,2))}</pre>`).join('')}</details>`;
+  const caseHTML=({row,run,details=[]})=>`<details><summary>${e(row.title)} — ${e(row.id)}（${e(labels[displayStatus(row)])}）${run.runId!==current.runId?'【過去結果】':''}</summary><p>出典：${e(run.runId)} / ${e(run.startedAt)}</p>${row.status==='fail'?screenshotHTML({row,run,details}):''}<pre>${e(row.reason??'')}</pre>${details.map(d=>`<pre>${e(JSON.stringify(d,null,2))}</pre>`).join('')}</details>`;
   const html=`<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${e(current.name)} 不具合報告書</title><style>body{font:16px/1.8 system-ui;color:#253347;max-width:1120px;margin:32px auto;padding:0 20px}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccd6df;text-align:left;padding:10px;vertical-align:top}th{background:#edf2f7}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f3f6f9;padding:12px}section{border-top:2px solid #dce4ed;margin-top:28px}details{border:1px solid #ccd6df;padding:12px;margin:12px 0}summary{cursor:pointer}a{color:#155ca2}.note{background:#fff5dc;padding:16px}h1,h2{line-height:1.5}@media print{body{font-size:11px}}</style></head><body>
   <h1>${e(current.name)}：不具合報告書</h1><p>対象：${e(current.baseURL)} / ${e(current.environment)}<br>選択した実行：${e(current.runId)} / ${e(current.startedAt)}<br>生成日時：${e(new Date().toISOString())} / 実行状態：${e(current.runStatus)}</p>
   <p><strong>不合格 ${counts.fail}ケース → 修正候補 ${issues.length}項目</strong>。同じルール・対象部品・例外メッセージをまとめています。共通の根本原因が確定した件数ではありません。</p>

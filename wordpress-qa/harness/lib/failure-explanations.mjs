@@ -1,12 +1,13 @@
 import {impactAssessments} from './impact-probes.mjs';
 import {contactImpactObservations,blockedRetryObservations} from './automatic-assessment.mjs';
 import {advice} from './issue-report.mjs';
+import {RULES} from './security-baseline-rules.mjs';
 
 // Group observed mismatches, never infer a shared root cause from a test title.
 export function explainFailure(row, evidence=[]) {
   if(row.status!=='fail')return [];
   const found=new Map();
-  const add=(key,title,actual,admin,impact='期待する状態と異なります。対象ページと証拠で影響を確認してください。',code='設定で解消しない場合は、出力元のテーマ・プラグインと検査の期待値を確認します。')=>found.set(key,{key,title,actual,admin,impact,code,verify:'同じ検査を再実行し、対象ページと関連する操作を確認してください。'});
+  const add=(key,title,actual,admin,impact='期待する状態と異なります。対象ページと証拠で影響を確認してください。',code='設定で解消しない場合は、出力元のテーマ・プラグインと検査の期待値を確認します。',verify='同じ検査を再実行し、対象ページと関連する操作を確認してください。')=>found.set(key,{key,title,actual,admin,impact,code,verify});
   const message=(error)=>{
     const m=/indexable differs from expectation \((true|false)\)/.exec(error);
     if(m){const publicExpected=m[1]==='true';add('indexable:'+m[1],publicExpected?'公開を期待するページに検索除外の指定があります':'検索除外を期待するページに noindex の指定がありません',publicExpected?'期待：検索対象にできる状態。取得結果：noindex または none を検出。':'期待：検索対象にしない状態。取得結果：robotsメタ情報・HTTPヘッダーで noindex / none を検出できませんでした。',`WordPress「設定 → 表示設定 → 検索エンジンでの表示」で「検索エンジンがサイトをインデックスしないようにする」を${publicExpected?'オフ':'オン'}にする方針か確認します。ページ単位のSEO設定も確認し、変更後にキャッシュを更新します。サイトの公開方針が期待値と違う場合は、QAの期待値を修正します。`,'検索エンジンへの公開方針との不一致です。実際に検索結果へ掲載されているかは、この検査だけでは分かりません。');return;}
@@ -22,6 +23,7 @@ export function explainFailure(row, evidence=[]) {
     if(data.schema==='software-security-v1'){
       for(const f of data.findings??[])add('security:'+data.component+':'+(f.asset?.slug??'')+':'+(f.cves?.join(',')||f.title),f.title,(f.asset?.name??'')+' '+(f.asset?.version??'不明')+' / '+(f.cves??[]).join(', ')+' / 出典: '+(f.sources??[]).map(x=>x.url).join(' / ')+(f.range?' / 影響条件: '+JSON.stringify(f.range):'')+(data.unknown?.length?' / 未確認: '+data.unknown.join(' / '):''),f.fix,'既知情報との照合結果です。攻撃の成立・侵害の発生は未実証です。稼働条件と修正適用状況を確認してください。','独自改変や配布元の修正適用がある場合は技術担当者が確認してください。');
     }
+    if(data.schema==='security-baseline-v1')for(const f of data.findings??[]){const r=RULES[f.rule];if(r)add('baseline:'+f.rule+':'+f.path,r.title,f.observation,r.admin,r.impact,r.code,r.verify);}
     for(const error of Array.isArray(data.errors)?data.errors:[])if(typeof error==='string')message(error);
     for(const err of Array.isArray(data.jsErrors)?data.jsErrors:[]){const text=typeof err==='string'?err:err?.message;if(!text)continue;const a=advice('javascript',text);add('javascript:'+text,'JavaScriptの処理中にエラーが発生しています',/Cannot set properties of null/.test(text)?'対象要素を取得できない状態で値を設定しようとして例外が発生しました。どの処理かは詳細ログで確認してください。':text,a.admin,a.impact,a.code);}
     for(const v of Array.isArray(data.violations)?data.violations:[]){if(!v?.id)continue;const a=advice(v.id);const names={'frame-title':'埋め込みフレームの識別名がありません','scrollable-region-focusable':'スクロール領域にキーボードでフォーカスを移せません','color-contrast':'文字と背景のコントラストが不足しています','link-name':'リンクの読み上げ名がありません','image-alt':'画像の代替テキストがありません','label':'入力欄に読み上げ用のラベルがありません','button-name':'ボタンの読み上げ名がありません'};add('axe:'+v.id,names[v.id]??'アクセシビリティ基準を満たしていません',names[v.id]??`${v.id}: ${v.help??''}`,a.admin,a.impact,a.code);}
