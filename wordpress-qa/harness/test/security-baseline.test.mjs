@@ -10,10 +10,11 @@ const check=(area='exposure',extra={},required=true)=>({id:'security-'+area,kind
 const exposed={'/.git/HEAD':['text/plain','ref: refs/heads/main\n'],'/.git/config':['text/plain','[core]\n\trepositoryformatversion = 0\n'],'/.env':['text/plain','DB_PASSWORD=SECRET_VALUE\nAPP_KEY=abc\n'],'/wp-content/debug.log':['text/plain','[01-Jan-2026 00:00:00 UTC] PHP Warning:  Undefined variable $x\n'],'/wp-config.php.bak':['text/plain',"<?php define('DB_NAME','wp');define('DB_PASSWORD','SECRET_VALUE');"],'/wp-content/uploads/':['text/html','<html><head><title>Index of /wp-content/uploads</title></head><body><a href="2026/">2026/</a></body></html>']};
 const theme='<!doctype html><html><head><title>Not found</title></head><body class="error404"><p>DB_NAME guide: PHP Warning: KEY=VALUE</p></body></html>';
 
-async function fixture(t,mode){
+async function fixture(t,mode,route=()=>false){
   const seen=[];
   const server=http.createServer((req,res)=>{
-    seen.push({method:req.method,url:req.url,host:req.headers.host,t:Date.now()});const p=new URL(req.url,'http://x').pathname;
+    seen.push({method:req.method,url:req.url,host:req.headers.host,headers:req.headers,t:Date.now()});const p=new URL(req.url,'http://x').pathname;
+    if(route(p,req,res))return;
     if(mode==='hang'&&p==='/.git/HEAD')return;
     if(mode==='gate'){res.setHeader('Content-Type','text/html');return res.end('<html><body><form id="loginform"></form></body></html>');}
     if(mode==='soft404'){res.setHeader('Content-Type','text/html; charset=UTF-8');return res.end(theme);}
@@ -91,4 +92,37 @@ test('baseline matching a rule makes that rule unchecked, not passed',async t=>{
   const config={baseURL:`http://127.0.0.1:${server.address().port}/`,timeoutMs:1500,allowSensitivePaths:true};let evidence;
   await assert.rejects(run({check:check(),config,requestFactory:request,attach:async(n,d)=>{evidence=d;}}),/^Error: BLOCKED: 上限または通信失敗により未確認：/);
   assert.deepEqual(evidence.findings,[]);assert(evidence.unchecked.includes('/.git/HEAD'));assert(!seen.includes('/.git/HEAD'));
+});
+
+test('5xx, 429, proxy denial and redirects elsewhere are unchecked, never passed',async t=>{
+  const cases=[
+    ['503 everywhere',(p,q,res)=>{res.writeHead(503);res.end('maintenance');return true;},'/.git/HEAD'],
+    ['429 on one path',(p,q,res)=>{if(p!=='/.env')return false;res.writeHead(429);res.end();return true;},'/.env'],
+    ['proxy denied',(p,q,res)=>{res.writeHead(403,{'x-wpqa-egress':'denied'});res.end('接続先が許可されていません');return true;},'/.git/HEAD'],
+    ['301 elsewhere',(p,q,res)=>{if(p!=='/.git/HEAD')return false;res.writeHead(301,{location:'https://outside.test/'});res.end();return true;},'/.git/HEAD'],
+  ];
+  for(const [name,route,path] of cases){const f=await fixture(t,'soft404',route),{error,evidence}=await runIt(f);assert.match(error?.message??'',/^BLOCKED: /,name);assert(evidence.unchecked.includes(path),name);assert(f.seen.every(s=>!s.url.startsWith('http')),name);}
+  const f=await fixture(t,'soft404',(p,q,res)=>{if(p!=='/.git/config')return false;res.writeHead(301,{location:'/.git/config/'});res.end();return true;}),{error,evidence}=await runIt(f);
+  assert.equal(error,undefined);assert.deepEqual(evidence.unchecked,[]);
+});
+
+test('registered site Basic auth and gate cookie are sent, admin session headers are not',async t=>{
+  const name='SECURITY_BASELINE_HEADERS',auth='Basic '+Buffer.from('view:pass').toString('base64');
+  process.env[name]=JSON.stringify({Authorization:auth,Cookie:'wordpress_logged_in_secret=bad; password_protected_fixture=good','X-WP-Nonce':'nonce','Proxy-Authorization':'x'});t.after(()=>delete process.env[name]);
+  const f=await fixture(t,'soft404',(p,req,res)=>{if(req.headers.authorization===auth)return false;res.writeHead(401,{'www-authenticate':'Basic'});res.end();return true;});
+  const {error}=await runIt({config:{...f.config,headersEnv:name}});assert.equal(error,undefined);
+  for(const s of f.seen){assert.equal(s.headers.authorization,auth);assert.equal(s.headers.cookie,'password_protected_fixture=good');assert.equal(s.headers['x-wp-nonce'],undefined);assert.equal(s.headers['proxy-authorization'],undefined);}
+  delete process.env[name];const g=await fixture(t,'soft404',(p,req,res)=>{res.writeHead(401);res.end();return true;});assert.match((await runIt(g)).error.message,/^BLOCKED: 閲覧に認証が必要です/);
+});
+
+test('reading stops at 64KiB and the connection is closed early',async t=>{
+  let written=0,finished=false;const start=Date.now();
+  const f=await fixture(t,'soft404',(p,q,res)=>{if(p!=='/wp-content/debug.log')return false;res.writeHead(200,{'Content-Type':'text/plain'});const chunk=Buffer.alloc(64*1024,'PHP Warning: x\n');const pump=()=>{while(written<10*1024*1024){written+=chunk.length;if(!res.write(chunk))return res.once('drain',pump);}finished=true;res.end();};res.on('error',()=>{});pump();return true;});
+  const {error,evidence}=await runIt(f);assert.match(error.message,/debug-log/);
+  assert(evidence.requests.find(r=>r.path==='/wp-content/debug.log').bytes<=65536);assert(!finished,'server finished sending 10MB');assert(written<10*1024*1024);assert(Date.now()-start<15000);
+});
+
+test('abort during a hanging request stops the check as cancelled',async t=>{
+  const f=await fixture(t,'hang'),ac=new AbortController(),start=Date.now();setTimeout(()=>ac.abort(),500);
+  await assert.rejects(run({check:check(),config:{...f.config,timeoutMs:10000},attach:async()=>{},signal:ac.signal}),/^Error: BLOCKED: 検査が中断されました/);assert(Date.now()-start<3000);
 });
