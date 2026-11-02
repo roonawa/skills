@@ -232,7 +232,7 @@ Anthropic Claude APIを使用する。モデルはUIから設定でき、現行�
 | 検査HTML／results.json | ケースごとの結果、理由、実行情報、証拠への参照 |
 | 不具合報告書 | 検出内容をまとめ、理由・影響・管理画面優先の対応候補・再現・証拠を整理 |
 | C-HUB貼り付け文面 | 不合格・注意の課題を開発担当向けにまとめたプレーンテキスト。件名は`{サイト名}：SITE EXAM 診断結果の修正（YYYY-MM-DD）`（日付は実行日の日本時間。サイト名内のコロン・改行は置換）。本文は担当区分別（管理画面・プラグイン／サーバー・ホスティング／テーマ・開発／担当区分の確認が必要）に、不合格を注意より先に並べる。URLは1課題につき最大5件と「ほかn件」。2万字を超える場合は段階的に短縮し、不具合報告書の参照を追記する。秘密情報はマスクし、実行IDを記載する。リンクは共有UIのorigin（`WPQA_PUBLIC_ORIGIN`）で、実行ごとの個別リンクではない |
-| 再診断比較 | 前回の引き継ぎ記録と今回の結果を比較し、解消／未解消／再確認できず／新たに発生（および前回引き継ぎ対象外）に分類。解消は実際に再確認できた行のみ。設定が必要・実行不能・未実施・直接確認・対象外・該当行なしは「再確認できず」。前回と検査範囲が違う場合は警告を出す。比較結果の文面もコピーでき、そのコピーが次回の比較基準になる（解消済みは除く） |
+| 再診断比較 | 前回の引き継ぎ記録と今回の結果を比較し、解消／未解消／再確認できず／新たに発生（および前回引き継ぎ対象外）に分類。解消は実際に再確認できた行のみ。設定が必要・実行不能・未実施・直接確認・対象外・該当行なし、時間切れや証拠を読めず行単位でしか判定できなかった行の個別の課題、集約で別の実行から写した行は「再確認できず」。集約結果（新しい実行ではないもの）は比較の対象にできない。前回と検査範囲が違う場合は警告を出す。比較結果の文面もコピーでき、そのコピーが次回の比較基準になる（解消済みは除く） |
 | デザイナー向けHTML | 表示・配色・入力欄等に加え、実装・運用への引継ぎ事項も掲載 |
 | 顧客向け診断HTML | 分かりやすい説明、危険度、採点理由、暫定／確定、再現手順、選択した画像等 |
 | 結果ZIP | ローカルPCへ保存・受渡しするための結果一式 |
@@ -441,40 +441,42 @@ SITE EXAM独自の対応優先度（CVSSではありません）。影響度×�
 
 | ファイル | 確認対象 | SHA-256 |
 |---|---|---|
-| ui/server.mjs | UI/API、実行前補完、認証境界、ファイル配信 | 87435823f82e60da5ed415c321cfc22a905f3bf201884c3309277ded930e44a6 |
-| ui/registration.mjs | 登録条件検証・WordPress情報取得 | 847c2de461d9cc28135fb1fbb3b1620e4f151ff0dc5fc2f352a0b67b158f5ac0 |
-| ui/automatic-preparation.mjs | 共通補完・既存検査への紐付け・許可維持 | 2babbefa0071936c480593fc521a32cac01c83a3b5fb0707cbddb0a0a334b45f |
+| ui/server.mjs | UI/API、実行前補完、認証境界、ファイル配信 | e5576825211de44675cff184350036899f076b96114ba0acf2b53029919bef38 |
+| ui/registration.mjs | 登録条件検証・WordPress情報取得 | 5f25f178ae0d476cdf1cb4e5f4a3a7fe346902be041139370bb5f3a159ba1c21 |
+| ui/automatic-preparation.mjs | 共通補完・既存検査への紐付け・許可維持 | cb02a8507ccea1a282060861ca2b28738c082cece5b0916df64d3243dcb779e5 |
 | ui/automation-discovery.mjs | 観測情報の取得 | 957191388f4b3b7adf9f148e42f31a6470403ce73e0e00ac119f03738c35ad22 |
 | ui/automation-plan.mjs | 実行可能な検査条件の生成 | 83c5a2f9c5efda7117363907ff4ee6a8e239211f0a344dda3aaa1aaddec06bba |
 | ui/evidence-preparation.mjs | AIへ渡す構造化根拠・参照検証 | b8c523d348e59fc13a33d9ba21f0a0d24c8ea8e686a9f36007fd8d566f71e728 |
 | ui/ai-assistant.mjs | Claude呼出し・構造化出力・説明支援 | a77b00463f76c49a7451495690ba4b36ef93c4c802e7f51a6e9c20d84ca541ac |
 | ui/system-settings.mjs | APIキー・モデル・回数・接続先管理 | 1f61c178280ce21c20abf1e908ba5ae39dcb5784612ed9cc5849a6ea0cd4a999 |
-| ui/project-store.mjs | 登録サイト・認証の保存 | 5a2bbc03685aba3549d6f344380b1578c274b24250af3e9c76db7cf5666c4cef |
+| ui/project-store.mjs | 登録サイト・認証の保存 | 90035d8b4e25fc4ef0ab65f75d693a34fb612247a541f5cd51b453ef79c1479a |
 | ui/secret-codec.mjs | Linux用の暗号化 | 10740ec2e822ec31939d87016a57ec6cad5ee7c72338538b9197835a6ede3622 |
 | ui/shared-access.mjs | 共有版利用者認証・負荷制限 | 3fd4e01cba6765b52442dd59f01f3dff2ba6cb67946cd9769a644c5bb8c1c033 |
 | ui/remote-login.mjs | 共有版の画面内ログイン | 9fcc849a8251576cb53b0c3bb359f4e8cd7ef5b696ad8db1bc1e0fdbe1b2fa19 |
-| ui/public/app.js | 分類・詳細・ステータス・表示操作 | 2a7571b08bb0a177da6e0fed1c1963af33afdf2097efd00946f2e2a474d5b924 |
-| ui/public/case-generator.js | 観点一覧・重要表示の定義 | 8727eeb0be233645e01465f9c8f02bd718e2426a621473d6db3db534724b9d0a |
+| ui/public/app.js | 分類・詳細・ステータス・表示操作 | 4b920f1e79fd776724a5a8280b4ceaf388292df5da8cd0f035b840af64048488 |
+| ui/public/case-generator.js | 観点一覧・重要表示の定義 | e37363b871421315902e2aab1488f383f509b97d7013c4e3905cf929b1b25cb6 |
 | ui/public/interaction-profile.js | 固有操作の条件・許可・入力項目 | 20bd170f960b37e8828f497d69693e987e5e960ea63a04b316ea70b290753fc2 |
 | ui/public/risk-rubric.js | 採点軸・固定マトリクス | 542960913cbdfa8baf340eabe82b7060576f6c45c04c7ff3c579c8a50a63279c |
 | lib/checks/index.mjs | 検査ハンドラーの登録・設定不足判定 | a3a8fa309552d778f1848871715981e41a8bbddd593ba14e4268f7979004ed6b |
 | lib/checks/security-baseline.mjs | セキュリティ基礎診断の検査（露出・転送・混在・ヘッダー・情報露出） | 653c00ff2c6b2334f00810ddbed009d47218b452ec85eb6235cd30dbeedf0fa5 |
 | lib/security-baseline-rules.mjs | 基礎診断のルール・顧客向け説明・直し方 | 4fe10d1a0fc0b2d0ab241d8b1e2c63bef9f38e94ead07c347ebd94b0fa3d996e |
-| lib/tls-certificate.mjs | SSL証明書の期限・信頼性・ホスト名の確認 | 87aaee9d2a0f5c934f575352489ca9adec062ec78aabbcf8c0cb053a477bfc35 |
+| lib/tls-certificate.mjs | SSL証明書の期限・信頼性・ホスト名の確認 | d4cd3204e78ee5de112601bd1dab3170e111c27c4e94415f86dc496a5dfe2afb |
 | lib/results.mjs | 合否・必須条件の判定 | fb9dcaf31ea1b4bb2c8e03cba4e9424dcdf5193f08bbd6231c3ae48b01a8b510 |
 | lib/site-exam.mjs | 確定評価の条件・顧客向けHTML | fe1586a79bb1f5c300b5e63b153fe4f30c229d97c252e5de6353fa43aa9b96c3 |
 | lib/exam-evidence.mjs | 評価証拠の照合 | d192c450f381ae71619dee8f649496ff52a84dbc4f1f22940cb6891222663894 |
-| lib/issue-report.mjs | 不具合報告書 | b19ce2c37ee5520e88fdf96ebea2df4bd69865d74653315f8e11140f0bd61a6d |
+| lib/issue-report.mjs | 不具合報告書 | 15e3e2ba33ad1a60b0a961affa4c95c68d390d9e208e108432da8838e977cec3 |
 | lib/designer-report.mjs | デザイナー向けHTML | c984345a095f46bc5b72855f5415741e165679ca42d8536a7fca6a87e408a6f2 |
-| lib/handoff-issues.mjs | 引き継ぎ対象課題の抽出・担当区分・照合キー | f8edc6a48eebd7dc2d4fc4c1a7cfa08f82c514fdfb975fb565ff893aa0bc0ae3 |
-| lib/handoff-text.mjs | C-HUB貼り付け文面・再診断比較の生成 | bffb19a4d3c1ec5530832c5ac8437d56eaa5b36555598ff9d3e9309567c2fcc2 |
-| lib/handoff-store.mjs | 引き継ぎ記録の保存（サイト別・直近20件） | a93a9838abfefab1931061b820e327dadb93de81887b39cb1ea2553c1b75557a |
+| lib/handoff-issues.mjs | 引き継ぎ対象課題の抽出・担当区分・照合キー | 6b4408ccd4ff2cbcb3c1596adda3ccd7c1704ce535b1f6984163841fd706f8c1 |
+| lib/handoff-text.mjs | C-HUB貼り付け文面・再診断比較の生成 | bd79e23625c12f819cd81080398be1bc1da1586d7d5fdc29d551f8f2ac945c62 |
+| lib/handoff-store.mjs | 引き継ぎ記録の保存（サイト別・直近20件） | f3ebe05117d62ce577b5361899fabf9dcde675c8199d2969c5bab80f7d1aaf33 |
 | lib/egress-policy.mjs | 許可origin・IPの検証 | 153e8fbe1d93af0dff087c40767d2bc87adaea17424d1c2aa116ba23de70af83 |
 | lib/network-policy.mjs | 別originへの資格情報分離 | c04ae4442f163a7cff6a5b2f3663b6a6ee84890777c40a990cf9ffd54c6aecac |
-| lib/recovery.mjs | テストデータ回収 | fccd61f8131591f39bc5a7c64eb498ef542ebcd4891a3d9a1497a602a74a9f08 |
+| lib/recovery.mjs | テストデータ回収 | 70bc0005865f66b11c39829d07e2949d9174be710079cd16509b27093f8507bf |
 | deploy/compose.yaml | Linuxサービス・ネットワーク・永続領域 | c8bf5adb7f7ddae3b64b704ff49ba8ae1e6b238dba49bb09573d60e654455e61 |
 | Dockerfile | 配布イメージ | 38418c389f79f84b93943da5f943efae9f595049b0d1f7a00bdbbc4b134c7511 |
 | package.json | 依存関係と実行コマンド | 9a0a576720c0c2535ed0f079e73a72df3b80855e3735f1cc069057f6bffbc9fd |
+
+SHA-256はコミットされた内容（改行はLF）を対象に計算した値である（`git show HEAD:<パス>` の出力のハッシュ）。
 
 ## 付録D. AIへの質問テンプレート
 
