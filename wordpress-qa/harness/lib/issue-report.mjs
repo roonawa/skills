@@ -46,6 +46,18 @@ export function reproduction({row,run,details=[]},kind,config={}){
   return {condition,steps:['ケースIDに対応する検査設定・操作モジュール・トレースを確認する。','記録された前提条件と操作を再現する。操作が未記録の場合は担当者に確認し、再現手順を補足する。'],expected:'このケースの定義済み期待条件を満たす。',actual:row.reason||'判定の詳細は証拠を参照。',visible:'具体的な画面挙動は未確認です。',limit:'この検査種別の具体的な操作は自動推定していません。'};
 }
 
+const reportEvidenceFiles=row=>(row.evidence??[]).filter(f=>/\/(axe|javascript|policy|audit|layout|links)-[^/]+\.json$/.test(f)||/^(axe|javascript|policy|audit|layout|links)\.json$/.test(f)||/(?:^|\/)security-baseline\.json$/.test(f));
+// 証拠に記録された対象URL（data.url と基礎診断の path）。読めない証拠は無視する。
+export function evidenceUrls({row,run,readEvidence}){
+  const urls=new Set(),add=u=>{try{if(u)urls.add(new URL(u,run.baseURL).href);}catch{}};
+  for(const file of reportEvidenceFiles(row)){
+    let data;try{data=readEvidence(run.runId,file);}catch{continue;}
+    if(typeof data?.url==='string')add(data.url);
+    if(data?.schema==='security-baseline-v1')for(const x of data.findings??[])if(Object.hasOwn(RULES,x.rule))add(x.path);
+  }
+  return [...urls];
+}
+
 export function buildIssueReport({current,previous=[],includeHistory=false,readEvidence,readImage=()=>null,readConfig=()=>({}),notes=''}){
   const selected=selectReportRows(current,previous,includeHistory),groups=new Map(),warnings=[];
   const add=(kind,signature,entry,detail)=>{
@@ -58,7 +70,7 @@ export function buildIssueReport({current,previous=[],includeHistory=false,readE
   for(const entry of selected){
     const {row,run}=entry;if(row.status!=='fail')continue;
     let found=false;
-    const evidence=(row.evidence??[]).filter(f=>/\/(axe|javascript|policy|audit|layout|links)-[^/]+\.json$/.test(f)||/^(axe|javascript|policy|audit|layout|links)\.json$/.test(f)||/(?:^|\/)security-baseline\.json$/.test(f));
+    const evidence=reportEvidenceFiles(row);
     for(const file of evidence){
       let data;try{data=readEvidence(run.runId,file);}catch{warnings.push(`${run.runId} / ${row.id}：証拠を読み取れませんでした（${file}）`);continue;}
       if(Array.isArray(data?.violations)){
