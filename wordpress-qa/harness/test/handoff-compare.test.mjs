@@ -25,6 +25,10 @@ test('unclassified key resolves only on pass',()=>{
   assert.deepEqual(c.unresolved.map(i=>i.rawKey),['unclassified:new']);assert.equal(c.added.length,0);assert.equal(c.resolved.length,0);
   const t=cmp([mk('a','timeout:x')],[{id:'a',status:'fail'}],[]);assert.equal(t.unresolved.length,1);
   assert.equal(cmp([mk('a','unclassified:old')],[{id:'a',status:'pass'}],[]).resolved.length,1);
+  // サーバーは key をハッシュに、rawKey を接頭辞だけにして渡す。
+  const p=cmp([{...mk('a','x'),key:'h1',rawKey:'unclassified:'}],[{id:'a',status:'fail'}],[{...mk('a','y'),key:'h2',rawKey:'unclassified:'}]);
+  assert.deepEqual(p.unresolved.map(i=>i.key),['h2']);assert.equal(p.added.length,0);
+  assert.equal(cmp([{...mk('a','x'),key:'h1',rawKey:''}],[{id:'a',status:'fail'}],[{...mk('a','y'),key:'h2',rawKey:''}]).resolved.length,1);
 });
 test('partial url fix stays unresolved with remaining urls',()=>{
   const u=n=>Array.from({length:n},(_,i)=>'https://example.test/p'+i);

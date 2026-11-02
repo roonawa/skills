@@ -42,11 +42,11 @@ test('handoff preview does not save; save:true saves once per id',async t=>{
   const d=preview.data;assert.match(d.handoffId,/^h-[a-z0-9]+-[a-f0-9]{8}$/);assert.equal(saved().length,0);
   assert.equal(d.subject,'Handoff・ Site：SITE EXAM 診断結果の修正（2026-10-01）');assert.equal(d.unconfirmed,1);assert.equal(d.truncated,false);
   assert.equal(d.issues.length,3);for(const i of d.issues)assert.deepEqual(Object.keys(i).sort(),['key','level','owner','rowTitle','title','urls']);
-  const base=d.issues.find(i=>i.key.startsWith('security.baseline|')),links=d.issues.find(i=>i.key.startsWith('check.links-a|'));
+  assert.ok(d.issues.every(i=>/^[a-f0-9]{32}$/.test(i.key)));const pick=t=>d.issues.find(i=>i.rowTitle===t),base=pick('基礎診断'),links=pick('リンク');
   assert.equal(base.owner,'server');assert.deepEqual(base.urls,[baseURL+'/']);assert.deepEqual(links.urls,[baseURL+'/links/']);
   assert.match(d.body,/【サーバー・ホスティング】/);assert.match(d.body,/SITE EXAMで未確認の項目：1件/);
   const again=await post('run-a','handoff',{excludedKeys:[],save:false});assert.notEqual(again.data.handoffId,d.handoffId);
-  const first=await post('run-a','handoff',{handoffId:d.handoffId,excludedKeys:[links.key,'nope|x'],save:true});assert.equal(first.status,200);
+  const first=await post('run-a','handoff',{handoffId:d.handoffId,excludedKeys:[links.key,'f'.repeat(32)],save:true});assert.equal(first.status,200);
   assert.equal(first.data.handoffId,d.handoffId);assert.deepEqual(first.data.excludedKeys,[links.key]);assert.doesNotMatch(first.data.body,/broken link/);
   assert.deepEqual(saved(),[d.handoffId+'.json']);
   await post('run-a','handoff',{handoffId:d.handoffId,excludedKeys:[links.key],save:true});assert.equal(saved().length,1);
@@ -58,7 +58,7 @@ test('handoff preview does not save; save:true saves once per id',async t=>{
 
 test('compare classifies against latest record and saves next record on save',async t=>{
   const {post,saved,handoffs}=await setup(t);
-  const pre=(await post('run-a','handoff',{excludedKeys:[],save:false})).data,links=pre.issues.find(i=>i.key.startsWith('check.links-a|')),audit=pre.issues.find(i=>i.key.startsWith('check.audit-home|')),base=pre.issues.find(i=>i.key.startsWith('security.baseline|'));
+  const pre=(await post('run-a','handoff',{excludedKeys:[],save:false})).data,pick=t=>pre.issues.find(i=>i.rowTitle===t),links=pick('リンク'),audit=pick('トップページ'),base=pick('基礎診断');
   await post('run-a','handoff',{handoffId:pre.handoffId,excludedKeys:[links.key],save:true});
   assert.equal((await post('run-a','handoff-compare',{uncheckedAddedKeys:[],save:false})).status,409);
   const c=await post('run-b','handoff-compare',{uncheckedAddedKeys:[],save:false});assert.equal(c.status,200);
@@ -66,7 +66,7 @@ test('compare classifies against latest record and saves next record on save',as
   assert.deepEqual(Object.keys(d.baseline).sort(),['createdAt','handoffId','sourceRunId']);assert.equal(d.baseline.handoffId,pre.handoffId);assert.equal(d.baseline.sourceRunId,'run-a');
   const keys=list=>list.map(i=>i.key);
   assert.deepEqual(keys(d.comparison.resolved),[audit.key]);assert.deepEqual(keys(d.comparison.unresolved),[base.key]);assert.deepEqual(keys(d.comparison.carriedExcluded),[links.key]);assert.deepEqual(d.comparison.unverified,[]);
-  assert.equal(d.comparison.added.length,1);assert.match(d.comparison.added[0].key,/^check\.new\|/);assert.equal(d.scopeGap,0);
+  assert.equal(d.comparison.added.length,1);assert.equal(d.comparison.added[0].rowTitle,'新規');assert.equal(d.scopeGap,0);
   for(const list of Object.values(d.comparison))for(const i of list)assert.deepEqual(Object.keys(i).sort(),['key','level','rowTitle','title','urls']);
   assert.match(d.body,/【SITE EXAM 再診断結果（2026-10-02）】/);assert.match(d.body,/new problem appeared/);assert.equal(saved().length,1);
   const unchecked=await post('run-b','handoff-compare',{handoffId:d.handoffId,uncheckedAddedKeys:[d.comparison.added[0].key],save:true});assert.equal(unchecked.status,200);
@@ -83,12 +83,12 @@ test('rejects unfinished run, bad keys, bad id',async t=>{
   for(const kind of ['handoff','handoff-compare']){
     const keys=kind==='handoff'?'excludedKeys':'uncheckedAddedKeys';
     const r=await post('run-c',kind,{[keys]:[],save:false});assert.equal(r.status,409);assert.equal(r.data.error??r.data.message,'完了した実行を選択してください');
-    for(const bad of ['x',[1],Array(501).fill('k'),['k'.repeat(1001)]])assert.equal((await post('run-a',kind,{[keys]:bad,save:false})).status,400,JSON.stringify(bad).slice(0,40));
+    for(const bad of ['x',[1],['k'],['A'.repeat(32)],['a'.repeat(33)],Array(501).fill('a'.repeat(32))])assert.equal((await post('run-a',kind,{[keys]:bad,save:false})).status,400,JSON.stringify(bad).slice(0,40));
     for(const handoffId of ['bad','h-x-1234567',7,'../h-a-12345678'])assert.equal((await post('run-a',kind,{handoffId,[keys]:[],save:true})).status,400,String(handoffId));
     assert.equal((await post('run-a',kind,{[keys]:[],save:'yes'})).status,400);
     assert.equal((await post('run-a',kind,{[keys]:[],save:true},{})).status,403);
   }
-  assert.equal((await post('run-a','handoff',{excludedKeys:Array(500).fill('k'.repeat(1000)),save:false})).status,200);
+  assert.equal((await post('run-a','handoff',{excludedKeys:Array(500).fill('a'.repeat(32)),save:false})).status,200);
   assert.equal(saved().length,0);
 });
 
@@ -103,22 +103,22 @@ test('response body never contains configured secret header values',async t=>{
   const pre=(await post('run-a','handoff',{excludedKeys:[],save:false})).data;
   assert.match(pre.body,/\[REDACTED\]/);
   await post('run-a','handoff',{handoffId:pre.handoffId,excludedKeys:[],save:true});
-  const audit=pre.issues.find(i=>i.key.startsWith('check.audit-home|'));
+  const audit=pre.issues.find(i=>i.rowTitle==='トップページ');
   assert.equal((await post('run-a','handoff',{excludedKeys:[audit.key],save:false})).data.excludedKeys[0],audit.key);
+  await post('run-a','handoff',{handoffId:pre.handoffId,excludedKeys:[audit.key],save:true});
   await post('run-b','handoff-compare',{uncheckedAddedKeys:[],save:true});
-  // 照合用の識別子（key・rawKey・rowId）は伏せ字にしない取り決めのため、それ以外の表示用の文字を確かめる。
-  const strip=v=>Array.isArray(v)?v.map(strip):v&&typeof v==='object'?Object.fromEntries(Object.entries(v).filter(([k])=>!['key','rawKey','rowId','excludedKeys'].includes(k)).map(([k,x])=>[k,strip(x)])):v;
-  const all=[...texts,...saved().map(f=>fs.readFileSync(path.join(handoffs,f),'utf8'))].map(t=>JSON.stringify(strip(JSON.parse(t)))).join('\n');
-  assert.ok(texts.length>=4);for(const secret of [SECRET,TOKEN,'session=abc'])assert.ok(!all.includes(secret),secret);
+  // 課題キー・rawKey・除外キーを含め、応答と記録ファイルのすべての項目を調べる。
+  const all=[...texts,...saved().map(f=>fs.readFileSync(path.join(handoffs,f),'utf8'))].join('\n');
+  assert.match(all,/"excludedKeys":\["[a-f0-9]{32}"\]/);assert.match(all,/"rawKey": ""/);
+  assert.ok(texts.length>=5);for(const secret of [SECRET,TOKEN,'session=abc'])assert.ok(!all.includes(secret),secret);
 });
 
-test('identity fields are not redacted, so a changed secret set does not change classification',async t=>{
-  const {post}=await setup(t);
+test('issue keys are digests of the unredacted key, so a changed secret set does not change classification',async t=>{
+  const {post,saved,handoffs,texts}=await setup(t);
   process.env.WPQA_HANDOFF_TEST_STATE=JSON.stringify({cookies:[{name:'c',value:STATE}],origins:[]});
   t.after(()=>{delete process.env.WPQA_HANDOFF_TEST_STATE;});
   const pre=(await post('run-d','handoff',{excludedKeys:[],save:false})).data;
-  assert.deepEqual(pre.issues.map(i=>i.key),['check.audit-'+STATE+'|error:mismatch '+STATE+' seen']);
-  assert.ok(![pre.subject,pre.body,pre.issues[0].title,pre.issues[0].rowTitle,...pre.issues[0].urls].join('\n').includes(STATE));
+  assert.equal(pre.issues.length,1);assert.match(pre.issues[0].key,/^[a-f0-9]{32}$/);
   assert.equal((await post('run-d','handoff',{handoffId:pre.handoffId,excludedKeys:[pre.issues[0].key],save:false})).data.excludedKeys[0],pre.issues[0].key);
   await post('run-d','handoff',{handoffId:pre.handoffId,excludedKeys:[],save:true});
   process.env.WPQA_HANDOFF_TEST_STATE=JSON.stringify({cookies:[{name:'c',value:'rotated-cookie'}],origins:[]});
@@ -126,7 +126,9 @@ test('identity fields are not redacted, so a changed secret set does not change 
   assert.deepEqual(c.comparison.unresolved.map(i=>i.key),[pre.issues[0].key]);
   assert.deepEqual([c.comparison.resolved,c.comparison.added,c.comparison.unverified].map(l=>l.length),[0,0,0]);assert.equal(c.scopeGap,0);
   process.env.WPQA_HANDOFF_TEST_STATE=JSON.stringify({cookies:[{name:'c',value:STATE}],origins:[]});
-  assert.ok(!(await post('run-e','handoff-compare',{uncheckedAddedKeys:[],save:false})).data.body.includes(STATE));
+  await post('run-e','handoff-compare',{uncheckedAddedKeys:[],save:true});
+  const all=[...texts,...saved().map(f=>fs.readFileSync(path.join(handoffs,f),'utf8'))].join('\n');assert.ok(texts.length>=5);
+  for(const s of ['mismatch '+STATE,'audit-'+STATE+'|',STATE+' seen'])assert.ok(!all.includes(s),s);
 });
 
 test('a supplied handoffId cannot overwrite a record made from another run',async t=>{

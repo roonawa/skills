@@ -580,13 +580,13 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
           if(['handoff','handoff-compare'].includes(segments[5])&&segments.length===6&&req.method==='POST'){
             if(report.runStatus!=='finished'||!report.finishedAt||runIsAlive(directory))reject(409,'完了した実行を選択してください');
             const data=await body(req),compare=segments[5]==='handoff-compare',keys=data[compare?'uncheckedAddedKeys':'excludedKeys']??[];
-            if(!Array.isArray(keys)||keys.length>500||keys.some(k=>typeof k!=='string'||k.length>1000)||typeof data.save!=='boolean'||(data.handoffId!==undefined&&!isHandoffId(data.handoffId)))reject(400,'引き継ぎの指定が不正です');
+            if(!Array.isArray(keys)||keys.length>500||keys.some(k=>typeof k!=='string'||!/^[a-f0-9]{32}$/.test(k))||typeof data.save!=='boolean'||(data.handoffId!==undefined&&!isHandoffId(data.handoffId)))reject(400,'引き継ぎの指定が不正です');
             const current=projectInfo(p),dir=handoffDir(p.outputDir),handoffId=data.handoffId??newHandoffId(),siteName=current.config.name;
             // 別の実行の記録は上書きさせない（同じ実行で作った記録だけ上書きできる）。
             const own=data.handoffId===undefined?null:readHandoff(dir,handoffId);if(own&&own.sourceRunId!==id)reject(400,'引き継ぎIDが不正です');
             const clean=redactor(current.config,{...process.env,...(p.managed?store.prepare(p.id).env:externalAuth?.prepare(p.id,current.config).env)}),read=evidenceJSON(directory),enriched={...enrichFailures(report,read),runId:id};
-            // 照合に使う rowId・key・rawKey・level・owner は伏せ字にしない（秘密の集合が変わっても同じ課題を同じキーで比べる）。表示用の文字だけを伏せる。
-            const issues=collectIssues({report:enriched,readEvidence:(_run,file)=>read(file)}).map(i=>({...i,...Object.fromEntries(['rowTitle','title','actual','admin','code','verify'].filter(k=>typeof i[k]==='string').map(k=>[k,clean(i[k])])),urls:i.urls.map(clean)}));
+            // 課題キーは伏せ字前の値のハッシュにする（秘密の集合が変わっても同じキーになり、証拠の文字は外へ出ない）。rawKey は比較に要る接頭辞だけ残す。表示用の文字だけを伏せる。
+            const issues=collectIssues({report:enriched,readEvidence:(_run,file)=>read(file)}).map(i=>({...i,key:createHash('sha256').update(i.key).digest('hex').slice(0,32),rawKey:/^(unclassified|timeout):/.exec(i.rawKey??'')?.[0]??'',...Object.fromEntries(['rowTitle','title','actual','admin','code','verify'].filter(k=>typeof i[k]==='string').map(k=>[k,clean(i[k])])),urls:i.urls.map(clean)}));
             const brief=({key,rowTitle,level,title,urls})=>({key,rowTitle,level,title,urls}),actorName=actor?.name??null;
             if(!compare){
               const known=new Set(issues.map(i=>i.key)),excludedKeys=[...new Set(keys.filter(k=>known.has(k)))],unconfirmed=unconfirmedCount(enriched);
