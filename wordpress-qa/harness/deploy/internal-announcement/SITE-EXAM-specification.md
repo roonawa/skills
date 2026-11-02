@@ -443,7 +443,7 @@ SITE EXAM独自の対応優先度（CVSSではありません）。影響度×�
 | ui/evidence-preparation.mjs | AIへ渡す構造化根拠・参照検証 | b8c523d348e59fc13a33d9ba21f0a0d24c8ea8e686a9f36007fd8d566f71e728 |
 | ui/ai-assistant.mjs | Claude呼出し・構造化出力・説明支援 | a77b00463f76c49a7451495690ba4b36ef93c4c802e7f51a6e9c20d84ca541ac |
 | ui/system-settings.mjs | APIキー・モデル・回数・接続先管理 | 1f61c178280ce21c20abf1e908ba5ae39dcb5784612ed9cc5849a6ea0cd4a999 |
-| ui/project-store.mjs | 登録サイト・認証の保存 | 6adf011b29590b7a4e73cd5b8d7f3c21befd11e03c99f56b3998d98f7fb20dd5 |
+| ui/project-store.mjs | 登録サイト・認証の保存 | 5a2bbc03685aba3549d6f344380b1578c274b24250af3e9c76db7cf5666c4cef |
 | ui/secret-codec.mjs | Linux用の暗号化 | 10740ec2e822ec31939d87016a57ec6cad5ee7c72338538b9197835a6ede3622 |
 | ui/shared-access.mjs | 共有版利用者認証・負荷制限 | 3fd4e01cba6765b52442dd59f01f3dff2ba6cb67946cd9769a644c5bb8c1c033 |
 | ui/remote-login.mjs | 共有版の画面内ログイン | 9fcc849a8251576cb53b0c3bb359f4e8cd7ef5b696ad8db1bc1e0fdbe1b2fa19 |

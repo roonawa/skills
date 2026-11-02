@@ -186,3 +186,49 @@ test('REST user probe omits Authorization unless the site challenges for Basic a
   assert.deepEqual(x.evidence.findings.map(f=>f.rule),['rest-user-enumeration']);
   assert.deepEqual(g.seen.filter(q=>q.url==='/wp-json/wp/v2/users').map(q=>q.headers.authorization),[undefined,auth]);
 });
+
+// R9: one resolution in ProjectStore.save; config.allowSensitivePaths and a stored profile.sensitivePaths never diverge.
+test('sensitivePaths is resolved once and mirrored into the stored profile',()=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'wpqa-sp3-'));
+  try{
+    const store=new ProjectStore(dir,{codec:v=>v}),prof={sitePath:'/',timezone:'Asia/Tokyo',language:'ja',indexable:true};
+    const cfg=environment=>({name:'s',baseURL:'https://example.test',environment,pages:[{id:'home',path:'/',canonical:'https://example.test/',indexable:true,lang:'ja',links:true}],policies:[],journeys:[],visuals:[],manual:[],admin:[],checks:[]});
+    const state=id=>{const r=store.record(id);return [r.config.allowSensitivePaths,r.profile?.sensitivePaths];};
+    const again=(id,extra={},env)=>{const r=store.record(id);return store.save({id,version:r.version,config:{...r.config,...(env?{environment:env}:{})},...extra});};
+    // (1) staging registration with the box checked
+    const id=store.save({config:cfg('staging'),profile:{...prof,sensitivePaths:true}});assert.deepEqual(state(id),[true,true]);
+    // (2) API move to production without a profile: config and stored profile both false
+    again(id,{},'production');assert.deepEqual(state(id),[false,false],'no fields');
+    const idB=store.save({config:cfg('staging'),profile:{...prof,sensitivePaths:true}});again(idB,{sensitivePaths:false},'production');assert.deepEqual(state(idB),[false,false],'top-level false');
+    // (3) production to production with neither field stays false
+    again(id);assert.deepEqual(state(id),[false,false]);
+    // (5) automatic preparation / re-login style saves pass the stored profile: unchanged
+    again(id,{profile:store.record(id).profile});assert.deepEqual(state(id),[false,false]);
+    // explicit enable, then the stored profile keeps it on
+    again(id,{sensitivePaths:true});assert.deepEqual(state(id),[true,true]);
+    again(id,{profile:store.record(id).profile});assert.deepEqual(state(id),[true,true]);again(id);assert.deepEqual(state(id),[true,true]);
+    // (4) top-level false without a profile wins over the stored profile
+    again(id,{sensitivePaths:false});assert.deepEqual(state(id),[false,false]);
+    // top-level value wins over a passed profile
+    again(id,{profile:{...store.record(id).profile,sensitivePaths:true},sensitivePaths:false});assert.deepEqual(state(id),[false,false]);
+    // (c) the config body value is never explicit
+    const idC=store.save({config:{...cfg('production'),allowSensitivePaths:true}});assert.deepEqual(state(idC),[false,undefined]);
+    const r=store.record(idC);store.save({id:idC,version:r.version,config:{...r.config,allowSensitivePaths:true}});assert.deepEqual(state(idC),[false,undefined]);
+    const idS=store.save({config:{...cfg('staging'),allowSensitivePaths:false}});assert.deepEqual(state(idS),[true,undefined],'staging default, body ignored');
+  }finally{fs.rmSync(dir,{recursive:true,force:true});}
+});
+
+// R9-5: 「新規サイトとして複製」 never pre-checks sensitive paths for a production source.
+test('copying a production site starts with sensitive paths unchecked',async t=>{
+  const {chromium}=await import('@playwright/test'),{readFile}=await import('node:fs/promises'),browser=await chromium.launch();t.after(()=>browser.close());
+  const base={name:'Src',baseURL:'https://example.test',pages:[{id:'home',path:'/',canonical:'https://example.test/',indexable:false}],policies:[],journeys:[],visuals:[],manual:[],admin:[],checks:[]};
+  async function copy(c){
+    const page=await browser.newPage();
+    await page.route('http://copy.test/**',async route=>{const p=new URL(route.request().url()).pathname;return route.fulfill(p.endsWith('.js')?{contentType:'text/javascript',body:await readFile(new URL('../ui/public/'+p.slice(1),import.meta.url),'utf8')}:{contentType:'text/html',body:'<button id="new-site">New</button><button id="edit-site">Edit</button>'});});
+    await page.goto('http://copy.test/');
+    await page.evaluate(async c=>{const {initSettings}=await import('/settings.js');initSettings({currentProject:()=>'managed',onSaved:async()=>{},api:async url=>url==='/api/logins/current'?{login:null}:{config:c,managed:false,version:'v1',credentials:{}}});},c);
+    await page.click('#edit-site');const box=page.locator('[data-key=sensitivePaths]');const before=await box.isChecked();await page.click('#editor-copy');return [before,await box.isChecked()];
+  }
+  assert.deepEqual(await copy({...base,environment:'production',allowSensitivePaths:true}),[true,false]);
+  assert.deepEqual(await copy({...base,environment:'staging',allowSensitivePaths:false}),[false,true]);
+});

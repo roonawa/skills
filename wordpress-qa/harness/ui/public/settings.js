@@ -312,7 +312,7 @@ export function initSettings({api,currentProject,onSaved,shared=false}) {
   };
   $('#login-cancel').onclick=async()=>{if(loginBusy)return;loginBusy=true;try{await cancelLogin();}catch(e){error(e.message);}finally{loginBusy=false;loginControls();}};
   $('#editor-close').onclick=close;$('#editor-cancel').onclick=close;dialog.addEventListener('cancel',e=>{e.preventDefault();close();});
-  $('#editor-copy').onclick=()=>{editing=null;version=null;editable=true;populate({...original,name:original.name+'（コピー）',journeys:[],headersEnv:undefined,mailpit:undefined,admin:(original.admin??[]).map(({headersEnv,storageStateEnv,...a})=>a)});};
+  $('#editor-copy').onclick=()=>{editing=null;version=null;editable=true;populate({...original,name:original.name+'（コピー）',allowSensitivePaths:original.environment!=='production',journeys:[],headersEnv:undefined,mailpit:undefined,admin:(original.admin??[]).map(({headersEnv,storageStateEnv,...a})=>a)});};
   $('#add-page').onclick=()=>row('page',{id:'page-'+($('#page-editors').children.length+1)});
   $('#add-admin').onclick=()=>row('admin',{id:'setting-'+($('#admin-editors').children.length+1)});
   fields.querySelector('[data-key=baseURL]').addEventListener('change',e=>{
