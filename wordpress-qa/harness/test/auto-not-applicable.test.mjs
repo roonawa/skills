@@ -23,10 +23,11 @@ test('store.save writes autoNotApplicable for staging site without commerce plug
  assert.deepEqual(Object.keys(config.autoNotApplicable).sort(),[...orders,'coverage-membership'].sort());assert.equal(config.autoNotApplicable['coverage-order'],why);
  assert.equal(config.autoNotApplicable['coverage-membership'],'有効なプラグインに会員機能が見つからないため対象外（登録時の取得）');
  assert.deepEqual(store.record(id).config.autoNotApplicable,config.autoNotApplicable);
- const unobserved=saved(t,profile({pluginInventory:{observed:false,slugs:[]}}));assert.deepEqual(unobserved.config.autoNotApplicable,{});
+ const unobserved=saved(t,profile({pluginInventory:{observed:false,slugs:[]}}));assert(!('autoNotApplicable' in unobserved.config));
  const prod=saved(t,profile(undefined),'production');assert.deepEqual(Object.keys(prod.config.autoNotApplicable).sort(),['coverage-cache','coverage-contact-success','coverage-publishing','coverage-scheduled',...orders,'coverage-membership'].sort());
- const bare=new ProjectStore(path.join(root,'bare')),plain=bare.save({config:{name:'Plain',baseURL:'https://plain.test',environment:'staging',pages:[{id:'home',path:'/',canonical:'https://plain.test/',indexable:false}]}});assert.deepEqual(bare.record(plain).config.autoNotApplicable,{});
- for(const bad of [[],{'Bad Id':'x'},{'coverage-order':''},{'coverage-order':'x'.repeat(501)},{'coverage-order':1}])assert.throws(()=>validateConfig({...config,autoNotApplicable:bad}),/autoNotApplicable/,JSON.stringify(bad));
+ const bare=new ProjectStore(path.join(root,'bare')),plain=bare.save({config:{name:'Plain',baseURL:'https://plain.test',environment:'staging',pages:[{id:'home',path:'/',canonical:'https://plain.test/',indexable:false}]}});assert(!('autoNotApplicable' in bare.record(plain).config));
+ const hash=bare.context(plain).configHash,view=bare.view(plain);bare.save({id:plain,version:view.version,config:view.config});assert.equal(bare.context(plain).configHash,hash);assert(!('autoNotApplicable' in bare.record(plain).config));
+ for(const bad of [[],{'Bad Id':'x'},{'coverage-order':''},{'coverage-order':'x'.repeat(501)},{'coverage-order':1},{'auto-security-transport':'x'},{'coverage-publishing':'x'}])assert.throws(()=>validateConfig({...config,autoNotApplicable:bad}),/autoNotApplicable/,JSON.stringify(bad));
  assert.equal(validateConfig({...config,autoNotApplicable:{'coverage-order':'x'.repeat(500)}}).autoNotApplicable['coverage-order'].length,500);
 });
 test('catalog turns autoNotApplicable checks into reasoned not_applicable rows that are not selected',t=>{
@@ -68,4 +69,18 @@ test('issue report shows 自動判定 for auto not_applicable rows',()=>{
  const current={runId:'now',startedAt:'2026-11-02',finishedAt:'2026-11-02',runStatus:'finished',configHash:'h',baseURL:'https://example.test',environment:'staging',name:'QA',rows:[{id:'check.coverage-order',title:'注文',status:'not_applicable',autoNotApplicable:true,selected:false,reason:why},{id:'manual.x',title:'手動',status:'not_applicable',reason:'手で対象外'}]};
  const {html}=buildIssueReport({current,readEvidence:()=>({})});
  assert.match(html,/注文 — check\.coverage-order（対象外・自動判定）/);assert(html.includes(why));assert(!html.includes('手動 — manual.x（対象外・自動判定）'));
+});
+test('only the tool own judgements can be auto not_applicable',t=>{
+ const {config}=saved(t),prod=saved(t,profile(),'production').config;
+ assert.throws(()=>validateConfig({...config,autoNotApplicable:{'auto-security-transport':'理由'}}),/autoNotApplicable/);
+ assert.throws(()=>validateConfig({...config,autoNotApplicable:{'coverage-cache':'理由'}}),/autoNotApplicable/);
+ assert.equal(validateConfig({...prod,autoNotApplicable:{'coverage-cache':'理由'}}).autoNotApplicable['coverage-cache'],'理由');
+ const forged=catalog({...config,autoNotApplicable:{'auto-security-transport':'理由','coverage-publishing':'理由','coverage-order':'理由'}});
+ assert.equal(forged.find(r=>r.id==='check.auto-security-transport').status,'not_run');assert(!forged.find(r=>r.id==='check.coverage-publishing').autoNotApplicable);assert.equal(forged.find(r=>r.id==='check.coverage-order').autoNotApplicable,true);
+});
+test('store.save ignores a stale or malformed autoNotApplicable sent by the client',t=>{
+ const {store,id,config}=saved(t);
+ for(const stale of [[],{'auto-security-transport':'x'},{'coverage-order':''}]){const v=store.view(id);store.save({id,version:v.version,config:{...v.config,autoNotApplicable:stale},profile:v.profile});assert.deepEqual(store.record(id).config.autoNotApplicable,config.autoNotApplicable);}
+ const bare=new ProjectStore(path.join(path.dirname(store.directory),'bare')),plain=bare.save({config:{name:'Plain',baseURL:'https://plain.test',environment:'staging',autoNotApplicable:{'coverage-order':'x'},pages:[{id:'home',path:'/',canonical:'https://plain.test/',indexable:false}]}});
+ assert(!('autoNotApplicable' in bare.record(plain).config));
 });

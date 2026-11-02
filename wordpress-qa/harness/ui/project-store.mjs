@@ -47,7 +47,8 @@ export class ProjectStore {
     if((config.journeys??[]).some(j=>!profile||!allowed.has(j.module)))throw new Error('UIで利用できる操作テストのコードは登録済みの標準検査のみです');
     if(config.headersEnv!==undefined&&!(profile&&config.headersEnv==='WPQA_UI_PUBLIC_HEADERS')||config.mailpit!==undefined)throw new Error('認証・メール連携はこの編集画面では設定できません');
     if(profile){profile=validateProfile(profile,config.environment);config={...config,revision:'registration-'+createHash('sha256').update(JSON.stringify(profile)).digest('hex'),headersEnv:'WPQA_UI_PUBLIC_HEADERS',allowTestWrites:profile.writes,allowProductionJourneys:config.environment==='production',journeys:profileJourneys(profile)};}
-    config={...config,allowSensitivePaths};
+    // 自動の対象外はこの保存で計算し直す。画面から届いた古い値は使わない。
+    const {autoNotApplicable:stale,...incoming}=config;config={...incoming,allowSensitivePaths};
     config=validateConfig({...config,trustedAdapters:structuredClone(this.trustedAdapters),outputDir:path.join(dir,'runs'),baselineDir:path.join(dir,'baselines')});
     const roles=auth.roleCredentials??[];
     if(!Array.isArray(roles))throw new Error('roleCredentialsは配列で指定してください');
@@ -89,7 +90,7 @@ export class ProjectStore {
       return {...clean,...(a.source==='rest'&&secrets.rest?{headersEnv:'WPQA_UI_ADMIN_HEADERS'}:{}),...(a.source==='browser'&&secrets.browser?{storageStateEnv:'WPQA_UI_ADMIN_STATE'}:{})};
     });
     // 関係しない検査は、保存した時点の profile から根拠付きの対象外として記録する。
-    config.autoNotApplicable=profile?notApplicableChecks(config,profile):{};
+    const na=profile?notApplicableChecks(config,profile):{};if(Object.keys(na).length)config.autoNotApplicable=na;else delete config.autoNotApplicable;
     config=validateConfig(config);
     const credentials={rest:!!secrets.rest,browser:!!secrets.browser,roles:Object.fromEntries(Object.entries(secrets.roles).map(([name,value])=>[name,{rest:!!value.rest,browser:!!value.browser}]))};
     const record={version:randomUUID(),config,credentials,...(profile?{profile}:{}),sealed:credentials.rest||credentials.browser||secrets.publicPassword||Object.keys(credentials.roles).length?this.codec(JSON.stringify(secrets)):null};

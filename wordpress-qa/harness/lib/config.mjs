@@ -1,4 +1,5 @@
 import {validateChecks,preparationReason,suites as extendedSuites} from './checks/index.mjs';
+import {autoNotApplicableAllowed} from './auto-not-applicable.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
@@ -88,7 +89,7 @@ export function validateConfig(input) {
     if(c.environment!=='local'&&new URL(c.baseURL).protocol!=='https:')fail('admin checks require HTTPS outside local fixtures');
   }
   for(const m of c.manual) { entry(m,['title','reason','status'],'manual'); string(m.title,'manual.title'); string(m.reason,'manual.reason'); m.status ??= 'review'; if(!['review','not_applicable'].includes(m.status)) fail('manual status must be review/not_applicable'); }
-  if(c.autoNotApplicable!==undefined&&(!c.autoNotApplicable||typeof c.autoNotApplicable!=='object'||Array.isArray(c.autoNotApplicable)||Object.entries(c.autoNotApplicable).some(([k,v])=>!/^[a-z][a-z0-9-]{0,63}$/.test(k)||typeof v!=='string'||!v.trim()||v.length>500))) fail('autoNotApplicable must map check ids to reasons (1-500 chars)');
+  if(c.autoNotApplicable!==undefined&&(!c.autoNotApplicable||typeof c.autoNotApplicable!=='object'||Array.isArray(c.autoNotApplicable)||Object.entries(c.autoNotApplicable).some(([k,v])=>!/^[a-z][a-z0-9-]{0,63}$/.test(k)||!autoNotApplicableAllowed(k,c.environment)||typeof v!=='string'||!v.trim()||v.length>500))) fail('autoNotApplicable must map auto-judged check ids (orders/membership, production writes) to reasons (1-500 chars)');
   if(c.mailpit!==undefined) {
     object(c.mailpit,['url','headersEnv'],'mailpit'); url(c.mailpit.url,'mailpit.url');
     if(c.mailpit.headersEnv!==undefined) string(c.mailpit.headersEnv,'mailpit.headersEnv');
@@ -118,7 +119,7 @@ export function catalog(c, suite='all') {
   if(suite==='standard')for(const row of rows)row.selected=row.kind==='standard-public'||row.kind==='security-baseline';
   if(suite==='interaction')for(const row of rows)row.selected=row.kind==='site-interaction';
   for(const check of c.checks??[]){
-    const reason=preparationReason(check,c),auto=c.autoNotApplicable?.[check.id];
+    const reason=preparationReason(check,c),auto=autoNotApplicableAllowed(check.id,c.environment)&&c.autoNotApplicable?.[check.id];
     if(auto)Object.assign(rows.find(r=>r.id==='check.'+check.id),{status:'not_applicable',autoNotApplicable:true,selected:false,reason:auto});
     else if(reason)Object.assign(rows.find(r=>r.id==='check.'+check.id),{selected:false,preparationRequired:true,reason:'設定が必要: '+reason});
   }
