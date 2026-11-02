@@ -42,7 +42,7 @@ export function buildHandoffText({report,siteName,issues,excludedKeys=[],unconfi
   return {subject:clean(handoffSubject({siteName,finishedAt:at})),body,truncated,included};
 }
 const ROWKEY=/^(unclassified|timeout):/,CMP_CLOSING='タスクを完了にするかは担当者が判断してください。再確認できずの項目は、条件を整えて再診断が必要です。';
-// 前回の引き継ぎ記録と今回の課題を課題キーで突き合わせる。行が今回「確認できた」ときだけ解消にする。
+// 前回の引き継ぎ記録と今回の課題を課題キーで突き合わせる。行が今回 pass のときだけ解消にする（2026-11-02 利用者判断で変更）。
 export function compareHandoff({record,report,issues}){
   const rows=new Map((report.rows??[]).map(r=>[r.id,r])),cur=new Map(issues.map(i=>[i.key,i])),used=new Set(),out={resolved:[],unresolved:[],unverified:[],added:[],carriedExcluded:[],scopeGap:0};
   const still=(prev,now)=>{used.add(now.key);const urls=now.urls??[];out.unresolved.push({...now,fixedUrlCount:(prev.urls??[]).filter(u=>!urls.includes(u)).length});};
@@ -50,24 +50,21 @@ export function compareHandoff({record,report,issues}){
   const pending=[],copied=row=>[row.sourceRunId,row.details?.sourceRunId].some(s=>s&&s!==report.runId);
   for(const prev of record.issues??[]){
     const row=rows.get(prev.rowId);
-    if(!row||!isConfirmed(row)||copied(row)){out.unverified.push(prev);if(cur.has(prev.key))used.add(prev.key);if(!row||(row.status==='not_run'&&!row.preparationRequired))out.scopeGap++;continue;}
-    if(cur.has(prev.key))still(prev,cur.get(prev.key));else pending.push([prev,row]);
+    if(!row||!isConfirmed(row)||copied(row)){out.unverified.push({...prev,reason:'not-rechecked'});if(cur.has(prev.key))used.add(prev.key);if(!row||(row.status==='not_run'&&!row.preparationRequired))out.scopeGap++;continue;}
+    if(cur.has(prev.key))still(prev,cur.get(prev.key));else if(row.status==='pass')out.resolved.push(prev);else pending.push(prev);
   }
-  // 行単位でしか判断できないキーは、行が fail なら文字列が変わっていても未解消。
-  // 行が時間切れ・証拠を読めず行単位のキーになったとき、または途中で時間切れになったときは、今回なかった前回の個別の課題は確認できていない。
-  for(const [prev,row] of pending){
-    const m=ROWKEY.exec(prev.rawKey??'');
-    if(!m&&((row.status==='fail'&&/Timeout|timed out/i.test(String(row.reason??'')))||issues.some(i=>i.rowId===prev.rowId&&ROWKEY.test(i.rawKey??'')))){out.unverified.push(prev);continue;}
-    if(!m||row.status==='pass'){out.resolved.push(prev);continue;}
-    const now=issues.find(i=>i.rowId===prev.rowId&&!used.has(i.key)&&String(i.rawKey??'').startsWith(m[0]));
-    if(now)still(prev,now);else out.unresolved.push({...prev,fixedUrlCount:0});
+  // 行が fail のまま：行単位のキーは文字列が変わっていても未解消。個別のキーが消えていても、同じ検査が別の課題や途中終了で fail のため確認できたとは言えない。
+  for(const prev of pending){
+    const m=ROWKEY.exec(prev.rawKey??''),now=m&&issues.find(i=>i.rowId===prev.rowId&&!used.has(i.key)&&String(i.rawKey??'').startsWith(m[0]));
+    if(now)still(prev,now);else if(m)out.unresolved.push({...prev,fixedUrlCount:0});else out.unverified.push({...prev,reason:'same-check-failing'});
   }
   const ex=new Set(record.excludedKeys??[]);
   for(const i of issues)if(!used.has(i.key))(ex.has(i.key)?out.carriedExcluded:out.added).push(i);
   return out;
 }
 const urlLine=i=>{const all=i.urls??[],urls=all.slice(0,5),more=all.length-urls.length;return `　対象：${urls.length?(urls.join('\n　')+(more>0?`\n　ほか${more}件`:'')):i.rowTitle??''}`;};
-const brief=i=>[`・${formatIssueDetail(i,{titleOnly:true})}`,urlLine(i),...(i.fixedUrlCount>0?[`　前回から${i.fixedUrlCount}件のURLが解消`]:[])].join('\n');
+const brief=i=>[`・${formatIssueDetail(i,{titleOnly:true})}`,urlLine(i),...(i.fixedUrlCount>0?[`　前回から${i.fixedUrlCount}件のURLが解消`]:[]),...(i.reason==='same-check-failing'?['　'+SAME_CHECK]:[])].join('\n');
+export const SAME_CHECK='（同じ検査に別の課題が残っているため確認できません）';
 export function buildCompareText({comparison:c,report,uncheckedAddedKeys=[],clean=s=>s,limit=20000}){
   const off=new Set(uncheckedAddedKeys),added=c.added.filter(i=>!off.has(i.key)),at=report.finishedAt??report.startedAt;
   const head=[`【SITE EXAM 再診断結果（${jst(at).slice(0,10)}）】`,...(c.scopeGap>0?[`前回と同じ検査範囲で再診断していないため、${c.scopeGap}件は確認できていません`]:[]),`・実行日時（日本時間）：${jst(at)}`,`・実行ID：${report.runId??''}`,`・解消：${c.resolved.length}件`,`・未解消：${c.unresolved.length}件`,`・再確認できず：${c.unverified.length}件`,`・新たに発生：${added.length}件`,...(c.carriedExcluded.length?[`・前回引き継ぎ対象外：${c.carriedExcluded.length}件`]:[])].join('\n');
@@ -85,7 +82,7 @@ export function buildCompareText({comparison:c,report,uncheckedAddedKeys=[],clea
 }
 // 次の比較の基準。解消は含めず、未解消・再確認できず・チェックした新規を引き継ぐ。
 export function nextRecord({record,comparison:c,uncheckedAddedKeys=[],report,siteName,handoffId,actor,now}){
-  const off=new Set(uncheckedAddedKeys),strip=({fixedUrlCount,...i})=>i;
+  const off=new Set(uncheckedAddedKeys),strip=({fixedUrlCount,reason,...i})=>i;
   return {handoffId,createdAt:new Date(now??Date.now()).toISOString(),actor:actor??'',sourceRunId:report.runId??'',sourceFinishedAt:report.finishedAt??report.startedAt??'',siteName,
     issues:[...c.unresolved,...c.unverified,...c.added.filter(i=>!off.has(i.key))].map(strip),
     excludedKeys:[...new Set([...c.carriedExcluded.map(i=>i.key),...c.added.filter(i=>off.has(i.key)).map(i=>i.key)])]};

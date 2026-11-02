@@ -587,7 +587,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
             const clean=redactor(current.config,{...process.env,...(p.managed?store.prepare(p.id).env:externalAuth?.prepare(p.id,current.config).env)}),read=evidenceJSON(directory),enriched={...enrichFailures(report,read),runId:id};
             // 課題キーは伏せ字前の値のハッシュにする（秘密の集合が変わっても同じキーになり、証拠の文字は外へ出ない）。rawKey は比較に要る接頭辞だけ残す。表示用の文字だけを伏せる。
             const issues=collectIssues({report:enriched,readEvidence:(_run,file)=>read(file)}).map(i=>({...i,key:createHash('sha256').update(i.key).digest('hex').slice(0,32),rawKey:/^(unclassified|timeout):/.exec(i.rawKey??'')?.[0]??'',...Object.fromEntries(['rowTitle','title','actual','admin','code','verify'].filter(k=>typeof i[k]==='string').map(k=>[k,clean(i[k])])),urls:i.urls.map(clean)}));
-            const brief=({key,rowTitle,level,title,urls})=>({key,rowTitle,level,title,urls}),actorName=actor?.name??null;
+            const brief=({key,rowTitle,level,title,urls,reason})=>({key,rowTitle,level,title,urls,...(['same-check-failing','not-rechecked'].includes(reason)?{reason}:{})}),actorName=actor?.name??null;
             if(!compare){
               const known=new Set(issues.map(i=>i.key)),excludedKeys=[...new Set(keys.filter(k=>known.has(k)))],unconfirmed=unconfirmedCount(enriched);
               const text=buildHandoffText({report:enriched,siteName,issues,excludedKeys,unconfirmed,publicOrigin:process.env.WPQA_PUBLIC_ORIGIN,projectId:p.id,clean});

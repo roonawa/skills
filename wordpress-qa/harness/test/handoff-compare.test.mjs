@@ -2,6 +2,8 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {compareHandoff,buildCompareText,nextRecord} from '../lib/handoff-text.mjs';
 import {redactor} from '../lib/evidence.mjs';
+import {enrichFailures} from '../lib/failure-explanations.mjs';
+import {collectIssues} from '../lib/handoff-issues.mjs';
 const mk=(rowId,raw,extra={})=>({key:rowId+'|'+raw,rawKey:raw,rowId,rowTitle:'行'+rowId,level:'fail',owner:'unknown',urls:['https://example.test/'+rowId],title:'課題'+rowId+raw,actual:'状況。',admin:'管理画面で直す。',code:'コードで直す。',verify:'確認する。',...extra});
 const rec=(issues,excludedKeys=[])=>({handoffId:'h1',createdAt:'2026-11-01T00:00:00Z',actor:'',sourceRunId:'run-0',sourceFinishedAt:'2026-11-01T00:00:00Z',siteName:'S',issues,excludedKeys});
 const rep=(rows)=>({runId:'run-1',baseURL:'https://example.test',finishedAt:'2026-11-01T16:30:00Z',rows});
@@ -12,9 +14,28 @@ test('resolved only when row confirmed',()=>{
     const c=cmp([mk('a','k')],row?[row]:[],[]);assert.deepEqual(c.unverified.map(i=>i.key),['a|k'],JSON.stringify(row));assert.equal(c.resolved.length,0);
   }
 });
-test('fail row without the key is resolved, with the key is unresolved',()=>{
+test('fail row without the key is unverified (same check failing), with the key is unresolved',()=>{
   const c=cmp([mk('a','k'),mk('a','j')],[{id:'a',status:'fail'}],[mk('a','j')]);
-  assert.deepEqual(c.resolved.map(i=>i.key),['a|k']);assert.deepEqual(c.unresolved.map(i=>i.key),['a|j']);assert.equal(c.added.length,0);
+  assert.equal(c.resolved.length,0);assert.deepEqual(c.unverified.map(i=>[i.key,i.reason]),[['a|k','same-check-failing']]);assert.deepEqual(c.unresolved.map(i=>i.key),['a|j']);assert.equal(c.added.length,0);
+  assert.deepEqual(cmp([mk('a','k')],[{id:'a',status:'blocked'}],[]).unverified.map(i=>i.reason),['not-rechecked']);
+  const {body}=buildCompareText({comparison:c,report:rep([])});assert.match(body,/課題ak[^\n]*\n[^\n]*\n　（同じ検査に別の課題が残っているため確認できません）/);
+  assert.doesNotMatch(buildCompareText({comparison:cmp([mk('a','k')],[{id:'a',status:'blocked'}],[]),report:rep([])}).body,/同じ検査に別の課題/);
+  const n=nextRecord({record:rec([]),comparison:c,report:rep([]),siteName:'S',handoffId:'h2',now:'2026-11-02T00:00:00Z'});assert.deepEqual(n.issues.map(i=>i.key).sort(),['a|j','a|k']);assert.ok(n.issues.every(i=>!('reason' in i)));
+});
+test('pass row resolves',()=>{assert.deepEqual(cmp([mk('a','k'),mk('a','timeout:a')],[{id:'a',status:'pass'}],[]).resolved.map(i=>i.key),['a|k','a|timeout:a']);});
+test('re-review repros through explainFailure never resolve',()=>{
+  const issuesOf=(row,data,runId)=>{const e=enrichFailures({runId,baseURL:'https://example.test',rows:[{required:true,evidence:['security-baseline.json'],...row}]},()=>data);return collectIssues({report:e,readEvidence:()=>data});};
+  const base=(findings,unchecked=[])=>({schema:'security-baseline-v1',findings,unchecked});
+  const row={id:'security.baseline',title:'基礎診断',status:'fail'};
+  const prev=issuesOf(row,base([{rule:'git-head',path:'/.git/HEAD',observation:'公開'}]),'run-0');assert.equal(prev.length,1);
+  const now=issuesOf(row,base([{rule:'env-file',path:'/.env',observation:'公開'}],['/.git/HEAD']),'run-1');
+  let c=compareHandoff({record:rec(prev),report:rep([row]),issues:now});
+  assert.equal(c.resolved.length,0);assert.deepEqual(c.unverified.map(i=>i.reason),['same-check-failing']);
+  const audit={id:'check.audit-home',title:'標準',status:'fail',evidence:['evidence/audit-home.json']};
+  const p2=issuesOf(audit,{url:'https://example.test/b/',errors:['h1 missing on /b']},'run-0'),n2=issuesOf(audit,{url:'https://example.test/a/',errors:['unexpected status 404 for /a']},'run-1');
+  assert.equal(p2.length,1);assert.equal(n2.length,1);
+  c=compareHandoff({record:rec(p2),report:rep([audit]),issues:n2});
+  assert.equal(c.resolved.length,0);assert.deepEqual(c.unverified.map(i=>i.key),[p2[0].key]);assert.equal(c.added.length,1);
 });
 test('volatile key text still matches',()=>{
   const prev={...mk('a','x'),key:'a|error port <n>',rawKey:'error port 8080'},cur={...mk('a','x'),key:'a|error port <n>',rawKey:'error port 9090'};
@@ -28,7 +49,7 @@ test('unclassified key resolves only on pass',()=>{
   // サーバーは key をハッシュに、rawKey を接頭辞だけにして渡す。
   const p=cmp([{...mk('a','x'),key:'h1',rawKey:'unclassified:'}],[{id:'a',status:'fail'}],[{...mk('a','y'),key:'h2',rawKey:'unclassified:'}]);
   assert.deepEqual(p.unresolved.map(i=>i.key),['h2']);assert.equal(p.added.length,0);
-  assert.equal(cmp([{...mk('a','x'),key:'h1',rawKey:''}],[{id:'a',status:'fail'}],[{...mk('a','y'),key:'h2',rawKey:''}]).resolved.length,1);
+  assert.equal(cmp([{...mk('a','x'),key:'h1',rawKey:''}],[{id:'a',status:'fail'}],[{...mk('a','y'),key:'h2',rawKey:''}]).unverified.length,1);
 });
 test('partial url fix stays unresolved with remaining urls',()=>{
   const u=n=>Array.from({length:n},(_,i)=>'https://example.test/p'+i);
@@ -99,7 +120,7 @@ test('a fail row that timed out part way leaves absent specific issues unverifie
   assert.deepEqual(c.unresolved.map(i=>i.key),['s|document:title-empty:/a']);assert.deepEqual(c.unverified.map(i=>i.key),['s|document:title-empty:/b']);assert.equal(c.resolved.length,0);assert.equal(c.added.length,0);
   const n=nextRecord({record:rec([]),comparison:c,report:rep([]),siteName:'S',handoffId:'h2',now:'2026-11-02T00:00:00Z'});assert.deepEqual(n.issues.map(i=>i.key).sort(),['s|document:title-empty:/a','s|document:title-empty:/b']);
   const ok=cmp([mk('s','document:title-empty:/a'),mk('s','document:title-empty:/b')],[{id:'s',status:'fail',reason:'document:title-empty:/a'}],[mk('s','document:title-empty:/a')]);
-  assert.deepEqual(ok.resolved.map(i=>i.key),['s|document:title-empty:/b']);assert.equal(ok.unverified.length,0);
+  assert.equal(ok.resolved.length,0);assert.deepEqual(ok.unverified.map(i=>i.key),['s|document:title-empty:/b']);
 });
 test('rows copied by the summary script (details.sourceRunId) are not re-checks',()=>{
   const c=cmp([mk('a','k'),mk('b','k')],[{id:'a',status:'pass',details:{sourceRunId:'run-0'}},{id:'b',status:'pass',details:{sourceRunId:'run-1'}}],[]);

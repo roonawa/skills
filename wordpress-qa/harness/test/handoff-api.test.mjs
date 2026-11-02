@@ -156,4 +156,10 @@ test('aggregated runs and rows copied from older runs are not treated as re-chec
   writeRun(dir,'run-g','2026-10-07T01:00:00.000Z',[{...row('check.audit-home','pass'),sourceRunId:'run-x'},row('check.links-a','pass'),row('security.baseline','pass')]);
   const c=(await post('run-g','handoff-compare',{uncheckedAddedKeys:[],save:false})).data;
   assert.deepEqual(c.comparison.unverified.map(i=>i.key),[audit.key]);assert.equal(c.comparison.resolved.length,2);assert.ok(!c.comparison.resolved.some(i=>i.key===audit.key));assert.equal(c.scopeGap,0);
+  assert.equal(c.comparison.unverified[0].reason,'not-rechecked');assert.doesNotMatch(c.body,/同じ検査に別の課題/);
+  // 同じ行が別の課題で fail のまま → 解消ではなく再確認できず（同じ検査に別の課題）。
+  writeRun(dir,'run-h','2026-10-08T01:00:00.000Z',[row('check.audit-home','pass'),row('check.links-a','fail',['evidence/links-a.json'],'リンク'),row('security.baseline','pass')],{'evidence/links-a.json':{url:baseURL+'/links/',errors:['other link problem']}});
+  const h=(await post('run-h','handoff-compare',{uncheckedAddedKeys:[],save:false})).data,links=pre.issues.find(i=>i.rowTitle==='リンク');
+  assert.deepEqual(h.comparison.unverified.map(i=>[i.key,i.reason]),[[links.key,'same-check-failing']]);assert.deepEqual(Object.keys(h.comparison.unverified[0]).sort(),['key','level','reason','rowTitle','title','urls']);
+  assert.ok(!h.comparison.resolved.some(i=>i.key===links.key));assert.match(h.body,/（同じ検査に別の課題が残っているため確認できません）/);
 });
