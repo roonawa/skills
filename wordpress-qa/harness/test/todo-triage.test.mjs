@@ -22,6 +22,13 @@ test('commerce and membership plugins keep those checks in technical',()=>{
  const r=triage(site(),profile({automation:observed(['usc-e-shop'])}));
  assert.deepEqual(r.notRelevant,[]);for(const id of [...orders,'coverage-membership'])assert(r.technical.some(x=>x.id===id),id);
  assert.deepEqual(Object.keys(notApplicableChecks(site(),profile({automation:observed(['woocommerce','wp-members'])}))),[]);
+ for(const slug of ['woocommerce-gateway-stripe','usc-e-shop-x','woocommerce-8-5-1','wc-shipping','wcex-auto-delivery','welcart-basic']){const n=notApplicableChecks(site(),profile({automation:observed([slug])}));for(const id of [...orders,'coverage-membership'])assert(!n[id],slug+' '+id);const r=triage(site(),profile({automation:observed([slug])}));assert(r.technical.some(x=>x.id==='coverage-order'),slug);}
+ for(const slug of ['sfwd-lms','lifterlms','tutor','learnpress','bbpress','wpforo','wp-user-manager','peepso-core']){const n=notApplicableChecks(site(),profile({automation:observed([slug])}));assert(!n['coverage-membership'],slug);assert(n['coverage-order'],slug);}
+});
+test('bankOrder declared by the person in charge keeps orders out of notRelevant',()=>{
+ const r=triage(site(),profile({bankOrder:true}));assert(!r.notRelevant.some(x=>orders.includes(x.id)));for(const id of orders)assert(r.technical.some(x=>x.id===id),id);
+ assert(r.notRelevant.some(x=>x.id==='coverage-membership'));
+ const p=notApplicableChecks(site('production'),profile({bankOrder:true}));for(const id of orders)assert(!p[id],id);assert(p['coverage-publishing']);
 });
 test('production site',()=>{
  const r=triage(site('production'),profile());

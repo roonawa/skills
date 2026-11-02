@@ -4,7 +4,9 @@ import {unresolvedPreparation} from './evidence-preparation.mjs';
 export const ITEM_CHECKS={writes:['coverage-publishing','coverage-cache','coverage-scheduled'],submit:['coverage-contact-success'],performance:['coverage-performance'],sensitivePaths:['auto-security-exposure']};
 export const COMMERCE_PLUGINS=['usc-e-shop','woocommerce','easy-digital-downloads','wp-e-commerce','wp-easycart','ecwid-shopping-cart','jigoshop','surecart','wp-simple-pay','stripe-payments','shopp'];
 // 通販プラグインは会員（購入者アカウント）機能も持つため、会員の判定にも含める。
-export const MEMBERSHIP_PLUGINS=['wp-members','simple-membership','paid-memberships-pro','ultimate-member','memberpress','s2member','restrict-content','restrict-content-pro','buddypress','profile-builder','wp-user-frontend','user-registration','armember-membership','indeed-membership-pro','woocommerce-memberships','theme-my-login','usc-e-shop','woocommerce','easy-digital-downloads','surecart'];
+export const MEMBERSHIP_PLUGINS=['wp-members','simple-membership','paid-memberships-pro','ultimate-member','memberpress','s2member','restrict-content','restrict-content-pro','buddypress','profile-builder','wp-user-frontend','user-registration','armember-membership','indeed-membership-pro','woocommerce-memberships','theme-my-login','sfwd-lms','lifterlms','tutor','learnpress','bbpress','wpforo','wp-user-manager','peepso-core','usc-e-shop','woocommerce','easy-digital-downloads','surecart'];
+// フォルダー名の変更・版付き（woocommerce-8.5.1）や拡張だけが見える場合も通販ありとみなす。
+const COMMERCE_PREFIXES=['woocommerce','wc-','usc-e-shop','wcex','welcart'];
 const ORDER_CHECKS=['coverage-order','coverage-order-record','coverage-order-cleanup','coverage-order-notification'],PRODUCTION_CHECKS=[...ITEM_CHECKS.writes,...ITEM_CHECKS.submit];
 const MESSAGES={
  discovery:'サイトから判定に必要な情報を取得できませんでした。ツールの取得方法を確認します。',
@@ -39,9 +41,10 @@ export function notApplicableChecks(config,profile){
  const ids=new Set(config.checks.map(c=>c.id)),out={},inv=profile.automation?.pluginInventory,overrides=new Set(profile.automation?.relevantOverrides??[]);
  const set=(list,reason)=>{for(const id of list)if(ids.has(id)&&!overrides.has(id))out[id]=reason;};
  if(inv?.observed===true){
-  const has=list=>inv.slugs.some(s=>list.includes(s)),why=name=>`有効なプラグインに${name}機能が見つからないため対象外（登録時の取得）`;
-  if(!has(COMMERCE_PLUGINS))set(ORDER_CHECKS,why('通販'));
-  if(!has(MEMBERSHIP_PLUGINS))set(['coverage-membership'],why('会員'));
+  const commerce=inv.slugs.some(s=>COMMERCE_PLUGINS.includes(s)||COMMERCE_PREFIXES.some(p=>s.startsWith(p))),why=name=>`有効なプラグインに${name}機能が見つからないため対象外（登録時の取得）`;
+  // 担当者が注文ありと登録した場合は、取得結果より申告を優先する。
+  if(!commerce&&profile.bankOrder!==true)set(ORDER_CHECKS,why('通販'));
+  if(!commerce&&!inv.slugs.some(s=>MEMBERSHIP_PLUGINS.includes(s)))set(['coverage-membership'],why('会員'));
  }
  if(config.environment==='production')for(const id of PRODUCTION_CHECKS)if(ids.has(id))out[id]='本番環境ではテスト投稿・フォーム送信を実行しないため対象外';
  return out;
