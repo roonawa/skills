@@ -93,3 +93,15 @@ test('rows copied from another run are not re-checks',()=>{
   const c=cmp([mk('a','k'),mk('b','k'),mk('c','k')],[{id:'a',status:'pass',sourceRunId:'run-0'},{id:'b',status:'fail',sourceRunId:'run-0'},{id:'c',status:'pass',sourceRunId:'run-1'}],[mk('b','k')]);
   assert.deepEqual(c.unverified.map(i=>i.key),['a|k','b|k']);assert.deepEqual(c.resolved.map(i=>i.key),['c|k']);assert.equal(c.added.length,0);assert.equal(c.scopeGap,0);
 });
+test('a fail row that timed out part way leaves absent specific issues unverified',()=>{
+  const reason='document:title-empty:/a\npage.goto: Timeout 30000ms exceeded. navigating to /b';
+  const c=cmp([mk('s','document:title-empty:/a'),mk('s','document:title-empty:/b')],[{id:'s',status:'fail',reason}],[mk('s','document:title-empty:/a')]);
+  assert.deepEqual(c.unresolved.map(i=>i.key),['s|document:title-empty:/a']);assert.deepEqual(c.unverified.map(i=>i.key),['s|document:title-empty:/b']);assert.equal(c.resolved.length,0);assert.equal(c.added.length,0);
+  const n=nextRecord({record:rec([]),comparison:c,report:rep([]),siteName:'S',handoffId:'h2',now:'2026-11-02T00:00:00Z'});assert.deepEqual(n.issues.map(i=>i.key).sort(),['s|document:title-empty:/a','s|document:title-empty:/b']);
+  const ok=cmp([mk('s','document:title-empty:/a'),mk('s','document:title-empty:/b')],[{id:'s',status:'fail',reason:'document:title-empty:/a'}],[mk('s','document:title-empty:/a')]);
+  assert.deepEqual(ok.resolved.map(i=>i.key),['s|document:title-empty:/b']);assert.equal(ok.unverified.length,0);
+});
+test('rows copied by the summary script (details.sourceRunId) are not re-checks',()=>{
+  const c=cmp([mk('a','k'),mk('b','k')],[{id:'a',status:'pass',details:{sourceRunId:'run-0'}},{id:'b',status:'pass',details:{sourceRunId:'run-1'}}],[]);
+  assert.deepEqual(c.unverified.map(i=>i.key),['a|k']);assert.deepEqual(c.resolved.map(i=>i.key),['b|k']);
+});

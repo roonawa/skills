@@ -151,6 +151,8 @@ test('aggregated runs and rows copied from older runs are not treated as re-chec
   writeRun(dir,'run-f','2026-10-06T01:00:00.000Z',[{...row('check.audit-home','pass'),sourceRunId:'run-x'}],{},'finished',{aggregation:{notAFreshRun:true,sourceRuns:['run-x']}});
   const agg=await post('run-f','handoff-compare',{uncheckedAddedKeys:[],save:true});assert.equal(agg.status,409);
   assert.equal(agg.data.error,'集約結果は再診断として比較できません。新しい実行を選択してください');assert.equal(saved().length,1);
+  writeRun(dir,'run-s','2026-10-06T02:00:00.000Z',[{...row('check.audit-home','pass'),details:{sourceRunId:'run-x'}}],{},'finished',{sources:[{id:'run-x',configHash:'x',finishedAt:'2026-10-06T00:00:00.000Z'}]});
+  const sum=await post('run-s','handoff-compare',{uncheckedAddedKeys:[],save:true});assert.equal(sum.status,409);assert.equal(sum.data.error,'集約結果は再診断として比較できません。新しい実行を選択してください');assert.equal(saved().length,1);
   writeRun(dir,'run-g','2026-10-07T01:00:00.000Z',[{...row('check.audit-home','pass'),sourceRunId:'run-x'},row('check.links-a','pass'),row('security.baseline','pass')]);
   const c=(await post('run-g','handoff-compare',{uncheckedAddedKeys:[],save:false})).data;
   assert.deepEqual(c.comparison.unverified.map(i=>i.key),[audit.key]);assert.equal(c.comparison.resolved.length,2);assert.ok(!c.comparison.resolved.some(i=>i.key===audit.key));assert.equal(c.scopeGap,0);

@@ -47,17 +47,17 @@ export function compareHandoff({record,report,issues}){
   const rows=new Map((report.rows??[]).map(r=>[r.id,r])),cur=new Map(issues.map(i=>[i.key,i])),used=new Set(),out={resolved:[],unresolved:[],unverified:[],added:[],carriedExcluded:[],scopeGap:0};
   const still=(prev,now)=>{used.add(now.key);const urls=now.urls??[];out.unresolved.push({...now,fixedUrlCount:(prev.urls??[]).filter(u=>!urls.includes(u)).length});};
   // 集約で別の実行から写した行は、今回確認したことにならない。
-  const pending=[],copied=row=>row.sourceRunId&&row.sourceRunId!==report.runId;
+  const pending=[],copied=row=>[row.sourceRunId,row.details?.sourceRunId].some(s=>s&&s!==report.runId);
   for(const prev of record.issues??[]){
     const row=rows.get(prev.rowId);
     if(!row||!isConfirmed(row)||copied(row)){out.unverified.push(prev);if(cur.has(prev.key))used.add(prev.key);if(!row||(row.status==='not_run'&&!row.preparationRequired))out.scopeGap++;continue;}
     if(cur.has(prev.key))still(prev,cur.get(prev.key));else pending.push([prev,row]);
   }
   // 行単位でしか判断できないキーは、行が fail なら文字列が変わっていても未解消。
-  // 行が時間切れ・証拠を読めず行単位のキーになったときは、前回の個別の課題は確認できていない。
+  // 行が時間切れ・証拠を読めず行単位のキーになったとき、または途中で時間切れになったときは、今回なかった前回の個別の課題は確認できていない。
   for(const [prev,row] of pending){
     const m=ROWKEY.exec(prev.rawKey??'');
-    if(!m&&issues.some(i=>i.rowId===prev.rowId&&ROWKEY.test(i.rawKey??''))){out.unverified.push(prev);continue;}
+    if(!m&&((row.status==='fail'&&/Timeout|timed out/i.test(String(row.reason??'')))||issues.some(i=>i.rowId===prev.rowId&&ROWKEY.test(i.rawKey??'')))){out.unverified.push(prev);continue;}
     if(!m||row.status==='pass'){out.resolved.push(prev);continue;}
     const now=issues.find(i=>i.rowId===prev.rowId&&!used.has(i.key)&&String(i.rawKey??'').startsWith(m[0]));
     if(now)still(prev,now);else out.unresolved.push({...prev,fixedUrlCount:0});
