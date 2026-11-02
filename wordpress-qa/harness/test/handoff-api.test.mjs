@@ -6,7 +6,7 @@ import path from 'node:path';
 import {startUI} from '../ui/server.mjs';
 import {writeReport} from '../lib/results.mjs';
 
-const SECRET='pw-Very-Secret-77',TOKEN='zzSecretToken42',baseURL='http://127.0.0.1:4300';
+const STATE='zq7',SECRET='pw-Very-Secret-77',TOKEN='zzSecretToken42',baseURL='http://127.0.0.1:4300';
 const row=(id,status,evidence=[],title=id)=>({id,title,required:true,status,evidence});
 function writeRun(dir,runId,finishedAt,rows,files={},runStatus='finished'){
   const runDir=path.join(dir,'runs',runId);
@@ -25,12 +25,14 @@ async function setup(t){
   writeRun(dir,'run-a','2026-10-01T01:00:00.000Z',[auditRow(),linksRow(),baselineRow(),row('check.blocked','blocked')],{...auditFile,...linksFile,...baselineFile});
   writeRun(dir,'run-b','2026-10-02T01:00:00.000Z',[row('check.audit-home','pass'),linksRow(),baselineRow(),row('check.new','fail',['evidence/audit-new.json'],'新規')],{...linksFile,...baselineFile,'evidence/audit-new.json':{url:baseURL+'/new/',errors:['new problem appeared']}});
   writeRun(dir,'run-c','2026-10-03T01:00:00.000Z',[auditRow()],auditFile,'running');
+  const stateRow=()=>row('check.audit-'+STATE,'fail',['evidence/audit-state.json'],'状態依存'),stateFile={'evidence/audit-state.json':{url:baseURL+'/d/',errors:['mismatch '+STATE+' seen']}};
+  writeRun(dir,'run-d','2026-10-04T01:00:00.000Z',[stateRow()],stateFile);writeRun(dir,'run-e','2026-10-05T01:00:00.000Z',[stateRow()],stateFile);
   process.env.WPQA_HANDOFF_TEST_PASSWORD=SECRET;process.env.WPQA_HANDOFF_TEST_HEADERS=JSON.stringify({Authorization:'Bearer '+TOKEN});
   const app=await startUI({configPaths:[configFile],port:0});
   t.after(async()=>{await app.close();delete process.env.WPQA_HANDOFF_TEST_PASSWORD;delete process.env.WPQA_HANDOFF_TEST_HEADERS;fs.rmSync(dir,{recursive:true,force:true});});
   const boot=await(await fetch(app.url+'/api/bootstrap')).json(),id=boot.projects[0].id,texts=[];
   const post=async(runId,kind,value,headers={'X-QA-Token':boot.token})=>{const r=await fetch(`${app.url}/api/projects/${id}/runs/${runId}/${kind}`,{method:'POST',headers:{'Content-Type':'application/json',Origin:app.url,...headers},body:JSON.stringify(value)});const text=await r.text();texts.push(text);return {status:r.status,data:JSON.parse(text)};};
-  const handoffs=path.join(dir,'handoffs'),saved=()=>fs.existsSync(handoffs)?fs.readdirSync(handoffs).filter(f=>f.endsWith('.json')):[];
+  const handoffs=path.join(dir,'handoffs-runs'),saved=()=>fs.existsSync(handoffs)?fs.readdirSync(handoffs).filter(f=>f.endsWith('.json')):[];
   return {post,saved,handoffs,texts};
 }
 
@@ -104,6 +106,38 @@ test('response body never contains configured secret header values',async t=>{
   const audit=pre.issues.find(i=>i.key.startsWith('check.audit-home|'));
   assert.equal((await post('run-a','handoff',{excludedKeys:[audit.key],save:false})).data.excludedKeys[0],audit.key);
   await post('run-b','handoff-compare',{uncheckedAddedKeys:[],save:true});
-  const all=texts.join('\n')+saved().map(f=>fs.readFileSync(path.join(handoffs,f),'utf8')).join('\n');
+  // 照合用の識別子（key・rawKey・rowId）は伏せ字にしない取り決めのため、それ以外の表示用の文字を確かめる。
+  const strip=v=>Array.isArray(v)?v.map(strip):v&&typeof v==='object'?Object.fromEntries(Object.entries(v).filter(([k])=>!['key','rawKey','rowId','excludedKeys'].includes(k)).map(([k,x])=>[k,strip(x)])):v;
+  const all=[...texts,...saved().map(f=>fs.readFileSync(path.join(handoffs,f),'utf8'))].map(t=>JSON.stringify(strip(JSON.parse(t)))).join('\n');
   assert.ok(texts.length>=4);for(const secret of [SECRET,TOKEN,'session=abc'])assert.ok(!all.includes(secret),secret);
+});
+
+test('identity fields are not redacted, so a changed secret set does not change classification',async t=>{
+  const {post}=await setup(t);
+  process.env.WPQA_HANDOFF_TEST_STATE=JSON.stringify({cookies:[{name:'c',value:STATE}],origins:[]});
+  t.after(()=>{delete process.env.WPQA_HANDOFF_TEST_STATE;});
+  const pre=(await post('run-d','handoff',{excludedKeys:[],save:false})).data;
+  assert.deepEqual(pre.issues.map(i=>i.key),['check.audit-'+STATE+'|error:mismatch '+STATE+' seen']);
+  assert.ok(![pre.subject,pre.body,pre.issues[0].title,pre.issues[0].rowTitle,...pre.issues[0].urls].join('\n').includes(STATE));
+  assert.equal((await post('run-d','handoff',{handoffId:pre.handoffId,excludedKeys:[pre.issues[0].key],save:false})).data.excludedKeys[0],pre.issues[0].key);
+  await post('run-d','handoff',{handoffId:pre.handoffId,excludedKeys:[],save:true});
+  process.env.WPQA_HANDOFF_TEST_STATE=JSON.stringify({cookies:[{name:'c',value:'rotated-cookie'}],origins:[]});
+  const c=(await post('run-e','handoff-compare',{uncheckedAddedKeys:[],save:false})).data;
+  assert.deepEqual(c.comparison.unresolved.map(i=>i.key),[pre.issues[0].key]);
+  assert.deepEqual([c.comparison.resolved,c.comparison.added,c.comparison.unverified].map(l=>l.length),[0,0,0]);assert.equal(c.scopeGap,0);
+  process.env.WPQA_HANDOFF_TEST_STATE=JSON.stringify({cookies:[{name:'c',value:STATE}],origins:[]});
+  assert.ok(!(await post('run-e','handoff-compare',{uncheckedAddedKeys:[],save:false})).data.body.includes(STATE));
+});
+
+test('a supplied handoffId cannot overwrite a record made from another run',async t=>{
+  const {post,handoffs}=await setup(t);
+  const read=id=>JSON.parse(fs.readFileSync(path.join(handoffs,id+'.json'),'utf8'));
+  const pre=(await post('run-a','handoff',{excludedKeys:[],save:false})).data;
+  await post('run-a','handoff',{handoffId:pre.handoffId,excludedKeys:[],save:true});
+  for(const save of [false,true]){const r=await post('run-b','handoff-compare',{handoffId:pre.handoffId,uncheckedAddedKeys:[],save});assert.equal(r.status,400);assert.equal(r.data.error,'引き継ぎIDが不正です');}
+  assert.equal(read(pre.handoffId).sourceRunId,'run-a');
+  const cmp=(await post('run-b','handoff-compare',{uncheckedAddedKeys:[],save:true})).data;assert.equal(read(cmp.handoffId).sourceRunId,'run-b');
+  const r=await post('run-a','handoff',{handoffId:cmp.handoffId,excludedKeys:[],save:true});assert.equal(r.status,400);assert.equal(r.data.error,'引き継ぎIDが不正です');
+  assert.equal(read(cmp.handoffId).sourceRunId,'run-b');
+  assert.equal((await post('run-b','handoff-compare',{handoffId:cmp.handoffId,uncheckedAddedKeys:[],save:true})).data.baseline.handoffId,pre.handoffId);
 });

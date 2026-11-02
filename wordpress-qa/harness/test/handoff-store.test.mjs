@@ -7,7 +7,7 @@ import {handoffDir,newHandoffId,saveHandoff,latestHandoff} from '../lib/handoff-
 const tmp=()=>fs.mkdtempSync(path.join(os.tmpdir(),'handoff-'));
 const rec=(id,n,extra={})=>({handoffId:id,createdAt:new Date(Date.UTC(2026,0,1,0,0,n)).toISOString(),actor:'a',sourceRunId:'run-1',sourceFinishedAt:'2026-01-01T00:00:00Z',siteName:'S',issues:[],excludedKeys:[],...extra});
 const idN=n=>'h-abc-'+n.toString(16).padStart(8,'0');
-test('handoffDir is sibling of output dir',()=>assert.equal(handoffDir(path.join('x','y','output')),path.join('x','y','handoffs')));
+test('handoffDir is sibling of output dir and named after it',()=>{assert.equal(handoffDir(path.join('x','y','output')),path.join('x','y','handoffs-output'));assert.notEqual(handoffDir(path.join('x','a')),handoffDir(path.join('x','b')));});
 test('newHandoffId matches format',()=>assert.match(newHandoffId(),/^h-[a-z0-9]+-[a-f0-9]{8}$/));
 test('save and latest round trip',()=>{
   const d=path.join(tmp(),'handoffs');

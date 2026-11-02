@@ -43,7 +43,7 @@ import {projectIsAlive,runIsAlive} from '../lib/run-lock.mjs';
 import {redactor} from '../lib/evidence.mjs';
 import {collectIssues,unconfirmedCount} from '../lib/handoff-issues.mjs';
 import {buildHandoffText,compareHandoff,buildCompareText,nextRecord} from '../lib/handoff-text.mjs';
-import {handoffDir,newHandoffId,isHandoffId,saveHandoff,latestHandoff} from '../lib/handoff-store.mjs';
+import {handoffDir,newHandoffId,isHandoffId,saveHandoff,latestHandoff,readHandoff} from '../lib/handoff-store.mjs';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const publicDir=path.join(root,'ui','public');
@@ -582,17 +582,19 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
             const data=await body(req),compare=segments[5]==='handoff-compare',keys=data[compare?'uncheckedAddedKeys':'excludedKeys']??[];
             if(!Array.isArray(keys)||keys.length>500||keys.some(k=>typeof k!=='string'||k.length>1000)||typeof data.save!=='boolean'||(data.handoffId!==undefined&&!isHandoffId(data.handoffId)))reject(400,'引き継ぎの指定が不正です');
             const current=projectInfo(p),dir=handoffDir(p.outputDir),handoffId=data.handoffId??newHandoffId(),siteName=current.config.name;
-            const clean=redactor(current.config,p.managed?{...process.env,...store.prepare(p.id).env}:process.env),read=evidenceJSON(directory),enriched={...enrichFailures(report,read),runId:report.runId??id};
-            // 課題キーも伏せ字にして、応答・記録・除外指定を同じキーでそろえる。
-            const issues=collectIssues({report:enriched,readEvidence:(_run,file)=>read(file)}).map(i=>Object.fromEntries(Object.entries(i).map(([k,v])=>[k,typeof v==='string'?clean(v):Array.isArray(v)?v.map(clean):v])));
+            // 別の実行の記録は上書きさせない（同じ実行で作った記録だけ上書きできる）。
+            const own=data.handoffId===undefined?null:readHandoff(dir,handoffId);if(own&&own.sourceRunId!==id)reject(400,'引き継ぎIDが不正です');
+            const clean=redactor(current.config,{...process.env,...(p.managed?store.prepare(p.id).env:externalAuth?.prepare(p.id,current.config).env)}),read=evidenceJSON(directory),enriched={...enrichFailures(report,read),runId:id};
+            // 照合に使う rowId・key・rawKey・level・owner は伏せ字にしない（秘密の集合が変わっても同じ課題を同じキーで比べる）。表示用の文字だけを伏せる。
+            const issues=collectIssues({report:enriched,readEvidence:(_run,file)=>read(file)}).map(i=>({...i,...Object.fromEntries(['rowTitle','title','actual','admin','code','verify'].filter(k=>typeof i[k]==='string').map(k=>[k,clean(i[k])])),urls:i.urls.map(clean)}));
             const brief=({key,rowTitle,level,title,urls})=>({key,rowTitle,level,title,urls}),actorName=actor?.name??null;
             if(!compare){
               const known=new Set(issues.map(i=>i.key)),excludedKeys=[...new Set(keys.filter(k=>known.has(k)))],unconfirmed=unconfirmedCount(enriched);
               const text=buildHandoffText({report:enriched,siteName,issues,excludedKeys,unconfirmed,publicOrigin:process.env.WPQA_PUBLIC_ORIGIN,projectId:p.id,clean});
-              if(data.save)try{saveHandoff(dir,{handoffId,createdAt:new Date().toISOString(),actor:actorName??'',sourceRunId:enriched.runId,sourceFinishedAt:report.finishedAt,siteName,issues:text.included,excludedKeys});}catch(e){reject(400,e.message);}
+              if(data.save)try{saveHandoff(dir,{handoffId,createdAt:new Date().toISOString(),actor:actorName??'',sourceRunId:id,sourceFinishedAt:report.finishedAt,siteName,issues:text.included,excludedKeys});}catch(e){reject(400,e.message);}
               return json(200,{handoffId,subject:text.subject,body:text.body,truncated:text.truncated,issues:issues.map(i=>({...brief(i),owner:i.owner})),excludedKeys,unconfirmed});
             }
-            const record=latestHandoff(dir,{exclude:handoffId}),at=r=>Date.parse(r?.finishedAt??r?.startedAt);
+            const record=latestHandoff(dir,{exclude:own?.handoffId}),at=r=>Date.parse(r?.finishedAt??r?.startedAt);
             let source=null;try{source=record&&readRun(p,record.sourceRunId);}catch{}
             if(!record||record.sourceRunId===id||!((source?at(source):Date.parse(record.sourceFinishedAt))<at(report)))reject(409,'比較できる引き継ぎ記録がありません');
             const comparison=compareHandoff({record,report:enriched,issues}),text=buildCompareText({comparison,report:enriched,uncheckedAddedKeys:keys,clean});

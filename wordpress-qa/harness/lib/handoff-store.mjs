@@ -6,7 +6,8 @@ const isLink=p=>{try{return fs.lstatSync(p).isSymbolicLink();}catch{return false
 const readRec=file=>{try{const r=JSON.parse(fs.readFileSync(file,'utf8'));return r&&typeof r.handoffId==='string'&&Number.isFinite(Date.parse(r.createdAt))?r:null;}catch{return null;}};
 const files=dir=>{try{return fs.readdirSync(dir).filter(f=>ID.test(f.replace(/\.json$/,''))&&f.endsWith('.json'));}catch{return [];}};
 export const isHandoffId=id=>ID.test(String(id));
-export const handoffDir=outputDir=>path.join(path.dirname(outputDir),'handoffs');
+export const handoffDir=outputDir=>path.join(path.dirname(outputDir),'handoffs-'+path.basename(outputDir));
+export const readHandoff=(dir,id)=>ID.test(String(id))&&!isLink(dir)&&!isLink(path.join(dir,id+'.json'))?readRec(path.join(dir,id+'.json')):null;
 export const newHandoffId=()=>'h-'+Date.now().toString(36)+'-'+randomBytes(4).toString('hex');
 export function saveHandoff(dir,record) {
   if(!ID.test(String(record?.handoffId)))throw new Error('引き継ぎIDの形式が正しくありません。');
