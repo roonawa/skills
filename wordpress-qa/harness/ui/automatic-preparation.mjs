@@ -39,7 +39,7 @@ export async function completePreparation(config,profile,discovery,{ai,aiEnabled
    c=mergeAutomationConfig(c,generated);
   }catch{warning=warning??'標準操作の登録条件が不足しています。公開検査だけ補完しました。';}
  }
- c=compilePreparation(c,p,d);validateConfig(c);
+ c=compilePreparation(c,p,d);c.allowSensitivePaths=config.allowSensitivePaths===true;validateConfig(c);
  const before=unresolvedPreparation(config,profile),after=unresolvedPreparation(c,p),remainingIds=new Set(after.map(x=>x.id));
  const resolvedIds=before.filter(x=>!remainingIds.has(x.id)).map(x=>x.id);
  return {config:c,profile:p,summary:{mode,warning,createdAt:new Date().toISOString(),adopted:resolvedIds.length,adoptedIds:resolvedIds,controlRefs:controls,aiFailure:mode==='rules'?ai?.lastEvidenceFailure??null:null,bindings:result.bindings,remaining:after,verification:'実行前の条件検証済み。操作の合否は検査結果を参照してください。'}};

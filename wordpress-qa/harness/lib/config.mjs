@@ -25,7 +25,7 @@ export function sameOrigin(value, base) {
 }
 export function validateConfig(input) {
   const c = structuredClone(input);
-  object(c,['name','baseURL','environment','allowProductionJourneys','timeoutMs','pages','policies','journeys','visuals','manual','mailpit','headersEnv','outputDir','baselineDir','revision','admin','checks','allowTestWrites','trustedAdapters'],'config');
+  object(c,['name','baseURL','environment','allowProductionJourneys','timeoutMs','pages','policies','journeys','visuals','manual','mailpit','headersEnv','outputDir','baselineDir','revision','admin','checks','allowTestWrites','allowSensitivePaths','trustedAdapters'],'config');
   string(c.name,'name'); const base = url(c.baseURL,'baseURL');
   if (base.pathname !== '/' || base.search || base.hash) fail('baseURL must be an origin without a path');
   c.baseURL = base.origin;

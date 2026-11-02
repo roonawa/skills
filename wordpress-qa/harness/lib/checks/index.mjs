@@ -22,8 +22,8 @@ export function preparationReason(check,config){
  return null;
 }
 export function validateChecks(config){
- config.checks??=[];config.allowTestWrites??=false;
- if(!Array.isArray(config.checks)||typeof config.allowTestWrites!=='boolean')throw new Error('checksは配列、allowTestWritesは真偽値で指定してください');
+ config.checks??=[];config.allowTestWrites??=false;config.allowSensitivePaths??=false;
+ if(!Array.isArray(config.checks)||typeof config.allowTestWrites!=='boolean'||typeof config.allowSensitivePaths!=='boolean')throw new Error('checksは配列、allowTestWrites・allowSensitivePathsは真偽値で指定してください');
  if(config.trustedAdapters!==undefined&&(!config.trustedAdapters||Array.isArray(config.trustedAdapters)||typeof config.trustedAdapters!=='object'||Object.entries(config.trustedAdapters).some(([k,v])=>!/^[-a-z0-9]+$/.test(k)||typeof v!=='string'||!v)))throw new Error('trustedAdaptersは別名とモジュールパスの対応表です');
  const seen=new Set();
  for(const check of config.checks){

@@ -11,13 +11,13 @@ import {applyAutomationPlan,resolveAutomationProfile} from './automation-plan.mj
 export const builtinModules=Object.fromEntries(['inventory','contact-schema','contact-submit','bank-order','post-lifecycle','scheduled'].map(k=>[k,fileURLToPath(new URL(`../builtin/wordpress-profile/${k}.mjs`,import.meta.url))]));
 export function validateProfile(p,environment,{discoveryPending=false}={}){
  if(!p||typeof p!=='object'||Array.isArray(p))throw Error('登録時の検査条件が必要です');
- const allowed=['contactExpectedFields','automation','interactions','sitePath','timezone','language','indexable','permalink','contactFormId','writes','adminPath','maxPages','performanceMs','contactPath','submit','testEmail','contactNameField','contactEmailField','contactMessageField','contactConsentField','bankOrder','productPath','cartPath','customerPrefecture','bankPaymentLabel','expectedTotal'];
+ const allowed=['contactExpectedFields','automation','interactions','sitePath','timezone','language','indexable','permalink','contactFormId','writes','sensitivePaths','adminPath','maxPages','performanceMs','contactPath','submit','testEmail','contactNameField','contactEmailField','contactMessageField','contactConsentField','bankOrder','productPath','cartPath','customerPrefecture','bankPaymentLabel','expectedTotal'];
  if(Object.keys(p).some(k=>!allowed.includes(k)))throw Error('未対応の登録条件があります');
  validateInteractionSettings(p.interactions);
  validateInteractionPermissions(p.interactions,environment,p.writes);
  const automation=validateAutomationInput(p.automation);
  const contactExpectedFields=validateContactExpectedFields(p.contactExpectedFields);
- for(const key of ['writes','submit','bankOrder'])if(p[key]!==undefined&&typeof p[key]!=='boolean')throw Error('操作許可は真偽値で指定してください');
+ for(const key of ['writes','submit','bankOrder','sensitivePaths'])if(p[key]!==undefined&&typeof p[key]!=='boolean')throw Error('操作許可は真偽値で指定してください');
  if(typeof p.timezone!=='string'||!p.timezone||typeof p.language!=='string'||!p.language||typeof p.indexable!=='boolean')throw Error('タイムゾーン・言語・検索公開方針を入力してください');
  try{new Intl.DateTimeFormat('ja',{timeZone:p.timezone});}catch{throw Error('タイムゾーンが不正です');}
  if(p.writes&&environment==='production')throw Error('本番環境ではテスト投稿を作成できません');
@@ -72,7 +72,7 @@ export async function discoverRegistration({baseURL,profile,state,publicPassword
 }
 export function registrationConfig({name,baseURL,environment,profile,discovery}){
  const p=validateProfile(resolveAutomationProfile(profile,discovery),environment);const url=new URL(baseURL);if(url.origin!==baseURL||url.pathname!=='/'||!name?.trim())throw Error('サイト名とorigin形式のURLが必要です');
- const c={name:name.trim(),baseURL,environment,allowTestWrites:p.writes,allowProductionJourneys:environment==='production',pages:discovery.pages.map((v,i)=>({id:i?'discovered-'+i:'home',path:v.path,canonical:new URL(v.path,baseURL).href,indexable:p.indexable,lang:p.language,links:true})),admin:[],journeys:[],visuals:[],checks:[],manual:[]};
+ const c={name:name.trim(),baseURL,environment,allowTestWrites:p.writes,allowSensitivePaths:p.sensitivePaths??environment!=='production',allowProductionJourneys:environment==='production',pages:discovery.pages.map((v,i)=>({id:i?'discovered-'+i:'home',path:v.path,canonical:new URL(v.path,baseURL).href,indexable:p.indexable,lang:p.language,links:true})),admin:[],journeys:[],visuals:[],checks:[],manual:[]};
  const setting=(id,title,path,selector,read,expected)=>c.admin.push({id,title,path:p.adminPath+path,source:'browser',selector,read,expected,authenticatedSelector:'#wpadminbar',storageStateEnv:'WPQA_UI_ADMIN_STATE'});
  setting('siteurl','WordPress URL','options-general.php','#siteurl','value',baseURL+p.adminPath.replace(/\/wp-admin\/$/,''));
  setting('home','公開サイトURL','options-general.php','#home','value',baseURL+(p.sitePath||'/').replace(/\/$/,''));
