@@ -28,3 +28,23 @@ test('automatic preparation never widens allowSensitivePaths',async()=>{
  const out=await completePreparation(legacy,{sitePath:'/'},{...disc,authenticated:true});
  assert.notEqual(out.config.allowSensitivePaths,true);
 });
+test('ProjectStore.save derives allowSensitivePaths without resetting stored values',async()=>{
+ const fs=await import('node:fs'),os=await import('node:os'),path=await import('node:path');
+ const {ProjectStore}=await import('../ui/project-store.mjs');
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'wpqa-sp-'));
+ try{
+  const store=new ProjectStore(dir),prof={sitePath:'/',timezone:'Asia/Tokyo',language:'ja',indexable:true};
+  const cfg=environment=>({...base(),environment,allowProductionJourneys:environment==='production',admin:[],journeys:[],visuals:[],checks:[],manual:[]});
+  const flag=id=>store.view(id).config.allowSensitivePaths;
+  assert.equal(flag(store.save({config:cfg('staging'),profile:prof})),true);
+  assert.equal(flag(store.save({config:cfg('production'),profile:prof})),false);
+  const id=store.save({config:cfg('staging'),profile:{...prof,sensitivePaths:false}});assert.equal(flag(id),false);
+  assert.equal(flag(store.save({id,version:store.view(id).version,config:cfg('staging'),profile:prof})),false);
+  const id2=store.save({config:cfg('production'),profile:{...prof,sensitivePaths:true}});assert.equal(flag(id2),true);
+  assert.equal(flag(store.save({id:id2,version:store.view(id2).version,config:cfg('production'),profile:prof})),true);
+  assert.equal(flag(store.save({id:id2,version:store.view(id2).version,config:cfg('production'),profile:{...prof,sensitivePaths:false}})),false);
+  const id3=store.save({config:cfg('staging'),profile:prof});
+  const rec=store.record(id3);delete rec.config.allowSensitivePaths;fs.writeFileSync(store.file(id3),JSON.stringify(rec));
+  assert.equal(flag(store.save({id:id3,version:store.view(id3).version,config:cfg('staging'),profile:prof})),false);
+ }finally{fs.rmSync(dir,{recursive:true,force:true});}
+});
