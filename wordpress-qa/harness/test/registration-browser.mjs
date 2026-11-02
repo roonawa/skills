@@ -118,7 +118,8 @@ try{
   assert.equal(registration.status(),201,await registration.text());
   const saved=await registration.json(),id=saved.id;
   assert.equal(saved.pages,6);
-  assert.deepEqual(saved.warnings,[]);
+  // Since automation discovery warnings are surfaced at registration: the fixed baseline notice plus this fixture's missing admin pages and menu.
+  assert.deepEqual(saved.warnings,['Admin observations are regression baselines, not validated business requirements.','Some discovery sources were unavailable; missing conditions were not inferred.','No unambiguous public menu control and target were verified; selectors were not guessed.']);
   await expect(dialog).not.toBeVisible();
   await expect(page.locator('#project-name')).toContainText('Local registration acceptance');
   const boot=await getJSON('/api/bootstrap');token=boot.token;
@@ -126,8 +127,9 @@ try{
   const settings=await getJSON(`/api/projects/${id}/settings`);
   assert.equal(settings.config.allowSensitivePaths,true);
   assert.equal(settings.credentials.browser,true);
-  assert.equal(settings.config.admin.length,5);
-  assert.deepEqual(settings.config.admin.map(a=>a.id).sort(),['home','indexing','language','siteurl','timezone']);
+  // Five profile settings plus the observed-baseline check for the fixture's one active plugin.
+  assert.deepEqual(settings.config.admin.map(a=>a.id).sort(),['home','indexing','language','observed-plugins-plugin-fixture','siteurl','timezone']);
+  assert.equal(settings.config.admin.length,6);
   assert(settings.config.admin.every(a=>a.source==='browser'&&a.storageStateEnv==='WPQA_UI_ADMIN_STATE'));
   assert.deepEqual(settings.config.pages.map(p=>p.path).sort(),['/','/?p=13','/?p=14','/about/','/news/first/','/news/second/']);
   for(const query of ['/?p=13','/?p=14']){
@@ -155,10 +157,14 @@ try{
   // HTTP adversarial checks use the real server, valid CSRF headers and saved version.
   const malicious=structuredClone(settings.config);
   malicious.journeys[0].module=path.join(scratch,'arbitrary-not-created.mjs');
+  // Profile-backed saves regenerate journeys from the saved profile, so a client-supplied module is discarded
+  // rather than refused (store-level refusal is covered in registration.test.mjs).
   const refused=await post(`/api/projects/${id}/settings`,{version:settings.version,config:malicious});
-  assert.equal(refused.status,400);
-  assert.match((await refused.json()).error,/標準検査/);
-  assert.equal(store.record(id).version,record.version,'rejected code does not alter the project');
+  assert.equal(refused.status,200,await refused.clone().text());
+  const builtin=new Set(record.config.journeys.map(j=>j.module));
+  assert(store.record(id).config.journeys.every(j=>builtin.has(j.module)),'client-supplied module is not saved');
+  assert(!fs.readFileSync(store.file(id),'utf8').includes('arbitrary-not-created'),'malicious module path is not persisted');
+  const savedVersion=store.record(id).version;
 
   const second=await post('/api/logins',{baseURL:origin,environment:'local'});
   assert.equal(second.status,201);const secondLogin=await second.json();
@@ -172,14 +178,14 @@ try{
   assert([400,500].includes(production.status));
   assert.equal(requests.length,before,'production writes rejected before discovery');
   assert.equal((await getJSON('/api/bootstrap')).projects.length,1);
-  assert.equal(store.record(id).version,record.version);
+  assert.equal(store.record(id).version,savedVersion);
   for(const action of ['submit','bankOrder']){
     const unsafeProfile={...record.profile,[action]:true};
     assert.throws(()=>validateProfile(unsafeProfile,'production'),/検証環境/);
     const denied=await post('/api/registration',{name:'Must not save',baseURL:origin,environment:'production',loginId:secondLogin.id,profile:unsafeProfile});
     assert([400,500].includes(denied.status),`server rejects production ${action}`);
     assert.equal(requests.length,before,'unsafe production profile never reaches discovery');
-    assert.equal(store.record(id).version,record.version);
+    assert.equal(store.record(id).version,savedVersion);
   }
   // Control: production without writes reaches the distinct login/environment check.
   const mismatch=await post('/api/registration',{name:'Must not save',baseURL:origin,environment:'production',loginId:secondLogin.id,profile:{...record.profile,writes:false}});
@@ -195,10 +201,11 @@ try{
   const project=await getJSON(`/api/projects/${id}`),job=project.lastJob;
   // An admin-only run leaves the other generated required suites unrun.
   assert.equal(job.exitCode,2,job.log);
-  await expect(page.locator('#metric-pass')).toHaveText('5',{timeout:15000});
+  // Five profile settings plus the observed active-plugin baseline.
+  await expect(page.locator('#metric-pass')).toHaveText('6',{timeout:15000});
   const detail=await getJSON(`/api/projects/${id}/runs/${job.runId}`);
   const adminRows=detail.report.rows.filter(r=>r.id.startsWith('admin.'));
-  assert.equal(adminRows.length,5);assert(adminRows.every(r=>r.status==='pass'));
+  assert.equal(adminRows.length,6);assert(adminRows.every(r=>r.status==='pass'));
   assert.equal(detail.report.runStatus,'finished');
   assert.equal(detail.report.gatePassed,false);
   assert.deepEqual(detail.report.errors,[]);
@@ -212,7 +219,7 @@ try{
   assert(!JSON.stringify(detail).includes(session));
   assert(requests.every(r=>r.method==='GET'),'registration and admin suite never mutate WordPress');
   assert.deepEqual(errors,[]);
-  console.log('Registration browser acceptance passed: wizard login, query permalink discovery, five admin checks, saved profile/consent, module/production guards, scope claims, automatic report. Artifacts: '+scratch);
+  console.log('Registration browser acceptance passed: wizard login, query permalink discovery, six admin checks, saved profile/consent, module/production guards, scope claims, automatic report. Artifacts: '+scratch);
 }finally{
   try{await browser?.close();}finally{
     try{await app?.close();}finally{
