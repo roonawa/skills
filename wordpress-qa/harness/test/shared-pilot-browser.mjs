@@ -22,12 +22,12 @@ try{
  browser=await chromium.launch();const context=await browser.newContext({httpCredentials:{username:'tester',password:'long-fixture-password-1234'},viewport:{width:1440,height:1000}}),page=await context.newPage();
  const errors=[];page.on('pageerror',e=>errors.push(e.message));await page.goto(fixtureURL);
  await expect(page.locator('#shared-pilot-notice')).toBeVisible();await page.locator('#new-site').click();
- const form=page.locator('#site-editor');await expect(form).toBeVisible();await expect(form.locator('#login-start')).toBeHidden();
- await expect(form.locator('#login-status')).toContainText('共有版');await expect(form.locator('#auth-state')).toBeAttached();
+ const form=page.locator('#site-editor');await expect(form).toBeVisible();await expect(form.locator('#login-start')).toBeVisible();
+ await expect(form.locator('#auth-state')).toBeAttached();
  await form.locator('#site-fields [data-key=name]').fill('社内試用テスト');await form.locator('#site-fields [data-key=baseURL]').fill('https://example.test');await form.locator('#site-fields [data-key=baseURL]').press('Tab');
  await form.locator('#editor-save').click();await expect(form).not.toBeVisible();await expect(page.locator('#project-name')).toContainText('社内試用テスト');
  await page.reload();await expect(page.locator('#project-name')).toContainText('社内試用テスト');
  if(errors.length)throw Error(errors.join('\n'));
  await page.screenshot({path:path.join(dir,'shared-pilot-ui.png'),fullPage:true});
- console.log('Shared UI auth, registration, disabled remote-window login, generated cases and reload passed. '+dir);
+ console.log('Shared UI auth, registration, remote-login entry, generated cases and reload passed. '+dir);
 }finally{await browser?.close();await new Promise(r=>proxy.close(r));await app.close();}

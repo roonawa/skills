@@ -8,6 +8,14 @@ export function envHeaders(name) {
   if(!value || Array.isArray(value) || typeof value!=='object' || Object.values(value).some(v=>typeof v!=='string')) throw new Error(`BLOCKED: ${name} must contain string headers`);
   return value;
 }
+export function mailHeaders(source,env=process.env){
+  const name=source.headersEnv;if(!name)return {};
+  if(!/^WPQA_MAIL_[A-Z0-9_]+_HEADERS$/.test(name))throw Error('BLOCKED: メール専用の認証設定が必要です');
+  if(new URL(source.url).origin!==env[name+'_ORIGIN'])throw Error('BLOCKED: メール認証の送信先が許可されていません');
+  let headers;try{headers=JSON.parse(env[name]);}catch{throw Error('BLOCKED: メール認証が未設定です');}
+  if(!headers||Array.isArray(headers)||Object.entries(headers).some(([k,v])=>typeof v!=='string'||/[\r\n]/.test(k+v)||['host','proxy-authorization'].includes(k.toLowerCase())))throw Error('BLOCKED: メール認証の形式が不正です');
+  return headers;
+}
 export async function waitForMail(mailpit, expected) {
   if(!mailpit) throw new Error('BLOCKED: mailpit is not configured');
   const {token,to,subject,textIncludes,count=1,timeoutMs=15000,settleMs=500}=expected;
@@ -16,7 +24,8 @@ export async function waitForMail(mailpit, expected) {
   const deadline=Date.now()+timeoutMs; let matches=[],stableSince=0;
   async function get(resource) {
     let response;
-    try { response=await fetch(new URL(resource,mailpit.url),{headers:envHeaders(mailpit.headersEnv),signal:AbortSignal.timeout(Math.max(1,Math.min(5000,deadline-Date.now()))),redirect:'error'}); }
+    const headers=mailHeaders(mailpit);
+    try { response=await fetch(new URL(resource,mailpit.url),{headers,signal:AbortSignal.timeout(Math.max(1,Math.min(5000,deadline-Date.now()))),redirect:'error'}); }
     catch { throw new Error('BLOCKED: Mailpit API unavailable'); }
     if(!response.ok) throw new Error(`BLOCKED: Mailpit HTTP ${response.status}`);
     return response.json();

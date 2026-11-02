@@ -78,13 +78,12 @@ test('profile UI hides legacy scopes, omits per-run approval, and shows read-onl
     await page.waitForFunction(()=>document.querySelector('#run-button').disabled===false);
     assert.ok(runPayload);assert.equal(Object.hasOwn(runPayload,'operation'),false);
     fs.writeFileSync(path.join(f.dir,'profile-contact-pending.json'),JSON.stringify({status:'pending',token:'qa-fixture'}));
-    await page.click('#operation-tests');
-    await page.waitForFunction(()=>document.querySelector('#operation-panel').textContent.includes('qa-fixture'));
+    assert.equal(await page.locator('#operation-tests').count(),0);
     assert.equal(await page.locator('#operation-form').count(),0);assert.equal(await page.locator('#release-operation').count(),0);
     await page.selectOption('#project-select',f.externalId);
     await page.waitForFunction(()=>!document.querySelector('#standard-operation-settings').hidden);
     assert.equal(await page.locator('#profile-operation-scope').isVisible(),false);
-    assert.equal(await page.locator('#operation-panel').isVisible(),false);
+    assert.equal(await page.locator('#operation-panel').count(),0);
     runPayload=null;
     await page.click('#run-button');
     await page.waitForFunction(()=>document.querySelector('#run-button').disabled===false);

@@ -68,3 +68,11 @@ test('settings save compiles additional checks, retains observed baselines and v
   const enabled=await post({version:after.version,config:pendingConfig,profile:permitted});assert.equal(enabled.status,200,await enabled.text());const ready=store.record(id);assert(ready.config.journeys.some(j=>j.id==='profile-post-lifecycle'));assert(!ready.config.checks.some(c=>c.id==='coverage-publishing'&&c.kind==='unconfigured'));assert.equal(ready.profile.submit,after.profile.submit);
  }finally{await app.close();fs.rmSync(dir,{recursive:true,force:true});}
 });
+
+test('public rediscovery without a profile prepares executable cases and preserves authentication and existing expectations',async()=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'qa-public-rediscovery-')),codec=(v,d=false)=>d?Buffer.from(v,'base64').toString():Buffer.from(v).toString('base64');const store=new ProjectStore(dir,{codec});
+ const cfg={...config,checks:[...config.checks,{id:'coverage-crawl',suite:'seo',kind:'unconfigured',options:{instructions:'pending'}}]};
+ const id=store.save({config:cfg,auth:{rest:{username:'admin',password:'private-rest'}}});const before=store.record(id);
+ const app=await startUI({port:0,storeDir:dir,credentialCodec:codec,publicDiscovery:async()=>({public:{crawlProbes:[{path:'/robots.txt',type:'robots'}]}})});
+ try{const b=await(await fetch(app.url+'/api/bootstrap')).json();const r=await fetch(app.url+'/api/projects/'+id+'/rediscover',{method:'POST',headers:{Origin:app.url,'X-QA-Token':b.token,'Content-Type':'application/json'},body:JSON.stringify({version:before.version})});const data=await r.json();assert.equal(r.status,200,JSON.stringify(data));const after=store.record(id);assert.equal(data.preparation.adopted,1);assert.equal(after.config.checks.find(x=>x.id==='coverage-crawl').kind,'discovered-public');assert.deepEqual(after.config.admin,before.config.admin);assert.equal(after.sealed,before.sealed);assert.equal(after.profile,undefined);assert.equal(after.config.allowTestWrites,false);assert(!JSON.stringify(data).includes('private-rest'));}finally{await app.close();fs.rmSync(dir,{recursive:true,force:true});}
+});

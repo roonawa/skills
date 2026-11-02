@@ -13,15 +13,15 @@ for(const check of ctx.config.checks??[]){
   if(check.kind==='human-review'){info.annotations.push({type:'qa-review',description:check.options.instructions});test.skip();}
   const attach=async(name,data)=>{
    const safe=String(name).replace(/[^a-zA-Z0-9-]/g,'-').slice(0,64)||'evidence';
-   if(data?.body!==undefined&&data?.contentType){const file=info.outputPath(safe+(data.contentType==='image/png'?'.png':'.txt'));fs.writeFileSync(file,data.body);await info.attach(name,{path:file,contentType:data.contentType});return;}
+   if(data?.body!==undefined&&data?.contentType){const file=info.outputPath(safe+(data.contentType==='image/png'?'.png':data.contentType==='application/json'?'.json':'.txt'));fs.writeFileSync(file,data.body);await info.attach(name,{path:file,contentType:data.contentType});return;}
    const file=info.outputPath(safe+'.json');fs.writeFileSync(file,JSON.stringify(data,null,2));await info.attach(safe,{path:file,contentType:'application/json'});
   };
   const journal=createEvidence({runDir:ctx.runDir,check,config:ctx.config});
-  const cancellation=cancellationSignal(ctx.runDir);
+  const cancellation=cancellationSignal(ctx.runDir);let reviewRequired=false;
   try{
    checkCancellation(ctx.runDir);
    const evidence=await runCheck({check,config:ctx.config,requestFactory,browser,token:'qa-'+ctx.report.runId+'-'+check.id,configDir:ctx.configDir,runDir:ctx.runDir,attach,record:journal.record,signal:cancellation.signal});
-   journal.record({phase:'complete',passed:true});
+   reviewRequired=evidence?.reviewRequired===true;journal.record({phase:'complete',passed:!reviewRequired,reviewRequired});
    await attach('extended-result',journal.clean(evidence));
   }catch(error){
    journal.record({phase:'failure',passed:false,error});
@@ -34,5 +34,6 @@ for(const check of ctx.config.checks??[]){
    await attach('extended-evidence',journal.summary());
    await info.attach('step-journal',{path:journal.file,contentType:'application/x-ndjson'});
   }
+  if(reviewRequired){info.annotations.push({type:'qa-review',description:'公式補助照合済み。脆弱性照合・独自コードの未確認範囲を直接確認してください'});test.skip();}
  });
 }

@@ -1,23 +1,41 @@
+x-logging: &logging
+  driver: json-file
+  options: {max-size: "10m", max-file: "3"}
 services:
   qa:
     build: ..
     init: true
     restart: unless-stopped
+    logging: *logging
     shm_size: 1gb
+    mem_limit: 2g
+    cpus: 2
+    pids_limit: 256
     stop_grace_period: 5m
     environment:
       WPQA_PUBLIC_ORIGIN: ${WPQA_PUBLIC_ORIGIN:?Set HTTPS origin}
       WPQA_ENCRYPTION_KEY_FILE: /run/secrets/qa_key
       WPQA_USERS_FILE: /run/secrets/qa_users
       WPQA_DATA_DIR: /data
+      WPQA_POLICY_FILE: /policy/egress.json
+      WPQA_ADMINS: ${WPQA_ADMINS:?Set administrator usernames}
+      WPQA_EGRESS_PROXY: http://egress:3128
+      WPQA_BROWSER_CHROMIUM: ws://chromium:3000/browser
+      WPQA_BROWSER_FIREFOX: ws://firefox:3000/browser
+      NODE_OPTIONS: --import=/app/lib/shared-runtime.mjs
+      WPQA_MAX_DATA_MB: ${WPQA_MAX_DATA_MB:-8192}
     secrets: [qa_key, qa_users]
-    volumes: [qa_data:/data]
-    networks: [backend]
+    volumes: [qa_data:/data, policy_data:/policy]
+    networks: [backend, control]
+    depends_on: [egress, chromium, firefox]
     security_opt: [no-new-privileges:true]
     # No published application port. Only the TLS proxy can reach this service.
   proxy:
     image: caddy:2
     restart: unless-stopped
+    logging: *logging
+    mem_limit: 128m
+    pids_limit: 128
     ports:
       - "${WPQA_BIND_IP:-127.0.0.1}:${WPQA_PORT:-8443}:443"
     environment:
@@ -26,8 +44,46 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
-    networks: [backend]
+    networks: [backend, public]
     depends_on: [qa]
+  egress:
+    build: ..
+    command: [node, bin/egress-proxy.mjs]
+    restart: unless-stopped
+    logging: *logging
+    init: true
+    mem_limit: 256m
+    cpus: 1
+    pids_limit: 64
+    volumes: [policy_data:/policy:ro]
+    networks: [control, public]
+    security_opt: [no-new-privileges:true]
+  chromium:
+    build: ..
+    command: [node, bin/browser-worker.mjs]
+    restart: unless-stopped
+    logging: *logging
+    init: true
+    shm_size: 1gb
+    mem_limit: 2g
+    cpus: 2
+    pids_limit: 256
+    environment: {WPQA_ENGINE: chromium}
+    networks: [control]
+    security_opt: [no-new-privileges:true, 'seccomp=./browser-seccomp.json']
+  firefox:
+    build: ..
+    command: [node, bin/browser-worker.mjs]
+    restart: unless-stopped
+    logging: *logging
+    init: true
+    shm_size: 512mb
+    mem_limit: 1536m
+    cpus: 2
+    pids_limit: 256
+    environment: {WPQA_ENGINE: firefox}
+    networks: [control]
+    security_opt: [no-new-privileges:true]
 secrets:
   qa_key:
     file: ./secrets/key
@@ -37,5 +93,10 @@ volumes:
   qa_data:
   caddy_data:
   caddy_config:
+  policy_data:
 networks:
   backend:
+    internal: true
+  control:
+    internal: true
+  public:

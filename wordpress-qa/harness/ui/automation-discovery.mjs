@@ -12,7 +12,7 @@ const discussion = ['default_pingback_flag','default_ping_status','default_comme
  * request headers, REST nonce, mail destinations or exception text are returned.
  */
 export async function discoverAutomation({baseURL, profile = {}, adminPage, adminContext, publicHeaders = {}, pages = [], restSettings} = {}) {
-  const out = {version:1, observedAt:new Date().toISOString(), admin:{reading:[],discussion:[],permalink:[],plugins:[]}, activePlugins:[], public:{forms:[],sitemaps:[]}, warnings:['Admin observations are regression baselines, not validated business requirements.'], sources:[]};
+  const out = {version:1, observedAt:new Date().toISOString(), admin:{reading:[],discussion:[],permalink:[],plugins:[]}, activePlugins:[], public:{forms:[],sitemaps:[],fieldLabels:[]}, warnings:['Admin observations are regression baselines, not validated business requirements.'], sources:[]};
   let origin;
   try { const u = new URL(baseURL); if(!/^https?:$/.test(u.protocol) || u.username || u.password) throw Error(); origin=u.origin; }
   catch {out.warnings.push('Invalid base URL.'); return out;}
@@ -29,7 +29,7 @@ export async function discoverAutomation({baseURL, profile = {}, adminPage, admi
   for(const [name,value] of Object.entries(publicHeaders || {})) {
     if(typeof value!=='string')continue;
     if(name.toLowerCase()==='cookie') {
-      const gate=value.split(';').map(s=>s.trim()).filter(s=>/^password_protected_[a-zA-Z0-9_-]+=[^;\r\n]*$/.test(s) && !s.startsWith('password_protected_cookie_test='));
+      const gate=value.split(';').map(s=>s.trim()).filter(s=>/^(?:bid_\d+_)?password_protected_[a-zA-Z0-9_-]+=[^;\r\n]*$/.test(s) && !/(?:^|_)password_protected_cookie_test=/.test(s));
       if(gate.length)headers.Cookie=gate.join('; ');
     } else if(['accept','accept-language','user-agent'].includes(name.toLowerCase()) && !/[\r\n]/.test(value))headers[name]=value;
   }
@@ -125,23 +125,37 @@ export async function discoverAutomation({baseURL, profile = {}, adminPage, admi
       form.find('input,select,textarea').each((_,field)=>{
         const f=$(field),type=(f.attr('type') || (field.tagName==='input'?'text':field.tagName)).toLowerCase(),name=f.attr('name');
         if(!token(name) || !['text','email','tel','url','number','date','checkbox','radio','select','textarea','file'].includes(type))return;
+        const fieldId=f.attr('id');const publicLabel=(fieldId?$('label').filter((_,l)=>$(l).attr('for')===fieldId).text():f.closest('label').text()).replace(/\s+/g,' ').trim();
+        if(publicLabel&&publicLabel.length<=80&&!/@|https?:|[a-zA-Z0-9_-]{24}|password|secret|nonce|token/i.test(publicLabel))out.public.fieldLabels.push({formId,name,label:publicLabel});
         fields.push({name,type,required:f.is('[required]') || f.attr('aria-required')==='true' || f.hasClass('wpcf7-validates-as-required')});
       });
       // REST settings are only a routing hint; their nonce never enters public requests or output.
       let root=safeURL(restSettings?.root || (site?.pathname || '/')+'wp-json/');
       const restPath=root && /\/wp-json\/$/.test(root.pathname)?root.pathname+`contact-form-7/v1/contact-forms/${formId}/feedback`:undefined;
       const submitSelector=formSelector+' .wpcf7-submit',responseSelector='#'+id+' .wpcf7-response-output';
+      if(!exact(submitSelector))form.find('button,input[type="button"],input[type="submit"]').each((_,button)=>{
+        const b=$(button);if(b.is('[disabled]')||b.attr('type')==='reset')return;
+        const name=b.attr('name'),bid=b.attr('id');
+        const selector=token(bid)?'#'+bid:token(name)?formSelector+' [name='+quoted(name)+']':null;
+        const label=(b.text()||b.attr('value')||b.attr('aria-label')||'').replace(/\s+/g,' ').trim();
+        if(!/確認|送信|submit|confirm|send|次へ|next/i.test(label)||/削除|購入|決済|取消|delete|purchase|pay|cancel/i.test(label))return;
+        if(!selector||!exact(selector)||!label||label.length>80||/@|https?:|password|secret|nonce|token/i.test(label))return;
+        out.public.formControls??=[];out.public.formControls.push({path,formId,selector,label,type:b.attr('type')||'submit'});
+      });
       out.public.forms.push({path,formId,formSelector,fields,...(restPath?{restPath}:{}),...(exact(submitSelector)?{submitSelector}:{}),...(exact(responseSelector)?{responseSelector}:{})});
     });
     if(!out.public.search) {
       const input=$('form input[name="s"]');
-      if(input.length===1){const form=input.closest('form'),action=safeURL(form.attr('action')||path);
+      if(input.length){const chosen=input.toArray().find(el=>{const f=$(el).closest('form');return (f.attr('method')||'get').toLowerCase()==='get'&&f.find('input[name="s"]').length===1&&safeURL(f.attr('action')||path);});if(chosen){const form=$(chosen).closest('form'),action=safeURL(form.attr('action')||path);
         if((form.attr('method')||'get').toLowerCase()==='get' && action){
-          const inputSelector='form input[name="s"]',formSelector='form:has(input[name="s"])',submitSelector=formSelector+' :is(button[type="submit"],input[type="submit"],button:not([type]))';
-          out.public.search={path,actionPath:action.pathname,inputSelector,formSelector,...(exact(submitSelector)?{submitSelector}:{})};
+          const stable=token(form.attr('id'))&&exact('#'+form.attr('id'))?'#'+form.attr('id'):null;
+          const selector=stable||(()=>{let el=form[0],parts=[];while(el&&el.type==='tag'&&el.tagName!=='html'){const siblings=$(el).parent().children(el.tagName).toArray();parts.unshift(el.tagName+':nth-of-type('+(siblings.indexOf(el)+1)+')');el=el.parent;}return 'html > '+parts.join(' > ');})();
+          if(!exact(selector))continue;
+          const inputSelector=selector+' input[name="s"]',submitSelector=selector+' :is(button[type="submit"],input[type="submit"],button:not([type]))';
+          out.public.search={path,actionPath:action.pathname,inputSelector,formSelector:selector,...(exact(submitSelector)?{submitSelector}:{})};
           for(const selector of ['button[aria-label="検索を開く"]','button[aria-label="検索"]','button[aria-label="Open search"]','button[aria-label="Search"]'])if(exact(selector)){out.public.search.openSelector=selector;break;}
         }
-      }
+      }}
     }
     if(!out.public.menu)$('button[aria-controls],button[data-onclick="toggleMenu"]').each((_,el)=>{
       if(out.public.menu)return;
@@ -172,6 +186,7 @@ export async function discoverAutomation({baseURL, profile = {}, adminPage, admi
   sitemapPaths.add((site?.pathname||'/')+'sitemap_index.xml');
   sitemapPaths.add((site?.pathname||'/')+'sitemap.xml');
   for(const path of sitemapPaths){const body=await get(path);if(!body)continue;const $=load(body,{xmlMode:true});const root=$.root().children();if(root.length===1 && ['sitemapindex','urlset'].includes(root[0].tagName))out.public.sitemaps.push({path});}
+  if(site&&out.sources.some(x=>x.path===site.pathname&&x.status===200))out.public.crawlProbes=[{path:'/robots.txt',type:'robots'},...['wp-sitemap.xml','sitemap_index.xml','sitemap.xml'].map(name=>({path:site.pathname+name,type:'sitemap'}))];
   out.activePlugins=[...new Set(out.activePlugins)];
   return out;
 }

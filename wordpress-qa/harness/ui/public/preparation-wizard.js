@@ -51,7 +51,7 @@ export function showPreparationWizard({row,config,profile,profileFields,onProfil
  const check=config.checks.find(c=>c.id===key);
  if(!check||check.kind!=='unconfigured')return;
  const wizard=document.createElement('section');wizard.className='preparation-wizard';
- const title=document.createElement('h3');title.textContent=check.title+'：かんたん設定';wizard.append(title);
+ const title=document.createElement('h3');title.textContent=check.title+'：設定';wizard.append(title);
  const note=document.createElement('p');note.textContent='取得できたURL・入力欄は補っています。宛先・期待する結果・操作の許可は確認して入力してください。保存後も、実行して結果を確認するまでは合格になりません。';wizard.append(note);
  const controls=[...row.children];for(const child of controls)child.hidden=true;
  row._simplePreparation=true;

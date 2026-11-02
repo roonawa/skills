@@ -1,3 +1,4 @@
+import * as softwareSecurity from './software-security.mjs';
 import * as wordpress from './wordpress.mjs';
 import * as reading from './read-only.mjs';
 import * as workflows from './workflows.mjs';
@@ -5,8 +6,8 @@ import * as standard from './standard.mjs';
 import * as interaction from './site-interaction.mjs';
 import * as discovered from './discovered.mjs';
 
-export const suites={publishing:'投稿・公開',authz:'権限・非公開',cache:'キャッシュ',operations:'更新・復元',scheduled:'予約・定期処理',delivery:'フォーム・配送',performance:'性能',compatibility:'ブラウザー互換性',seo:'SEO・移行',accessibility:'キーボード・手動評価',commerce:'EC・決済',membership:'会員・データ分離',multilingual:'多言語'};
-const handlers=[wordpress,reading,workflows,standard,interaction,discovered];
+export const suites={publishing:'投稿・公開',authz:'権限・脆弱性',cache:'キャッシュ',operations:'更新・復元',scheduled:'予約・定期処理',delivery:'フォーム・配送',performance:'性能',compatibility:'ブラウザー互換性',seo:'SEO・移行',accessibility:'キーボード・手動評価',commerce:'EC・決済',membership:'会員・データ分離',multilingual:'多言語'};
+const handlers=[softwareSecurity,wordpress,reading,workflows,standard,interaction,discovered];
 // Deterministic preparation only. Network failures and assertion failures must
 // remain actual execution results, never be converted into preparation states.
 export function preparationReason(check,config){

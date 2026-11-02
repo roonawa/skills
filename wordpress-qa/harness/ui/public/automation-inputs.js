@@ -18,7 +18,9 @@ export function validateAutomationInput(value){
  for(const check of additionalChecks){
   requireValue(object(check),'各検査はオブジェクトで指定してください');
   requireValue(Object.keys(check).every(k=>['id','title','suite','kind','options','required','timeoutMs'].includes(k)),'検査に未対応の項目があります（モジュールは登録できません）');
-  requireValue(automationCoverageIds.includes(check.id)&&!seen.has(check.id),'id は既存の coverage-* IDを重複なく指定してください');seen.add(check.id);
+  const aiId=/^ai-(layout|performance|canonical|metadata|navigation|forms|keyboard|integrations|multilingual|crawl)-\d+-(mobile|desktop)$/.exec(check.id);
+  const aiKinds={layout:'compatibility-screen',performance:'performance-navigation',canonical:'seo-page'};
+  requireValue((automationCoverageIds.includes(check.id)||aiId&&check.kind===(aiKinds[aiId[1]]??'standard-public'))&&!seen.has(check.id),'id は既存の coverage-* または読み取り補完の ai-* IDを重複なく指定してください');seen.add(check.id);
   requireValue(automationKinds.includes(check.kind),check.id+' の kind は既存の実行可能な検査を指定してください');
   requireValue(suites.has(check.suite),check.id+' の suite が不正です');
   requireValue(object(check.options),check.id+' の options はオブジェクトで指定してください');

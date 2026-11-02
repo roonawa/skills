@@ -188,7 +188,7 @@ export const viewpoints=[
   ]
 ];
 export function generateCases(input){
- const c=structuredClone(input);c.checks??=[];c.manual??=[];c.visuals??=[];
+ const c=addSecurityChecks(structuredClone(input),input.securityAdminPath??'/wp-admin/');delete c.securityAdminPath;c.checks??=[];c.manual??=[];c.visuals??=[];
  for(const p of (c.pages??[]).slice(0,5)){
   p.links??=true;
   for(const [suffix,width,height] of [['pc',1280,900],['sp',390,844]]){
@@ -243,5 +243,37 @@ export function linkRegistrationCoverage(input,profile={}){
   row.kind=human?'human-review':'unconfigured';
   return true;
  });
+ return c;
+}
+
+// Preparation priority is not a confirmed vulnerability or a risk score.
+export function preparationImportance(row){
+ if(row?.preparationRequired!==true)return null;
+ const key=String(row.id??'').split('.').at(-1).replace(/^coverage-/,'');
+ const rules={
+  roles:['セキュリティ','権限のない閲覧・更新や機密情報の漏えいを見逃す可能性があります。'],
+  membership:['セキュリティ','他の会員の情報へのアクセスやデータ混在を見逃す可能性があります。'],
+  cache:['セキュリティ・不具合','非公開情報のキャッシュ流出や更新内容の反映漏れを見逃す可能性があります。'],
+  analytics:['セキュリティ・不具合','同意前の外部送信や迷惑送信対策の動作を確認できていません。'],
+  'admin-discussion':['セキュリティ','未承認コメントの公開や迷惑投稿への対策を確認できていません。'],
+  restore:['不具合','障害時にデータを復元できず、サイト停止やデータ損失が続く可能性があります。'],
+  update:['不具合','更新後にサイト表示や主要操作が停止する問題を見逃す可能性があります。']
+ };
+ const suites={
+  authz:['セキュリティ','アクセス制御や非公開情報の保護に関する検査条件が不足しています。'],
+  membership:rules.membership,cache:rules.cache,security:['セキュリティ','情報漏えいや不正操作に関する検査条件が不足しています。'],
+  operations:rules.restore,
+  commerce:['不具合','注文・金額・受注状態・取消の不整合を見逃す可能性があります。'],
+  delivery:['不具合','主要な操作や問い合わせ送信・通知の失敗を見逃す可能性があります。'],
+  publishing:['不具合','公開・非公開の切替や更新の失敗を見逃す可能性があります。'],
+  scheduled:['不具合','予定外の公開や予約・定期処理の失敗を見逃す可能性があります。']
+ };
+ // General/reading/permalink/plugin settings alone do not establish security impact.
+ const match=rules[key]??(!key.startsWith('admin-')?suites[row.suite]:null);
+ return match?{category:match[0],reason:match[1]}:null;
+}
+
+export function addSecurityChecks(c,adminPath='/wp-admin/'){
+ c.checks??=[];for(const [component,title] of [['core','WordPress本体の既知脆弱性'],['theme','テーマの既知脆弱性'],['plugin','プラグインの既知脆弱性'],['php','PHPバージョン・公式サポート期限']]){const id='security-'+component;if(!c.checks.some(x=>x.id===id))c.checks.push({id,title,suite:'authz',kind:'software-security',required:true,timeoutMs:900000,options:{component,adminPath}});}
  return c;
 }

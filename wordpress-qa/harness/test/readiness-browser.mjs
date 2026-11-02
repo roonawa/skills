@@ -46,14 +46,14 @@ try{
   await expect(page.locator('#progress-label')).toHaveText('2 / 2 項目');
   await page.locator('[data-filter="preparation"]').click();
   await expect(page.locator('[data-group]')).toHaveCount(25);
-  await expect(page.locator('.group-heading .pill').first()).toHaveText('準備待ち');
+  await expect(page.locator('.group-heading .pill').first()).toHaveText('設定が必要');
   await page.locator('[data-group="coverage.pending-0"]').click();
   await page.locator('[data-row="coverage.pending-0"]').click();
   await expect(page.locator('#detail')).toContainText('期待値が未定義です');
   await expect(page.locator('#detail')).toContainText('検査条件を登録');
   await expect(page.locator('#detail')).toContainText('必須条件');
   await expect(page.locator('#execute-case,#manual-review,#start-confirmation')).toHaveCount(0);
-  await page.locator('#detail [data-open-settings]').click();
+  await page.locator('#edit-site').click();
   await expect(page.locator('.settings-dialog').filter({has:page.locator('#site-editor')})).toBeVisible();
   await page.locator('#editor-close').click();
   await page.locator('[data-filter="not_run"]').click();
@@ -64,25 +64,17 @@ try{
   await expect(page.locator('#execute-case')).toBeVisible();
   await page.locator('[data-filter="attention"]').click();
   await expect(page.locator('[data-group]')).toHaveCount(26);
-  await page.locator('#preflight-button').click();
-  await expect(page.locator('#preflight-result')).toContainText('準備待ち 25件');
-  await expect(page.locator('#preflight-result')).toContainText('必須条件');
-  await expect(page.locator('#preflight-result [data-open-settings]')).toBeVisible();
-  await page.locator('#preflight-result [data-open-settings]').click();
-  await expect(page.locator('#site-editor')).toBeVisible();
-  await page.locator('#editor-close').click();
-  issues=[{id:'auth',message:'認証情報が不足しています'}];
-  await page.locator('#preflight-button').click();
-  await expect(page.locator('#preflight-result')).toContainText('認証情報が不足しています');
-  await expect(page.locator('#preflight-result')).toContainText('準備待ち 25件');
+  await expect(page.locator('#preflight-button')).toHaveCount(0);
+  await expect(page.locator('#operation-tests')).toHaveCount(0);
   await page.setViewportSize({width:390,height:844});
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
   report.runStatus='planned';
   await page.reload();
   await expect(page.locator('#metric-preparation')).toHaveText('25');
-  await expect(page.locator('#run-subtitle')).toContainText('準備待ち 25件は実行対象外');
+  await expect(page.locator('#run-subtitle')).toContainText('設定が必要 25件は実行対象外');
   await page.locator('[data-filter="preparation"]').click();
   await expect(page.locator('[data-group]')).toHaveCount(25);
   assert.deepEqual(errors,[]);assert.deepEqual(writes,[]);
-  console.log('PASS: preparation counts/filter/detail/settings, ordinary unselected rerun, release pending, preflight issues separated, mobile, no writes');
+  console.log('PASS: preparation counts/filter/detail/settings, ordinary unselected rerun, release pending, simplified controls, mobile, no writes');
 }finally{await browser?.close();await new Promise(resolve=>server.close(resolve));}
+

@@ -6,7 +6,7 @@
 .login-actions{display:flex;gap:10px;flex-wrap:wrap;margin:16px 0}.login-actions button{padding:10px 14px;border:1px solid #bdcceb;border-radius:7px;color:#234eb9;background:#f3f7ff}.login-actions button:disabled{opacity:.5}
 .coverage-row,.role-row{border:1px solid #dbe3ee;border-radius:8px;padding:18px;margin:16px 0}.coverage-row>button[data-remove]{float:right}.coverage-row>label{margin-top:14px}.manual-review{display:grid;gap:12px;margin-top:20px;padding-top:18px;border-top:1px solid #e1e8f2}.manual-review label{display:grid;gap:5px}.manual-review input,.manual-review textarea,.manual-review select{width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:6px;font:inherit}.check-details{margin-top:16px}.editor-section-title{gap:12px;flex-wrap:wrap}
 
-/* PHANTOM / cinematic terminal skin. Decorative signals never change QA data. */
+/* SITE EXAM / cinematic terminal skin. Decorative signals never change QA data. */
 :root{color-scheme:dark;--blue:#b6e98b;--line:#294034;--muted:#95aa9d;background:#060b09;color:#d5e4d8;font-family:Consolas,"Cascadia Code","Yu Gothic UI",monospace}
 body{background:radial-gradient(ellipse at 80% 0,#17302666,transparent 55%),#060b09}
 body:after{content:"";position:fixed;inset:0;pointer-events:none;z-index:30;background:repeating-linear-gradient(transparent 0 3px,#00000018 3px 4px);opacity:.45}
@@ -125,3 +125,58 @@ button{background:#122017;color:#bed1b2;border:1px solid #40543a;border-radius:0
 .preparation-wizard { padding:16px; line-height:1.8; }
 .preparation-wizard label { display:block; margin:12px 0; }
 .settings-target > [hidden] { display:none!important; }
+
+.remote-login canvas{width:100%;max-width:1100px;height:auto;border:2px solid #8ba6b7;background:white;touch-action:none}.remote-login[hidden]{display:none}.remote-login input{max-width:100%}
+
+.ai-preparation{border:1px solid #8ba6b7;border-radius:8px;padding:16px;margin:18px 0}.ai-preparation label{display:block;margin:12px 0}.ai-preparation input[type=checkbox]{width:auto;margin-right:8px}.ai-preparation [data-output]>div{border-top:1px solid #8ba6b7;padding:8px 0}
+
+/* SITE EXAM: additive assessment panel; existing harness selectors remain intact. */
+.exam-panel{padding:22px;margin:22px 0}.exam-actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:18px 0}.exam-issue{padding:16px;border:1px solid var(--line,#557568);border-radius:8px;margin:12px 0}.exam-issue summary{cursor:pointer}.exam-issue summary strong{display:inline-block;margin:8px 16px}.exam-panel label{display:block;margin:12px 0}.exam-panel textarea{display:block;width:100%;min-height:88px;margin-top:5px}.exam-panel select{margin:6px;max-width:100%}.exam-score-fields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}.exam-panel iframe{width:100%;height:650px;background:white;border:1px solid #789}.exam-panel a{overflow-wrap:anywhere}.exam-ai{padding:16px;border:1px solid #789;margin:12px 0}.exam-panel [data-message]{white-space:pre-wrap}@media(max-width:800px){.exam-score-fields{grid-template-columns:1fr}.exam-panel{padding:14px}}
+
+/* Checkbox and label share one clickable row across all harness panels. */
+:is(body,#site-editor,#registration-dialog,#issue-report-panel,#designer-report-panel) label:has(> input[type="checkbox"]){display:grid;grid-template-columns:18px minmax(0,1fr);align-items:start;gap:10px;min-height:44px;padding:11px 12px;margin:8px 0;border:1px solid var(--line,#445b39);border-radius:4px;line-height:1.6;text-align:left;cursor:pointer;overflow-wrap:anywhere}
+:is(body,#site-editor,#registration-dialog,#issue-report-panel,#designer-report-panel) label:has(> input[type="checkbox"])>input[type="checkbox"]{width:18px;height:18px;min-width:18px;margin:2px 0 0;padding:0;align-self:start;justify-self:start}
+:is(body,#site-editor,#registration-dialog,#issue-report-panel,#designer-report-panel) label:has(> input[type="checkbox"]:checked){border-color:#87b75c;background:#b4e8830b}
+:is(body,#site-editor,#registration-dialog,#issue-report-panel,#designer-report-panel) label:has(> input[type="checkbox"]:focus-visible){outline:2px solid #b4e883;outline-offset:2px}
+:is(body,#site-editor,#registration-dialog,#issue-report-panel,#designer-report-panel) label:has(> input[type="checkbox"]:disabled){cursor:not-allowed;opacity:.6}
+:is(body,#site-editor,#registration-dialog,#issue-report-panel,#designer-report-panel) label:has(> input[type="checkbox"])>small{grid-column:2}
+.checkbox-copy{display:block;min-width:0}.checkbox-copy strong,.checkbox-copy small{display:block}.checkbox-copy small{font-size:12px;margin-top:4px;color:inherit;opacity:.85}
+
+/* Preparation priority: slow yellow pulse, with persistent text and stop control. */
+.preparation-priority{border-left:4px solid #e8ba36!important;background:#ffe07612;animation:preparation-priority-pulse 3s ease-in-out infinite}
+.preparation-priority-label{display:inline-block;margin:4px 8px;padding:3px 8px;border:1px solid #e8ba36;border-radius:4px;background:#ffdf75;color:#342600;font-size:12px;font-weight:700;line-height:1.6}
+.preparation-priority-note{padding:12px;border-left:4px solid #e8ba36;background:#ffe07618}
+@keyframes preparation-priority-pulse{0%,100%{background-color:#ffe07612;box-shadow:inset 4px 0 #b68b20}50%{background-color:#ffe07635;box-shadow:inset 4px 0 #ffe278}}
+body.preparation-motion-off .preparation-priority{animation:none}
+@media(prefers-reduced-motion:reduce){.preparation-priority{animation:none}}
+@media print{.preparation-priority{animation:none}}
+
+/* Clear parent/category and nested case hierarchy. */
+.group-heading>td{background-color:#17271e;border-top:1px solid #4a6248;border-bottom:1px solid #3b5134;padding-top:16px;padding-bottom:16px}
+.group-heading .group-toggle>strong{font-size:16px;font-weight:750;line-height:1.5}
+.group-heading .group-toggle>small{font-size:11px;color:#acbca2}
+.group-heading:has(.group-toggle[aria-expanded="true"])>td{border-bottom:2px solid #a5cc7f}
+.group-results>td,.group-results:hover>td{background:#09130f!important;padding:0!important}
+.group-detail-panel{margin:0 16px 20px 28px;border:1px solid #3b5134;border-left:3px solid #789568;border-top:0;background:#0d1912}
+.group-caption{color:#b5c8ab;border-bottom:1px solid #344732;padding:12px 14px;line-height:1.7}
+.group-detail-label{display:inline-block;font-size:10px;padding:1px 6px;margin-right:8px;border:1px solid #50694a;color:#bed7ac;background:#21321c}
+.group-caption>small{display:block;font-size:11px;color:#94aa89;margin-top:3px}
+.group-table th{font-size:10px;padding:8px 12px;background:#101d15}
+.group-table .group-child>td{padding:9px 12px;background:transparent}
+.group-table .group-child>td:first-child{padding-left:16px;border-left:0}
+.group-table .group-child .row-button{min-height:44px;padding:4px 0}
+.group-table .group-child .row-button>strong{font-size:13px;font-weight:500;line-height:1.6}
+.group-table .group-child .row-button>small{font-size:10px;line-height:1.5}
+.group-table .group-child:hover>td{background:#ffffff08}
+.group-table .group-child.row-selected>td{background:#75995222;border-top:1px solid #8caf68;border-bottom:1px solid #8caf68}
+.group-table .group-child.row-selected>td:first-child{box-shadow:inset 3px 0 #b8df8c}
+.group-heading.preparation-priority>td{background:transparent}
+@media(max-width:720px){.group-detail-panel{margin-left:10px;margin-right:6px}.group-heading .group-toggle>strong{font-size:15px}.group-table .group-child>td{padding:8px}.group-table .group-child>td:first-child{padding-left:10px}}
+
+/* Reserve the first cell for the checkbox even when label text precedes it. */
+:is(body,#site-editor,#registration-dialog,#issue-report-panel,#designer-report-panel) label:has(> input[type="checkbox"]){min-width:0}
+:is(body,#site-editor,#registration-dialog,#issue-report-panel,#designer-report-panel) label:has(> input[type="checkbox"])>input[type="checkbox"]{grid-column:1;grid-row:1}
+.editor-grid>*{min-width:0}
+.editor-body fieldset{min-inline-size:0}
+
+.site-actions #remove-site{flex-basis:100%;color:#f0a4a4;border-color:#925151;margin-top:4px}.site-actions #remove-site:before{content:""}

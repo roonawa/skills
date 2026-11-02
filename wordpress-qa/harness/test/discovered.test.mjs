@@ -10,6 +10,14 @@ const menu={path:'/site/',openSelector:'#toggle',menuSelector:'#menu'};
 const form={path:'/site/contact',formId:12,formSelector:'#contact',submitSelector:'#send',responseSelector:'#response',restPath:'/site/wp-json/contact-form-7/v1/contact-forms/12/feedback',fields:[{name:'name',type:'text',required:true},{name:'email',type:'email',required:true}]};
 const config={baseURL:'http://localhost',timeoutMs:800};
 
+test('custom validity from the previous invalid attempt does not block the next fixture before submit',async t=>{
+ const server=http.createServer((req,res)=>{res.setHeader('Content-Type','text/html');res.end(`<form id="contact"><input name="name" required><input name="email" type="email" required><button id="send" type="button">送信</button></form><script>send.onclick=()=>{for(const e of contact.elements){if(e.tagName!=='INPUT')continue;e.setCustomValidity('');if(!e.value)e.setCustomValidity('入力してください');}}</script>`);});
+ await new Promise(r=>server.listen(0,'127.0.0.1',r));t.after(()=>new Promise(r=>server.close(r)));
+ const browser=await chromium.launch();t.after(()=>browser.close());
+ const r=await run({check:check('contact-errors',{forms:[form]}),config:{baseURL:'http://127.0.0.1:'+server.address().port,timeoutMs:3000},browser});
+ assert.equal(r.actual.observations.length,3);assert.equal(r.actual.network.forwardedWrites,0);
+});
+
 test('strict nested schemas reject unknown keys, nonpublic paths and mismatched endpoints',()=>{
   for(const c of [check('navigation',{typo:true}),check('navigation',{search:{...search,typo:1}}),check('contact-retry',{forms:[{...form,restPath:'/site/wp-json/contact-form-7/v1/contact-forms/13/feedback'}]}),check('crawl',{path:'/wp-admin/'}),check('crawl',{sitemaps:[{path:'https://outside.test/map.xml'}]}),{...check('crawl'),suite:'delivery'}])assert.throws(()=>validate(c,config));
   validate(check('navigation'),config);
@@ -67,7 +75,8 @@ test('native and CF7 client validation run with every write blocked; retry obser
   const result=await run({check:check('contact-retry',{forms:[form]}),config:f.config,browser});
   assert.equal(result.actual.network.feedbackAttempts,2);
   assert.equal(f.seen.filter(r=>r.method!=='GET').length,0);
-  f.state.noError=true;await assert.rejects(run({check:check('contact-retry',{forms:[form]}),config:f.config,browser}));
+  f.state.noError=true;const attachments=[];await assert.rejects(run({check:check('contact-retry',{forms:[form]}),config:f.config,browser,attach:async(name,data)=>{if(name.endsWith('.json'))attachments.push(JSON.parse(data.body.toString()));}}));
+  const impact=attachments[0].observations.find(x=>x.schema==='wpqa-contact-impact-v1');assert.equal(impact.attempts.length,2);assert(impact.attempts.every(a=>a.feedbackVisible===false&&a.inputsRetained&&a.retryEnabled));assert.equal(attachments[0].network.forwardedWrites,0);
   f.state.noError=false;f.state.extra=true;
   await assert.rejects(run({check:check('contact-retry',{forms:[form]}),config:f.config,browser}),/BLOCKED:.*upload/);
   assert.equal(f.seen.filter(r=>r.method!=='GET').length,0);
@@ -130,4 +139,15 @@ test('verified closeSelector closes overlay without forcing the covered opener',
   const f=await fixture(t),browser=await chromium.launch();t.after(()=>browser.close());
   const m={...menu,path:'/site/separate',closeSelector:'#close',stateSelector:'html',stateAttribute:'data-spmenu',openedValue:'opened',closedValue:'closed'};
   await run({check:check('navigation',{menu:m}),config:f.config,browser});
+});
+
+test('crawl availability records absence but rejects server errors, HTML pretending to be XML and unsafe probes',async t=>{
+ const c=check('crawl',{probes:[{path:'/site/sitemap.xml',type:'sitemap'}]});let status=404,body='not found';
+ const requestFactory={newContext:async()=>({get:async()=>({status:()=>status,headers:()=>({}),text:async()=>body,dispose:async()=>{}}),dispose:async()=>{}})};
+ const absent=await run({check:c,config,requestFactory});assert.equal(absent.actual.probes[0].present,false);assert.deepEqual(absent.actual.sitemaps,[]);
+ status=302;const redirected=await run({check:c,config,requestFactory});assert.equal(redirected.actual.probes[0].redirected,true);assert.equal(redirected.actual.probes[0].present,false);
+ status=503;await assert.rejects(run({check:c,config,requestFactory}),/503/);
+ status=200;body='<html>Not found</html>';await assert.rejects(run({check:c,config,requestFactory}),/sitemap root/);
+ assert.throws(()=>validate(check('crawl',{probes:[{path:'https://foreign.test/map.xml',type:'sitemap'}]}),config));
+ assert.throws(()=>validate(check('crawl',{probes:[{path:'/another/map.xml',type:'sitemap'}]}),config));
 });

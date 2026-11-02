@@ -14,6 +14,8 @@ export default defineConfig({
   updateSnapshots:'none',
   reporter:[['list'],['./lib/reporter.mjs']],
   use:{baseURL:context.config.baseURL,browserName:'chromium',locale:'ja-JP',timezoneId:'Asia/Tokyo',
+    ...(process.env.WPQA_BROWSER_CHROMIUM?{connectOptions:{wsEndpoint:process.env.WPQA_BROWSER_CHROMIUM}}:{}),
+    ...(process.env.WPQA_EGRESS_PROXY?{proxy:{server:process.env.WPQA_EGRESS_PROXY}}:{}),
     viewport:{width:1280,height:800}, colorScheme:'light',reducedMotion:'reduce',
     extraHTTPHeaders:context.operation?.handlesAuthentication||adminOnly?{}:envHeaders(context.config.headersEnv),
     actionTimeout:context.config.timeoutMs,navigationTimeout:context.config.timeoutMs,

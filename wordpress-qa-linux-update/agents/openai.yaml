@@ -1,0 +1,4 @@
+interface:
+  display_name: "SITE EXAM Linux共有版を更新"
+  short_description: "サイト・認証・結果を引き継ぎ、バックアップと切り戻し付きで共有版を更新"
+  default_prompt: "$wordpress-qa-linux-update を使って、登録済みサイト・認証情報・テスト結果を保持してLinux共有版を更新してください。"

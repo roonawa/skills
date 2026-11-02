@@ -211,7 +211,7 @@ test('real browser and HTTP fixtures preserve assertions and isolate writes/auth
  try {
   browser=await chromium.launch();const attachments=[];
   const adminContext=await browser.newContext();await adminContext.addCookies([{name:'admin_session',value:'must-not-inherit',url:baseURL}]);
-  const args={config:{...config,baseURL,headersEnv:'WPQA_INTERACTION_FIXTURE_HEADERS'},browser,requestFactory:request,attach:async(name,data)=>attachments.push(structuredClone(data))};
+  const args={config:{...config,baseURL,timeoutMs:15000,headersEnv:'WPQA_INTERACTION_FIXTURE_HEADERS'},browser,requestFactory:request,attach:async(name,data)=>attachments.push(structuredClone(data))};
   for(const op of ['all-links','public-discovery','server-validation','search-product','search-empty','search-special','menu','menu-navigation','contact-validation','network-failure','keyboard','performance','cart-limit','customer-empty','firefox']) {
    const result=await run({...args,check:check(op)});assert.equal(result.outcome,'passed',op);
    if(op==='public-discovery'){const d=result.observations[0].discovery;assert.equal(d.hreflang[0].path,'/ja');assert(d.inputs.some(i=>i.name==='name'&&i.maxlength==='100'&&i.required==='true'));assert.deepEqual(d.membershipLinks,['/member']);assert.deepEqual(d.integrationScripts,['/analytics.js']);assert(!JSON.stringify(result).includes('SECRET'));}
@@ -269,3 +269,4 @@ test('real browser and HTTP fixtures preserve assertions and isolate writes/auth
   await assert.rejects(run({...args,check:check('menu',{} )}),/BLOCKED/);assert.equal(attachments.at(-1).outcome,'failed');
  } finally {delete process.env.WPQA_INTERACTION_FIXTURE_HEADERS;await browser?.close();await Promise.all([new Promise(r=>server.close(r)),new Promise(r=>external.close(r))]);}
 });
+

@@ -11,8 +11,9 @@ COPY --chown=node:node lib ./lib
 COPY --chown=node:node builtin ./builtin
 COPY --chown=node:node tests ./tests
 COPY --chown=node:node ui ./ui
+COPY --chown=node:node deploy/user-manual.html deploy/site-exam-guide.html deploy/security-ai-guide.html ./deploy/
 COPY --chown=node:node playwright.config.* ./
-RUN mkdir -p /data && chown node:node /data
+RUN mkdir -p /data /policy && chown node:node /data /policy
 USER node
 EXPOSE 4310
 CMD ["node", "ui/start-shared.mjs"]

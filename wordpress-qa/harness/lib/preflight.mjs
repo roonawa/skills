@@ -9,6 +9,7 @@ export function preflight(config,env=process.env){
   const o=c.options,id=c.id;
   const preparation=preparationReason(c,config);
   if(preparation){preparations.push({id,message:preparation});continue;}
+  if(c.kind==='software-security'&&!env.WPQA_UI_ADMIN_STATE)issue(id,'サイト設定から管理画面にログインして保存してください');
   if(c.kind.startsWith('wp-')){
    if(config.environment==='production'||!config.allowTestWrites)issue(id,'検証環境とテストデータ変更の許可が必要です');
    if(!env[o.headersEnv??'WPQA_UI_ADMIN_HEADERS'])need(id,o.storageStateEnv??'WPQA_UI_ADMIN_STATE');
@@ -28,5 +29,5 @@ export function preflight(config,env=process.env){
   if(c.kind==='compatibility-screen'&&!fs.existsSync(({chromium,firefox,webkit})[o.engine].executablePath()))issue(id,'ブラウザーをインストールしてください: '+o.engine);
  }
  for(const a of config.admin??[]){const name=a.source==='rest'?a.headersEnv:a.storageStateEnv;if(name)need(a.id,name);}
- return {ready:issues.length===0,issues,preparations,scope:'実行対象の設定とローカル環境を確認します。準備待ちは実行対象外ですが、未検証の必須観点として残ります。認証の有効期限や通信障害による実行不能を保証なく防げるものではありません。'};
+ return {ready:issues.length===0,issues,preparations,scope:'実行対象の設定とローカル環境を確認します。設定が必要は実行対象外ですが、未検証の必須観点として残ります。認証の有効期限や通信障害による実行不能を保証なく防げるものではありません。'};
 }

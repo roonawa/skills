@@ -83,7 +83,7 @@ try{
   for(const name of ['writes','submitContact','bankOrder'])await expect(dialog.locator(`[name=${name}]`)).not.toBeChecked();
   for(const name of ['writes','submitContact','bankOrder'])await expect(dialog.locator(`[name=${name}]`)).toBeDisabled();
   await expect(dialog.locator('#registration-policy')).toContainText('本番環境ではテスト投稿を作成しません');
-  await expect(dialog).toContainText('初回の画像基準と、内容・運用方針は確認待ちとして残します');
+  await expect(dialog).toContainText('初回の画像基準と、内容・運用方針は直接確認として残します');
   await expect(dialog).toContainText(/受信箱[\s\S]*(?:未確認として報告|合格にはしません)/);
   await expect(dialog.locator('#registration-save')).toHaveText('ログインを確認して登録・検査を準備');
   await dialog.locator('[name=environment]').selectOption('local');

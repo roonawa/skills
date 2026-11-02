@@ -257,7 +257,7 @@ test('browser registration restores interaction drafts and settings save works w
   assert.equal(await page.locator('[name="interaction-inventory.postTypes"]').inputValue(),'posts\nproducts');
   assert.match(await page.locator('[name="interaction-admin"]').inputValue(),/qa@example.test/);
   await page.locator('[name=name]').fill('CF7 schema only');await page.locator('[name=baseURL]').fill('https://example.test');
-  await page.locator('[name=contactFormId]').fill('31');await page.locator('[name=contactNameField]').fill('custom-name');
+  await page.getByText('自動取得したフォーム項目を確認・調整',{exact:true}).click();await page.locator('[name=contactFormId]').fill('31');await page.locator('[name=contactNameField]').fill('custom-name');
   await page.click('#registration-login');await page.click('#registration-save');
   await page.waitForFunction(()=>window.registrationSaved||document.querySelector('#registration-error').textContent);
   assert.equal(await page.locator('#registration-error').textContent(),'');

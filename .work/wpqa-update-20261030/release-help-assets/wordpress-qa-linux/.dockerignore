@@ -1,0 +1,13 @@
+**
+!package.json
+!package-lock.json
+!Dockerfile
+!bin/**
+!lib/**
+!builtin/**
+!tests/**
+!ui/**
+!playwright.config.*
+!deploy/user-manual.html
+!deploy/site-exam-guide.html
+!deploy/security-ai-guide.html

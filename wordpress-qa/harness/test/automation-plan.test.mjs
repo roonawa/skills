@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {applyAutomationPlan,resolveAutomationProfile,mergeAutomationConfig} from '../ui/automation-plan.mjs';
 const pending=id=>({id:'coverage-'+id,kind:'unconfigured',suite:'delivery',options:{instructions:'needs conditions'}});
-const input=()=>({admin:[],manual:[],checks:['admin-reading','admin-discussion','admin-permalink','admin-plugins','navigation','contact-errors','contact-retry','crawl','browsers','publishing'].map(pending)});
-const discovery={automation:{observedAt:'2026-10-28',admin:{reading:[{id:'show_on_front',title:'front',path:'/wp-admin/options-reading.php',selector:'input:checked',read:'value',expected:'page'}]},public:{search:{path:'/',actionPath:'/',inputSelector:'input[name=s]',submitSelector:'button'},forms:[{path:'/contact',formId:31,fields:[{name:'name',type:'text'},{name:'email',type:'email'},{name:'message',type:'textarea'}]}],robots:{path:'/robots.txt'}}}};
+const input=()=>({baseURL:'https://example.test',admin:[],manual:[],checks:['admin-reading','admin-discussion','admin-permalink','admin-plugins','navigation','contact-errors','contact-retry','crawl','browsers','publishing'].map(pending)});
+const discovery={automation:{observedAt:'2026-10-28',admin:{reading:[{id:'show_on_front',title:'front',path:'/wp-admin/options-reading.php',selector:'input:checked',read:'value',expected:'page'}]},public:{search:{path:'/',actionPath:'/',formSelector:'#search',inputSelector:'input[name=s]',submitSelector:'button'},forms:[{path:'/contact',formId:31,formSelector:'#contact form',submitSelector:'button',responseSelector:'.response',restPath:'/wp-json/contact-form-7/v1/contact-forms/31/feedback',fields:[{name:'name',type:'text',required:true},{name:'email',type:'email',required:true},{name:'message',type:'textarea',required:true}]}],robots:{path:'/robots.txt'}}}};
 test('discovery resolves unambiguous form structure without granting writes or overwriting input',()=>{
  const p=resolveAutomationProfile({writes:false,contactEmailField:'explicit'},discovery);
  assert.equal(p.contactFormId,31);assert.equal(p.contactPath,'/contact');assert.equal(p.contactNameField,'name');assert.equal(p.contactEmailField,'explicit');assert.equal(p.writes,false);assert.equal(p.submit,undefined);
@@ -38,3 +38,10 @@ test('cache checks require explicit staging write permission and use saved admin
  assert.equal(ready.checks[0].kind,'wp-cache');assert.equal(ready.checks[0].options.restPath,'/site/wp-json/wp/v2');
  assert.equal(applyAutomationPlan({...c,environment:'production'},{writes:true},{}).checks[0].kind,'unconfigured');
 });
+test('an observed form without a usable submit control stays pending',()=>{
+ const partial=structuredClone(discovery);
+ delete partial.automation.public.forms[0].submitSelector;
+ const result=applyAutomationPlan(input(),{},partial);
+ for(const id of ['coverage-contact-errors','coverage-contact-retry'])assert.equal(result.checks.find(c=>c.id===id).kind,'unconfigured');
+});
+

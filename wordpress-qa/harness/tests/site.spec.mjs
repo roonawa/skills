@@ -1,3 +1,4 @@
+import {collectAccessibilityImpact} from '../lib/impact-probes.mjs';
 import { test as base, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import fs from 'node:fs';
@@ -103,6 +104,7 @@ for(const v of c.visuals) {
     await ready(page,v,info);const result=await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21a','wcag21aa']).analyze();
     await evidence(info,'axe',result);
     if(result.violations.length){
+      await evidence(info,'impact',await collectAccessibilityImpact(page,result,()=>new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21a','wcag21aa']).analyze()));
       const shots=await captureMarkedScreenshots(page,result.violations,async(name,body)=>{
         const file=info.outputPath(`${name}.png`);fs.writeFileSync(file,body);
         await info.attach(name,{path:file,contentType:'image/png'});

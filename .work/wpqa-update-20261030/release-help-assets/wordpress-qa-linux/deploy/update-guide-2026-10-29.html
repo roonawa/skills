@@ -1,0 +1,38 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>WordPress QA｜画面内ログイン版への更新</title><style>body{font:16px/1.85 system-ui,sans-serif;background:#f0f5f8;color:#1c3548;margin:0}main{max-width:980px;margin:auto;padding:32px}section{background:white;border:1px solid #d4e0e7;border-radius:12px;padding:25px;margin:24px 0}h1{font-size:30px}h2{font-size:23px}pre{background:#153649;color:white;border-radius:8px;padding:18px;white-space:pre-wrap;overflow-wrap:anywhere}code{overflow-wrap:anywhere}.note{border-left:5px solid #bb7700;background:#fff4db;padding:18px}a{color:#006b7b}li{margin:9px 0}@media print{body{background:white}pre{background:#eee;color:black}section{break-inside:avoid}}</style></head><body><main><p class="note"><strong>安全対策・AI補完版（2026-10-29-security-claude）：</strong><a href="security-ai-guide.html">新版の構成・更新手順とAIの使い方はこちら</a>。今回の更新にはComposeとseccomp設定の反映、WPQA_ADMINSの設定、画面での接続先許可が必要です。旧版のアプリのみのコピーでは更新できません。</p>
+<h1>画面内でWordPressにログインできる版へ更新</h1><p>2026年10月29日／既存の WPQA-SRV（AlmaLinux・Docker）向け</p><p>更新後は、利用者のPCへのソフト追加も認証ファイルの操作も不要です。接続URL・8443番ポート・証明書はそのまま使います。</p><p class="note">サーバーへの反映はこの手順で行います。配布ZIPに認証情報・登録サイト・テスト結果は含みません。既存の <code>deploy/.env</code>、<code>deploy/secrets</code> とDockerボリュームを維持します。<strong>初期利用者作成コマンドの再実行、暗号化キーの作り直し、down -v は行いません。</strong></p>
+<section><h2>1. 自分のWindows PCからZIPを転送</h2><p>PowerShellで実行します。求められるのはSSHユーザーのパスワードです。</p><pre>scp "C:\Users\roonawa\.claude\skills\wordpress-qa\harness\dist\wordpress-qa-linux-2026-10-29.zip" usshuser@wpqa-srv:~/</pre><p>別の担当者のPCなら、ZIPの保存場所を実際のパスに置き換えます。</p></section>
+<section><h2>2. rootで入り、別フォルダーに展開・検証</h2><pre>ssh usshuser@wpqa-srv
+su -
+mkdir -p /opt/wpqa/update-2026-10-29
+unzip /home/usshuser/wordpress-qa-linux-2026-10-29.zip -d /opt/wpqa/update-2026-10-29
+cd /opt/wpqa/update-2026-10-29/wordpress-qa-linux
+sha256sum -c SHA256SUMS</pre><p>全件OKを確認します。同じ更新フォルダーが既にある場合は上書きせず、別の新規フォルダー名にして以降のパスも合わせます。</p></section>
+<section><h2>3. 利用者へ停止を案内し、バックアップ</h2><p>検査・ログイン操作が終了していることをUIで確認します。ここから一時的にツールが使えなくなります。以下は同じrootのターミナルで続けて実行してください。</p><pre>cd /opt/wpqa/wordpress-qa-linux
+umask 077
+WPQA_BACKUP="/opt/wpqa/backups/$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$WPQA_BACKUP"
+WPQA_QA_ID=$(docker compose --env-file deploy/.env -f deploy/compose.yaml ps -q qa)
+printf '保存先: %s\n対象コンテナ: %s\n' "$WPQA_BACKUP" "$WPQA_QA_ID"</pre><p>対象コンテナが空欄なら先へ進まず、<code>docker compose --env-file deploy/.env -f deploy/compose.yaml ps -a</code> で起動状態を確認します。</p><pre>docker compose --env-file deploy/.env -f deploy/compose.yaml stop qa
+tar -czf "$WPQA_BACKUP/application.tgz" -C /opt/wpqa wordpress-qa-linux
+docker run --rm --volumes-from "$WPQA_QA_ID":ro \
+  -v "$WPQA_BACKUP:/backup:z" node:22-bookworm \
+  tar -czf /backup/data.tgz -C /data .
+tar -tzf "$WPQA_BACKUP/application.tgz" > /dev/null
+tar -tzf "$WPQA_BACKUP/data.tgz" > /dev/null</pre><p>各コマンドが成功してから次へ進みます。バックアップには認証情報・検査結果を含むため、rootのみアクセスできる保存先で保持し、配布ZIPには混ぜません。Caddyは更新せず、証明書のボリュームも維持します。</p></section>
+<section><h2>4. アプリのファイルだけを更新</h2><p>以下は既存の .env・secrets・Compose設定を上書きしません。</p><pre>cd /opt/wpqa/update-2026-10-29/wordpress-qa-linux
+cp -a bin lib builtin tests ui Dockerfile .dockerignore package.json package-lock.json playwright.config.mjs /opt/wpqa/wordpress-qa-linux/
+cp -a deploy/install-guide.html deploy/pilot-guide.html deploy/user-manual.html deploy/update-guide-2026-10-29.html /opt/wpqa/wordpress-qa-linux/deploy/
+cd /opt/wpqa/wordpress-qa-linux
+docker compose --env-file deploy/.env -f deploy/compose.yaml config --quiet
+docker compose --env-file deploy/.env -f deploy/compose.yaml build qa
+docker compose --env-file deploy/.env -f deploy/compose.yaml up -d --no-deps qa
+docker compose --env-file deploy/.env -f deploy/compose.yaml ps
+docker compose --env-file deploy/.env -f deploy/compose.yaml logs --tail=80 qa</pre><p>qaとproxyがUpであることを確認します。新しいポートの開放やPCへの証明書の再登録は不要です。今回の変更は既存のChromiumを画面なしで動かすため、VNCなどの追加サービスは不要です。</p></section>
+<section><h2>5. ブラウザーで受入確認</h2><ol><li><a href="https://wpqa-srv:8443">共有ツール</a>を開き直し、既存のサイトと実行履歴が残っていることを確認します。古い画面の場合はCtrl+F5で再読込します。</li><li>検証サイトの「設定を編集」を開き、「WordPressにログイン」を押します。</li><li>同じ設定画面内にログイン画面が表示されることを確認します。画面が白い場合は少し待ち、改善しなければエラーを確認します。</li><li>ログイン画面の入力欄をクリックして入力します。日本語・貼り付けは画面下の入力欄に入力し「文字を入力」を押します。</li><li>WordPress管理画面に入れたら「ログインを確認」を押し、確認済みになったら設定の「保存」を押します。</li><li>「管理設定」を選んで「検査を実行」。対象の認証待ち項目が進められるか確認します。期待値が未設定の場合は別途設定が必要です。</li><li>別アカウントから、他人が操作中のログイン画面を取得できないことも確認します。共有版はログインも検査も1件ずつです。</li></ol><p>利用者には<a href="user-manual.html#wordpress-login">更新した操作マニュアル</a>を配布してください。HTML単体で配布できます。</p></section>
+<section><h2>制限と困ったとき</h2><ul><li>対象サイトと同じorigin（https・ホスト名・ポート）内のログインが対象です。別ドメインSSO・外部CAPTCHA・別ウィンドウ・端末のパスキーは未対応です。</li><li>ログイン操作は10分で期限切れになります。「ログインをキャンセル」でいったん終了し、再度開始します。タブを閉じた場合も最大10分でセッションを破棄します。</li><li>ログイン中の映像・入力本文は監査ログや報告書へ保存しません。保存した認証は既存のサーバー暗号化キーで保護します。利用者名・操作種別・日時は監査ログに記録します。</li><li>管理画面のプロフィールを読めないアカウント、IP制限、特殊なセキュリティプラグインでは認証確認に失敗する場合があります。</li><li>既存認証ファイルの取り込みは高度な設定として残っていますが、通常のWordPressログインでは不要です。</li><li>現在は全員が同じ権限です。保存後の認証は登録サイトの検査で共有されます。利用者ごとに別アカウントを発行し、同じツール用IDを使い回さないでください。</li></ul><p class="note">Windows上の実ブラウザーと模擬WordPressによる動作検証を実施。Linuxコンテナの実機ビルドと対象WordPressのログインは導入先で受入確認が必要です。管理者がログインする先は信頼できる管理対象サイトに限定してください。</p></section>
+<section><h2>問題が出たときの切り戻し</h2><p>この更新でデータ形式は変更しません。まずアプリの旧版へ戻します。以下のWPQA_BACKUPは手順3で表示された保存先を指定してください。新しいターミナルでは変数が残っていません。</p><pre>WPQA_BACKUP=/opt/wpqa/backups/実際の保存日時
+cd /opt/wpqa/wordpress-qa-linux
+docker compose --env-file deploy/.env -f deploy/compose.yaml stop qa
+tar -xzf "$WPQA_BACKUP/application.tgz" -C /opt/wpqa
+docker compose --env-file deploy/.env -f deploy/compose.yaml up -d --no-deps --build qa</pre><p>追加された新規ソースが残っていても旧版の起動ファイルからは参照されません。Dockerの保存データはそのまま維持します。data.tgzの復元は既存データの上書きを伴うため、通常の切り戻しでは使用しません。必要な場合は管理担当者が復元先・対象時点を確認して行います。</p></section>
+</main></body></html>

@@ -1,3 +1,4 @@
+import {confirmFragmentTargets} from '../impact-probes.mjs';
 import assert from 'node:assert/strict';
 import {load} from 'cheerio';
 import {sameOrigin} from '../config.mjs';
@@ -44,7 +45,28 @@ export async function run({check,config,browser,requestFactory,attach=async()=>{
    const url=sameOrigin(pathname,config.baseURL);
    if(['metadata','navigation','integrations','multilingual'].includes(area)){
     const response=await fetchPage(client,url,config.baseURL,config.timeoutMs??15000,true);assert.equal(response.status,200,'public page HTTP error');
-    const r=inspectDocument(area,response.body,response.url||url);results.push({path:pathname,...r.actual});errors.push(...r.errors.map(e=>pathname+': '+e));continue;
+    const r=inspectDocument(area,response.body,response.url||url);
+    if(r.errors.length&&['metadata','navigation'].includes(area)){
+     try{
+      const second=await fetchPage(client,url,config.baseURL,config.timeoutMs??15000,true),again=inspectDocument(area,second.body,second.url||url);
+      const common=r.errors.filter(e=>again.errors.includes(e));
+      const findings=[...(common.some(e=>e.startsWith('fragment target missing:'))?['fragment-missing']:[]),...(common.includes('title is empty')?['title-empty']:[]),...(common.includes('html lang is missing')?['lang-missing']:[])];
+      let browserConfirmed=false;
+      if(findings.includes('fragment-missing')&&browser){
+       const probe=await browser.newContext({serviceWorkers:'block'});let intercepted=false;
+       try{
+        await probe.route('**/*',async route=>{
+         const request=route.request();if(request.method()!=='GET'||new URL(request.url()).origin!==new URL(config.baseURL).origin){intercepted=true;return route.abort();}
+         let reply;try{reply=await route.fetch({headers:{...request.headers(),...headers},maxRedirects:0});await route.fulfill({response:reply});}catch{intercepted=true;await route.abort();}finally{await reply?.dispose();}
+        });
+        const page=await probe.newPage();await page.goto(url,{waitUntil:'load',timeout:config.timeoutMs??15000});
+        browserConfirmed=await confirmFragmentTargets(page,common)&&!intercepted;
+       }finally{await probe.close();}
+      }
+      await attach('impact-'+results.length,{schema:'wpqa-document-impact-v1',browserConfirmed,path:new URL(url).pathname,statuses:[response.status,second.status],repeated:response.url===second.url,findings});
+     }catch{await attach('impact-'+results.length,{schema:'wpqa-document-impact-v1',path:new URL(url).pathname,repeated:false,findings:[]});}
+    }
+    results.push({path:pathname,...r.actual});errors.push(...r.errors.map(e=>pathname+': '+e));continue;
    }
    if(area==='crawl'){
     const missing=new URL('./__wpqa_missing_'+Date.now()+'__',url).href;

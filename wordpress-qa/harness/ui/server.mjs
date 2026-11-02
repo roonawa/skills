@@ -1,3 +1,12 @@
+import {latestResults} from '../lib/latest-results.mjs';
+import {attachGapPlans,gapVersion,evidenceGapInput} from '../lib/evidence-gaps.mjs';
+import {releaseVersion} from '../lib/release-version.mjs';
+import {deletionPlan,deleteSiteData} from './project-removal.mjs';
+import {pipeline} from 'node:stream/promises';
+import {completePreparation,prepareSaved} from './automatic-preparation.mjs';
+import {discoverAutomation} from './automation-discovery.mjs';
+import {collectExamEvidence} from '../lib/exam-evidence.mjs';
+import {preparationEvidence,applyEvidenceDecision,unresolvedPreparation,requiredRegistrationInputs} from './evidence-preparation.mjs';
 import {applyAutomationPlan,mergeAutomationConfig,resolveAutomationProfile} from './automation-plan.mjs';
 import {registrationTrace} from './registration-diagnostics.mjs';
 import {suites as extendedSuites} from '../lib/checks/index.mjs';
@@ -9,14 +18,19 @@ import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import {createSharedAccess} from './shared-access.mjs';
 import {BrowserLogin} from './browser-login.mjs';
+import {RemoteLogin} from './remote-login.mjs';
+import {SystemSettings} from './system-settings.mjs';
+import {AiAssistant} from './ai-assistant.mjs';
+import {checkStorage,auditAppend} from './resource-guard.mjs';
 import {ProjectStore} from './project-store.mjs';
 import {ExternalAuth} from './external-auth.mjs';
 import {discoverRegistration,registrationConfig,validateProfile,builtinModules,profileJourneys} from './registration.mjs';
-import {linkRegistrationCoverage} from './public/case-generator.js';
+import {generateCases,linkRegistrationCoverage,addSecurityChecks} from './public/case-generator.js';
 import { loadConfig,catalog } from '../lib/config.mjs';
 import {writeReport} from '../lib/results.mjs';
 import {enrichFailures} from '../lib/failure-explanations.mjs';
 import {resultDownload} from '../lib/result-download.mjs';
+import {buildExam,validateExamItems,customerExamHtml,customerImageWarnings} from '../lib/site-exam.mjs';
 import {summarizeRecovery} from '../lib/recovery.mjs';
 import {preflight} from '../lib/preflight.mjs';
 import {guidance} from '../lib/guidance.mjs';
@@ -50,14 +64,21 @@ function projectInfo(project) {
   return {...ctx,outputDir,baselineDir:path.resolve(ctx.configDir,c.baselineDir??'baselines')};
 }
 
-export async function startUI({configPaths=[],port=4310,demo=false,storeDir,loginOptions,trustedAdapters={},shared,credentialCodec,host='127.0.0.1',auditFile,registrationDiscovery=discoverRegistration}) {
+export async function startUI({configPaths=[],port=4310,demo=false,storeDir,loginOptions,trustedAdapters={},shared,credentialCodec,host='127.0.0.1',auditFile,registrationDiscovery=discoverRegistration,publicDiscovery=discoverAutomation,systemOptions={},aiOptions}) {
   if(!shared&&host!=='127.0.0.1')throw Error('外部待受は共有モードのみです');
   if(shared&&(configPaths.length||typeof credentialCodec!=='function'))throw Error('共有版は暗号化キーとUI登録サイトのみ対応します。外部設定は移行が必要です');
   const access=shared?createSharedAccess(shared):null;
   if(auditFile)fs.mkdirSync(path.dirname(auditFile),{recursive:true});
-  const logins=new BrowserLogin(loginOptions);
+  const logins=shared?new RemoteLogin(loginOptions):new BrowserLogin(loginOptions);
   const store=storeDir?new ProjectStore(storeDir,{trustedAdapters,codec:credentialCodec}):null;
+  const system=store?new SystemSettings({directory:systemOptions.directory??path.join(storeDir,'system'),codec:store.codec,policyFile:systemOptions.policyFile??path.join(storeDir,'system','egress.json'),admins:systemOptions.admins??[]}):null;
+  const ai=system?new AiAssistant(system,aiOptions):null;
+  const isAdmin=actor=>!access||system?.admins.includes(actor?.name);
+  const allowTarget=baseURL=>{if(systemOptions.enforceEgress&&!system.view().destinations.some(e=>e.origin===new URL(baseURL).origin))reject(403,'管理者の「接続先の許可設定」に対象サイトを登録してください');};
+  const admission=()=>{if(systemOptions.enforceEgress)checkStorage(storeDir,systemOptions.maxDataMB??8192);};
   const externalAuth=storeDir?new ExternalAuth(path.join(storeDir,'external-auth'),{codec:credentialCodec}):null;
+  const hiddenFile=storeDir?path.join(storeDir,'.hidden-sites.json'):null;
+  const hiddenIds=new Set(hiddenFile&&fs.existsSync(hiddenFile)?JSON.parse(fs.readFileSync(hiddenFile,'utf8')):[]);
   const token=randomBytes(24).toString('hex'),projects=new Map(),outputDirs=new Set();
   for(const filename of configPaths) {
     const ctx=loadConfig(filename),outputDir=path.resolve(ctx.configDir,ctx.config.outputDir??'runs');
@@ -65,9 +86,10 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
     const id=createHash('sha256').update(ctx.configPath).digest('hex').slice(0,12);
     projects.set(id,{id,file:ctx.configPath,outputDir});
   }
-  function registerManaged(id){const ctx=store.context(id);projects.set(id,{id,file:ctx.configPath,outputDir:ctx.outputDir,managed:true,store});}
+  function registerManaged(id){const ctx=store.context(id);if(!hiddenIds.has(id))projects.set(id,{id,file:ctx.configPath,outputDir:ctx.outputDir,managed:true,store});}
   if(store)for(const id of store.ids())registerManaged(id);
-  let active=null,lastJob=null,closing=false,url;
+  for(const id of hiddenIds)projects.delete(id);
+  let active=null,lastJob=null,closing=false,url,preparing=null;
   const jobs=new Set();
   const getProject=id=>{const p=projects.get(id);if(!p)reject(404,'登録されていないサイトです');return p;};
   function profileScope(p,current=projectInfo(p)){
@@ -124,6 +146,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
   }
   function jobState(job){return job?{projectId:job.projectId,kind:job.kind,runId:job.runId,state:job.state,exitCode:job.exitCode,log:job.log}:null;}
   function launch(p,args,kind,operationEnv={}) {
+    admission();allowTarget(projectInfo(p).config.baseURL);
     if(closing)reject(503,'終了処理中です');if(active)reject(409,'別の処理が実行中です。完了を待ってください');
     if(['run','recover'].includes(kind)&&projectIsAlive(p.outputDir))reject(409,'以前の検査プロセスが生存している可能性があります。終了を待ってください。');
     if(logins.busy)reject(409,'ログインの保存またはキャンセル後に実行してください');
@@ -135,11 +158,13 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
     if(p.managed)for(const key of Object.keys(inheritedEnv))if(/^WPQA_(?:ROLE_.*|UI_ADMIN)_(HEADERS|STATE)$/i.test(key))delete inheritedEnv[key];
     const child=spawn(process.execPath,[path.join(root,'bin/qa.mjs'),...args],{cwd:root,env:{...inheritedEnv,...prepared.env,...operationEnv,FORCE_COLOR:'0'},stdio:['ignore','pipe','pipe','ipc']});
     job.cancel=()=>{if(child.connected)child.send({type:'cancel'});job.state='stopping';};
+    let capacityTimer;
     const append=chunk=>{
       job.log=(job.log+chunk.toString().replace(/\x1b\[[0-9;]*m/g,'')).slice(-128000);
       if(job.runId)try{fs.writeFileSync(path.join(runPath(p,job.runId),'ui.log'),job.log);}catch{}
     };
     child.stdout.on('data',append);child.stderr.on('data',append);
+    if(systemOptions.enforceEgress)capacityTimer=setInterval(()=>{try{admission();}catch(e){append('\n'+e.message+'。検査を停止し、回収が必要なデータを履歴に残します。\n');job.cancel();clearInterval(capacityTimer);}},10000);
     child.on('message',message=>{
       if(message.type==='run-started' && typeof message.runId==='string') {
         // Trust only a run inside the registered output directory, not an arbitrary child path.
@@ -148,14 +173,52 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
     });
     const done=new Promise(resolve=>{
       let ended=false;
-      const finish=(code,error)=>{if(ended)return;ended=true;if(error)append(error.message);if(kind==='run'&&job.runId)try{const directory=runPath(p,job.runId),generated=autoReport(directory),report=readRun(p,job.runId);report.autoReport=generated;if(report.rows[0])report.rows[0].evidence=[...new Set([...(report.rows[0].evidence??[]),'issue-report.html'])];writeReport(directory,report);append('\n報告書を自動生成しました: issue-report.html\n');}catch(e){append('\n報告書の自動生成に失敗: '+e.message+'\n');}job.exitCode=code;job.state='finished';if(active===job)active=null;resolve(jobState(job));};
+      const finish=async(code,error)=>{if(ended)return;ended=true;clearInterval(capacityTimer);if(error)append(error.message);if(kind==='run'&&job.runId)try{const directory=runPath(p,job.runId),generated=autoReport(directory),report=readRun(p,job.runId);report.autoReport=generated;if(report.rows[0])report.rows[0].evidence=[...new Set([...(report.rows[0].evidence??[]),'issue-report.html'])];writeReport(directory,report);append('\n報告書を自動生成しました: issue-report.html\n');}catch(e){append('\n報告書の自動生成に失敗: '+e.message+'\n');}if(kind==='run'&&job.runId&&system?.view().enabled&&system.view().evidenceApproved&&!closing)try{const directory=runPath(p,job.runId),report=readRun(p,job.runId);if(report.runStatus==='finished'){job.state='running';const exam=buildExam(readExamEvidence(directory,report).report);await completeEvidence(p,directory,exam);append('Claudeで採点保留の不足証拠・追加確認を整理しました。点数の推測は行っていません。\n');}}catch(e){append('不足証拠のAI整理: '+e.message+'\n');}job.exitCode=code;job.state='finished';if(active===job)active=null;resolve(jobState(job));};
       child.once('error',e=>finish(2,e));child.once('close',code=>finish(code??2));
     });
     jobs.add(done);done.finally(()=>jobs.delete(done));return {job,done};
   }
-  function saveSettings(data,projectId=null,{compileAutomation=true}={}){
+  function readExamEvidence(directory,report){
+    return collectExamEvidence(enrichFailures(report,file=>{const f=boundedPath(directory,file);if(fs.statSync(f).size>8*1024*1024)throw Error('Evidence too large');return readJSON(f);}),file=>{const f=boundedPath(directory,file);if(fs.statSync(f).size>8*1024*1024)throw Error('Evidence too large');return fs.readFileSync(f);});
+  }
+  function readGapRecord(directory){
+    if(!fs.existsSync(path.join(directory,'evidence-completion.json')))return null;
+    const file=boundedPath(directory,'evidence-completion.json');if(fs.statSync(file).size>2*1024*1024)throw Error('Evidence plan too large');return readJSON(file);
+  }
+  async function completeEvidence(p,directory,exam){
+    const cached=readGapRecord(directory);
+    if(cached?.version===gapVersion&&cached.fingerprint===exam.fingerprint&&cached.examVersion===(exam.version??null))return cached;
+    if(!ai)throw Error('AI設定がありません');
+    const record=await ai.completeAssessmentEvidence(exam,projectInfo(p).config);
+    const destination=path.join(directory,'evidence-completion.json');
+    if(fs.existsSync(destination))boundedPath(directory,'evidence-completion.json');
+    const tmp=destination+'.'+randomUUID()+'.tmp';try{fs.writeFileSync(tmp,JSON.stringify(record),{flag:'wx',mode:0o600});fs.renameSync(tmp,destination);}finally{if(fs.existsSync(tmp))fs.unlinkSync(tmp);}
+    return record;
+  }
+  async function completeObservedPreparation(config,profile,discovery){
+    return completePreparation(config,profile,discovery,{ai,aiEnabled:!!system?.view().enabled&&system.view().approved&&system.view().evidenceApproved});
+  }
+  async function autoPrepare(p){
+    if(!p.managed)return null;
+    if(active||closing||logins.busy||preparing||projectIsAlive(p.outputDir))reject(409,'検査・ログイン・設定補完の完了後に実行してください');
+    const record=store.record(p.id);
+    if(!unresolvedPreparation(record.config,record.profile??{}).length)return null;
+    preparing={projectId:p.id,kind:'prepare',state:'preparing',log:'サイト情報を取得し、設定を自動補完しています。'};
+    try{
+      admission();allowTarget(record.config.baseURL);
+      const secrets=record.sealed?JSON.parse(store.codec(record.sealed,true)):{};
+      const result=await prepareSaved(record,{secrets,registrationDiscovery,publicDiscovery,ai,aiEnabled:!!system?.view().enabled&&system.view().approved&&system.view().evidenceApproved});
+      if(closing||store.record(p.id).version!==record.version||projectIsAlive(p.outputDir))reject(409,'取得中に設定または実行状態が変わりました。再実行してください');
+      for(const key of ['writes','submit','bankOrder'])if(result.profile[key]===true&&record.profile?.[key]!==true)reject(400,'自動補完は操作許可を変更できません');
+      saveSettings({config:result.config,...(record.profile?{profile:result.profile}:{}),version:record.version,auth:{}},p.id,{compileAutomation:false});registerManaged(p.id);
+      fs.mkdirSync(path.join(storeDir,p.id),{recursive:true});fs.writeFileSync(path.join(storeDir,p.id,'preparation-summary.json'),JSON.stringify(result.summary),{mode:0o600});return result.summary;
+    }finally{preparing=null;}
+  }
+  function saveSettings(data,projectId=null,{compileAutomation=true,owner}={}){
+    admission();allowTarget(data.config.baseURL);
     if(active||closing)reject(409,'実行完了後に保存してください');
     const auth=data.auth??{},loginId=auth.browserLoginId;
+    if(shared&&loginId)logins.assertOwner(loginId,owner);
     if(logins.busy&&!loginId)reject(409,'進行中のログインを確認・保存するか、キャンセルしてください');
     if(loginId&&auth.browser)reject(400,'ログインとファイル取込みは同時に指定できません');
     const role=auth.browserLoginRole;
@@ -186,29 +249,45 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
     const json=(status,data)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(data));};
     try {
       const address=server.address(),hosts=[`127.0.0.1:${address.port}`,`localhost:${address.port}`];
-      const actor=access?access.authenticate(req):null;
+      const actor=access?await access.authenticate(req):null;
       if(!access&&!hosts.includes(req.headers.host))reject(403,'ローカルからアクセスしてください');
       const target=new URL(req.url,url),segments=target.pathname.split('/').filter(Boolean).map(decodeURIComponent);
       res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','no-referrer');
       res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'");
       if(!['GET','POST'].includes(req.method))reject(405,'対応していない操作です');
       if(req.method==='POST') {
+        if(preparing)reject(409,'設定の自動補完中です。完了を待ってください');
         if(!(access?[access.origin]:hosts.map(h=>`http://${h}`)).includes(req.headers.origin)||req.headers['x-qa-token']!==(actor?.token??token))reject(403,'操作元を確認できません。画面を再読込してください');
         if(!req.headers['content-type']?.startsWith('application/json'))reject(415,'JSON形式で送信してください');
         if(actor&&auditFile){
           const event={timestamp:new Date().toISOString(),user:actor.name,method:req.method,path:target.pathname.slice(0,300)};
-          fs.appendFileSync(auditFile,JSON.stringify({...event,phase:'request'})+'\n',{mode:0o600});
-          res.once('finish',()=>{try{fs.appendFileSync(auditFile,JSON.stringify({...event,phase:'response',status:res.statusCode})+'\n',{mode:0o600});}catch{console.error('Audit response write failed');}});
+          auditAppend(auditFile,{...event,phase:'request'});
+          res.once('finish',()=>{try{auditAppend(auditFile,{...event,phase:'response',status:res.statusCode});}catch{console.error('Audit response write failed');}});
         }
-        if(access&&segments[0]==='api'&&['registration','logins'].includes(segments[1]))reject(409,'共有版では設定画面から登録し、認証セッションを取り込んでください。サーバーでログイン画面は開きません');
+        if(access&&segments[0]==='api'&&segments[1]==='registration')reject(409,'共有版では設定画面から登録してください');
       }
       if(target.pathname==='/api/bootstrap'&&req.method==='GET') {
         const list=[...projects.values()].map(p=>{
           try{const {config:c,configHash}=projectInfo(p);return {id:p.id,name:c.name,baseURL:c.baseURL,environment:c.environment,configHash};}
           catch(e){return {id:p.id,name:path.basename(p.file),error:e.message};}
-        });return json(200,{token:actor?.token??token,projects:list,demo,canRegister:!!store,shared:!!access,user:actor?.name??null,browserLogin:!access});
+        });return json(200,{token:actor?.token??token,projects:list,demo,canRegister:!!store,canRemove:!!hiddenFile,releaseVersion,shared:!!access,user:actor?.name??null,browserLogin:!!store,remoteBrowserLogin:!!access&&!!store,systemAdmin:isAdmin(actor)});
       }
-      if(target.pathname==='/api/logins/current'&&req.method==='GET')return json(200,{login:logins.status()});
+      if(target.pathname==='/api/system/settings'){
+        if(!system)reject(503,'設定保存先がありません');
+        if(req.method==='GET')return json(200,{...system.view(),canEdit:isAdmin(actor)});
+        if(!isAdmin(actor))reject(403,'この設定は管理者のみ変更できます');
+        if(active||logins.busy||ai.busy)reject(409,'検査・ログイン・AI処理の完了後に設定してください');
+        try{return json(200,system.save(await body(req)));}catch(e){reject(400,e.message);}
+      }
+      if(target.pathname==='/api/ai/propose'&&req.method==='POST'){
+        if(!ai)reject(503,'AI設定がありません');admission();const data=await body(req);
+        try{return json(200,await ai.propose(data.config,data.answers??{},actor?.name??'local'));}catch(e){reject(400,e.message);}
+      }
+      if(target.pathname==='/api/ai/apply'&&req.method==='POST'){
+        if(!ai)reject(503,'AI設定がありません');const data=await body(req);
+        try{return json(200,ai.apply(data.id,data.config,data.indices,actor?.name??'local'));}catch(e){reject(400,e.message);}
+      }
+      if(target.pathname==='/api/logins/current'&&req.method==='GET')return json(200,{login:access&&logins.session?.owner!==actor.name?null:logins.status()});
       if(target.pathname==='/api/registration'&&req.method==='POST'){
         if(!store||active||closing)reject(409,'実行完了後に登録してください');
         const trace=registrationTrace(event=>fs.appendFileSync(path.join(storeDir,'registration-events.jsonl'),JSON.stringify(event)+'\n',{mode:0o600}));
@@ -217,9 +296,28 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
         if(session.phase!=='verified'||session.projectId||session.role||session.baseURL!==data.baseURL||session.environment!==data.environment)reject(400,'このサイトの管理者ログインを確認してください');
         const discovery=await trace.step('discovery',()=>registrationDiscovery({baseURL:data.baseURL,profile,state:session.state,publicPassword:data.publicPassword??'',trace}));
         profile=resolveAutomationProfile(profile,discovery);
-        const config=await trace.step('generate',()=>registrationConfig({...data,profile,discovery}));
-        const id=await trace.step('save',()=>saveSettings({config,profile,auth:{browserLoginId:data.loginId,roleCredentials:data.roleCredentials??[],publicPassword:discovery.publicPasswordRequired===false?'':data.publicPassword??''}}));
-        await trace.step('register',()=>registerManaged(id));return json(201,{id,pages:config.pages.length,cases:catalog(projectInfo(getProject(id)).config).length,warnings:discovery.warnings});
+        const seed=generateCases({securityAdminPath:profile.adminPath,name:data.name,baseURL:data.baseURL,environment:data.environment,allowTestWrites:profile.writes,admin:[],pages:discovery.pages.map((p,i)=>({id:'page-'+i,path:p.path,canonical:new URL(p.path,data.baseURL).href,indexable:profile.indexable}))});
+        const completed=await completeObservedPreparation(seed,profile,discovery);profile=completed.profile;
+        const needed=requiredRegistrationInputs(profile,discovery);
+        if(needed.length)return json(200,{requiresInput:true,profile,questions:needed,preparation:completed.summary});
+        const additions=completed.config.checks.filter(c=>!['unconfigured','human-review'].includes(c.kind)&&c.id.startsWith('coverage-'));
+        const additionsById=new Map((profile.automation?.additionalChecks??[]).map(c=>[c.id,c]));for(const c of additions)if(!additionsById.has(c.id))additionsById.set(c.id,c);
+        profile.automation={...profile.automation,additionalChecks:[...additionsById.values()]};
+        let config=await trace.step('generate',()=>registrationConfig({...data,profile,discovery}));
+        let aiPreparation=null;
+        if(ai&&system.view().enabled&&system.view().approved){
+          try{
+            const proposed=await ai.propose(config,profile.performanceMs?{maxLoadMs:profile.performanceMs}:{},actor?.name??'local');
+            const originalIds=new Set(config.checks.map(c=>c.id));
+            config=ai.apply(proposed.id,config,proposed.proposal.cases.map((_,i)=>i),actor?.name??'local').config;
+            const additions=config.checks.filter(c=>!originalIds.has(c.id));
+            profile.automation={...profile.automation,additionalChecks:[...(profile.automation?.additionalChecks??[]),...additions]};
+            aiPreparation={reviewed:proposed.reviews.length,added:additions.length,questions:proposed.proposal.questions.length,batches:proposed.batchCount};
+            discovery.warnings.push(`Claudeが${aiPreparation.reviewed}項目の準備を確認し、${aiPreparation.added}件の読み取り検査を追加しました。追加確認事項は${aiPreparation.questions}件です。検査の合否は実行後に判定します。`);
+          }catch{discovery.warnings.push('Claude補完は完了しませんでした。自動取得した検査で登録を継続します。API設定・利用上限を確認後、サイト設定の「自動取得してClaudeで補完」で再試行できます。');}
+        }
+        const id=await trace.step('save',()=>saveSettings({config,profile,auth:{browserLoginId:data.loginId,roleCredentials:data.roleCredentials??[],publicPassword:discovery.publicPasswordRequired===false?'':data.publicPassword??''}},null,{owner:actor?.name}));
+        await trace.step('register',()=>registerManaged(id));fs.mkdirSync(path.join(storeDir,id),{recursive:true});fs.writeFileSync(path.join(storeDir,id,'preparation-summary.json'),JSON.stringify({...completed.summary,remaining:unresolvedPreparation(config,profile),createdAt:new Date().toISOString()}),{mode:0o600});return json(201,{id,pages:config.pages.length,cases:catalog(projectInfo(getProject(id)).config).length,warnings:discovery.warnings,aiPreparation,preparation:{...completed.summary,remaining:unresolvedPreparation(config,profile)}});
       }
       if(segments[0]==='api'&&segments[1]==='logins'&&req.method==='POST') {
         if(!store)reject(503,'サイト登録が無効です');
@@ -227,9 +325,12 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
         if(active||closing)reject(409,'実行完了後にログインしてください');
         try{
           if(segments.length===2){
+            admission();allowTarget(data.baseURL);
             if(data.projectId){const p=getProject(data.projectId),c=projectInfo(p).config;if(!p.managed&&(data.baseURL!==c.baseURL||data.environment!==c.environment||data.role))reject(400,'登録済みサイトの既定管理者としてログインしてください');}
-            return json(201,await logins.start(data));
+            return json(201,access?await logins.startOwned(data,actor.name):await logins.start(data));
           }
+          if(access&&!(segments[3]==='cancel'&&!logins.busy))logins.assertOwner(segments[2],actor.name);
+          if(access&&segments.length===4&&segments[3]==='operate')return json(200,await logins.operate(segments[2],actor.name,data));
           if(segments.length===4&&segments[3]==='verify')return json(200,await logins.verify(segments[2]));
           if(segments.length===4&&segments[3]==='cancel'){await logins.cancel(segments[2]);return json(200,{ok:true});}
         }catch(e){reject(e.status??400,e.message);}
@@ -239,16 +340,50 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
         if(segments.length===2&&req.method==='POST') {
           if(!store)reject(503,'この起動ではサイト登録が無効です');if(active)reject(409,'実行完了後に登録してください');
           const data=await body(req);let id;
-          id=saveSettings(data);
+          id=saveSettings(data,null,{owner:actor?.name});
           registerManaged(id);return json(201,{id});
         }
         const p=getProject(segments[2]);
+        if(segments[3]==='removal'&&segments.length===4&&req.method==='GET'){
+          if(!isAdmin(actor))return json(200,{canDelete:false,reason:'完全削除は管理者のみ実行できます。一覧からの除外は可能です。'});
+          if(!p.managed)return json(200,{canDelete:false,reason:'設定ファイルから登録したサイトは一覧からの除外のみ対応しています。元の設定・結果は管理担当者が管理しています。'});
+          try{const {targets,...plan}=deletionPlan(store,p.id);return json(200,{canDelete:true,...plan});}catch(e){return json(200,{canDelete:false,reason:e.message});}
+        }
+        if(segments[3]==='remove'&&segments.length===4&&req.method==='POST'){
+          if(!hiddenFile)reject(503,'この起動では一覧の変更を保存できません');
+          const data=await body(req);
+          if(data.confirmed!==true||typeof data.configHash!=='string')reject(400,'対象サイトの削除を確認してください');
+          if(active||preparing||closing||logins.busy||ai?.busy||projectIsAlive(p.outputDir))reject(409,'検査・ログイン・AI処理の完了後に削除してください');
+          if(data.configHash!==projectInfo(p).configHash)reject(409,'サイト設定が変更されました。画面を再読み込みしてください');
+          if(data.mode!==undefined&&!['hide','delete'].includes(data.mode))reject(400,'削除方法が不正です');
+          if(data.mode==='delete'){
+            if(!isAdmin(actor))reject(403,'完全削除は管理者のみ実行できます');
+            if(!p.managed)reject(400,'このサイトは一覧からの除外のみ対応しています');
+            try{deleteSiteData(store,p.id,{name:data.name,hash:data.hash});}catch(e){reject(409,e.message);}
+            projects.delete(p.id);return json(200,{removed:true,dataRetained:false});
+          }
+          const next=[...new Set([...hiddenIds,p.id])],temp=hiddenFile+'.tmp';
+          fs.writeFileSync(temp,JSON.stringify(next),{mode:0o600});fs.renameSync(temp,hiddenFile);
+          hiddenIds.add(p.id);projects.delete(p.id);return json(200,{removed:true,dataRetained:true});
+        }
         if(segments[3]==='auth'&&segments.length===4){
-          if(p.managed||!externalAuth)reject(400,'このサイトは設定を編集から認証を登録してください');
+          if(p.managed){
+            admission();allowTarget(projectInfo(p).config.baseURL);
+            if(req.method!=='POST')reject(405,'POSTのみ対応しています');
+            if(active||closing||projectIsAlive(p.outputDir))reject(409,'検査の終了後に保存してください');
+            const data=await body(req);if(Object.keys(data).some(k=>!['loginId','role','version'].includes(k))||typeof data.loginId!=='string')reject(400,'確認済みログインを指定してください');
+            const record=store.record(p.id);if(data.version!==record.version)reject(409,'設定が更新されています。再読み込み後に保存してください');
+            if(access)logins.assertOwner(data.loginId,actor.name);
+            await logins.verify(data.loginId);
+            logins.save(data.loginId,{baseURL:record.config.baseURL,projectId:p.id,role:data.role},state=>store.save({id:p.id,version:record.version,config:record.config,profile:record.profile,auth:data.role?{roleCredentials:[{name:data.role,browser:state}]}:{browser:state}}));
+            registerManaged(p.id);return json(200,{ok:true,version:store.record(p.id).version});
+          }
+          if(!externalAuth)reject(400,'認証の保存先がありません');
           const c=projectInfo(p).config;
           if(req.method==='GET')return json(200,{...externalAuth.status(p.id,c),baseURL:c.baseURL,environment:c.environment});
           if(active||closing||projectIsAlive(p.outputDir))reject(409,'実行完了後に認証を保存してください');
           const data=await body(req);if(Object.keys(data).some(k=>k!=='loginId')||typeof data.loginId!=='string')reject(400,'確認済みログインを指定してください');
+          if(access)logins.assertOwner(data.loginId,actor.name);
           logins.save(data.loginId,{baseURL:c.baseURL,projectId:p.id},state=>externalAuth.save(p.id,c,state));
           return json(200,{ok:true,...externalAuth.status(p.id,c)});
         }
@@ -260,13 +395,34 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
           if(active?.projectId!==p.id||active.kind!=='run')reject(409,'停止対象の検査がありません');
           active.cancel();return json(202,{ok:true,message:'停止を要求しました。現在の処理の後片付けを待っています。'});
         }
+        if(segments[3]==='preparation'&&segments.length===4&&req.method==='GET'){
+          if(!p.managed)reject(404,'登録済みサイトの準備情報ではありません');
+          const file=path.join(storeDir,p.id,'preparation-summary.json');
+          return json(200,fs.existsSync(file)?readJSON(file):{mode:'not-recorded',remaining:unresolvedPreparation(store.record(p.id).config,store.record(p.id).profile??{})});
+        }
         if(segments[3]==='rediscover'&&segments.length===4&&req.method==='POST'){
           if(!p.managed)reject(403,'外部設定のサイトは再取得できません');
           if(active||closing||logins.busy||projectIsAlive(p.outputDir))reject(409,'検査・ログインの完了後に再取得してください');
           const data=await body(req),record=store.record(p.id);
           if(Object.keys(data).some(k=>!['version','preview'].includes(k))||typeof data.version!=='string'||data.preview!==undefined&&typeof data.preview!=='boolean')reject(400,'保存済み設定のversionを指定してください');
           if(data.version!==record.version)reject(409,'別の画面で設定が更新されました。設定を開き直してください');
-          if(!record.profile)reject(409,'WordPressの標準操作テストを登録して保存してください');
+          const publicFallback=async warning=>{
+            const secrets=record.sealed?JSON.parse(store.codec(record.sealed,true)):{};
+            const cookies=(secrets.browser?.cookies??[]).filter(c=>/^(?:bid_\d+_)?password_protected_/.test(c.name)&&!/(?:^|_)password_protected_cookie_test$/.test(c.name));
+            const first=record.config.pages?.[0]?.path??'/',sitePath=record.profile?.sitePath??(first.endsWith('/')?first:first.slice(0,first.lastIndexOf('/')+1));
+            const profile=record.profile??{sitePath,writes:false};
+            const automation=await publicDiscovery({baseURL:record.config.baseURL,profile,pages:record.config.pages,publicHeaders:cookies.length?{Cookie:cookies.map(c=>c.name+'='+c.value).join('; ')}:{}});
+            const completed=await completeObservedPreparation(record.config,profile,{automation,authenticated:false,pages:record.config.pages});const config=completed.config;
+            config.checks=config.checks.map(c=>c.kind==='unconfigured'?(record.config.checks.find(old=>old.id===c.id)??c):c);
+            const adoptedIds=config.checks.filter(c=>c.kind!=='unconfigured'&&record.config.checks.some(old=>old.id===c.id&&old.kind==='unconfigured')).map(c=>c.id);
+            const preparation={...completed.summary,warning:[warning,completed.summary.warning].filter(Boolean).join(' ')};
+            if(active||closing||logins.busy||projectIsAlive(p.outputDir)||store.record(p.id).version!==record.version)reject(409,'取得中に状態が変わりました。設定は変更していません');
+            if(data.preview)return json(200,{config,profile:record.profile??{},version:record.version,warnings:[warning],preparation,preview:true});
+            await saveSettings({version:record.version,config,auth:{}},p.id,{compileAutomation:false});registerManaged(p.id);
+            fs.mkdirSync(path.join(storeDir,p.id),{recursive:true});fs.writeFileSync(path.join(storeDir,p.id,'preparation-summary.json'),JSON.stringify(preparation),{mode:0o600});
+            return json(200,{id:p.id,version:store.view(p.id).version,pages:config.pages.length,warnings:[warning],preparation});
+          };
+          if(!record.profile||!record.credentials.browser)return publicFallback('管理設定は取得せず、登録済み公開URLから読み取り検査だけを準備しました。管理画面の認証・標準操作設定は未確認のままです。');
           if(!record.credentials.browser)reject(409,'管理者のブラウザー認証を登録して保存してください');
           // Discovery only reads the target. Never run journeys or adapters here.
           const secrets=record.sealed?JSON.parse(store.codec(record.sealed,true)):{};
@@ -274,15 +430,16 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
           const trace=registrationTrace(event=>fs.appendFileSync(path.join(storeDir,'registration-events.jsonl'),JSON.stringify(event)+'\n',{mode:0o600}));
           const initial=await trace.step('input',()=>validateProfile(record.profile,record.config.environment));
           if(initial.writes===true&&record.config.allowTestWrites!==true)reject(409,'保存済みの操作許可が一致しません。設定を確認してください');
-          const discovery=await trace.step('discovery',()=>registrationDiscovery({baseURL:record.config.baseURL,profile:initial,state:secrets.browser,publicPassword:secrets.publicPassword??'',trace}));
-          const profile=resolveAutomationProfile(initial,discovery);
+          let discovery;try{discovery=await trace.step('discovery',()=>registrationDiscovery({baseURL:record.config.baseURL,profile:initial,state:secrets.browser,publicPassword:secrets.publicPassword??'',trace}));}catch{return publicFallback('管理画面の取得を完了できませんでした。公開URLから読み取り検査のみ再取得し、管理設定・認証は未確認として保持します。');}
+          const completed=await completeObservedPreparation(record.config,resolveAutomationProfile(initial,discovery),discovery);
+          const profile=completed.profile;
           // Inference must never grant permission to mutate a target site.
           for(const key of ['writes','submit','bankOrder'])if(profile[key]===true&&initial[key]!==true)reject(409,'自動取得では操作許可を追加できません');
           const generated=await trace.step('generate',()=>registrationConfig({name:record.config.name,baseURL:record.config.baseURL,environment:record.config.environment,profile,discovery}));
-          const config=mergeAutomationConfig(record.config,generated);
+          const config=mergeAutomationConfig(completed.config,generated);
           if(active||closing||logins.busy||projectIsAlive(p.outputDir))reject(409,'検査・ログインが開始されたため再取得結果は保存していません');
           if(store.record(p.id).version!==record.version)reject(409,'再取得中に設定が更新されました。結果は保存していません。設定を開き直してください');
-          if(data.preview)return json(200,{config,profile,version:record.version,warnings:discovery.warnings??[],preview:true});
+          if(data.preview)return json(200,{config,profile,version:record.version,warnings:discovery.warnings??[],preparation:{...completed.summary,remaining:unresolvedPreparation(config,profile)},preview:true});
           await trace.step('save',()=>saveSettings({version:record.version,config,profile,auth:{}},p.id,{compileAutomation:false}));
           registerManaged(p.id);
           return json(200,{id:p.id,version:store.view(p.id).version,pages:config.pages.length,warnings:discovery.warnings??[]});
@@ -292,12 +449,12 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
           if(!p.managed)reject(403,'起動時に指定した設定はファイルで管理されています。新しいサイトとして登録してください');
           if(active)reject(409,'実行完了後に設定を変更してください');
           const data=await body(req);
-          saveSettings(data,p.id);
+          saveSettings(data,p.id,{owner:actor?.name});
           registerManaged(p.id);return json(200,{id:p.id});
         }
         if(segments.length===3&&req.method==='GET') {
           const current=projectInfo(p),{config:c,configHash}=current;
-          return json(200,{project:{id:p.id,managed:!!p.managed,profileScope:profileScope(p,current),name:c.name,baseURL:c.baseURL,environment:c.environment,configPath:p.file,configHash,counts:{pages:c.pages.length,journeys:c.journeys.length,visuals:c.visuals.length},planned:catalog(c).length},runs:history(p),busy:!!active,active:jobState(active),lastJob:lastJob?.projectId===p.id?jobState(lastJob):null});
+          return json(200,{project:{id:p.id,managed:!!p.managed,profileScope:profileScope(p,current),name:c.name,baseURL:c.baseURL,environment:c.environment,configPath:p.file,configHash,counts:{pages:c.pages.length,journeys:c.journeys.length,visuals:c.visuals.length},planned:catalog(c).length},runs:history(p),busy:!!active||!!preparing,active:jobState(active??preparing),lastJob:lastJob?.projectId===p.id?jobState(lastJob):null});
         }
         if(segments[3]==='operations'){
           const current=projectInfo(p),scope=profileScope(p,current);
@@ -321,8 +478,13 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
             const {job}=launch(p,['run','--config',p.file,'--suite','journey','--id','journey.'+prepared.operation.id],'run',prepared.env);return json(202,jobState(job));
           }
         }
+        if(segments[3]==='latest-results'&&segments.length===4&&req.method==='GET'){
+          const current=projectInfo(p),reports=[];let unreadableRuns=0;
+          for(const entry of history(p,Infinity)){try{reports.push(readRun(p,entry.runId));}catch{unreadableRuns++;}}
+          return json(200,{...latestResults(catalog(current.config),current.configHash,reports),unreadableRuns});
+        }
         if(segments[3]==='runs'&&segments.length===4&&req.method==='POST') {
-          const data=await body(req);if(!['all','standard','interaction','audit','journey','visual','admin',...Object.keys(extendedSuites)].includes(data.suite))reject(400,'検査範囲が不正です');const current=projectInfo(p);
+          const data=await body(req);if(!['all','standard','interaction','audit','journey','visual','admin',...Object.keys(extendedSuites)].includes(data.suite))reject(400,'検査範囲が不正です');if(p.managed&&!active&&!preparing&&!logins.busy){const saved=store.record(p.id),config=addSecurityChecks(structuredClone(saved.config),saved.profile?.adminPath??'/wp-admin/');if(config.checks.length!==(saved.config.checks??[]).length){store.save({id:p.id,version:saved.version,config,profile:saved.profile});registerManaged(p.id);}}const preparation=await autoPrepare(p);const current=projectInfo(p);
           const operations=!profileScope(p,current)&&['all','journey'].includes(data.suite)?current.config.journeys.filter(j=>j.runWithSuite&&j.explicitOnly):[];
           let env={};if(operations.length){
             const options={configHash:current.configHash,mode:'preview',password:'',...data.operation};
@@ -331,10 +493,58 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
             try{env=operationRequest(current.config,current.configHash,operations[0].id,options).env;}catch(e){reject(400,e.message);}
             env.WPQA_OPERATION_ID='suite';
           }
-          const {job}=launch(p,['run','--config',p.file,'--suite',data.suite],'run',env);return json(202,jobState(job));
+          const {job}=launch(p,['run','--config',p.file,'--suite',data.suite],'run',env);if(preparation)job.log='設定の自動補完: '+preparation.adopted+'件を紐付け・生成。'+(preparation.warning??'')+'\n';return json(202,{...jobState(job),preparation});
         }
         if(segments[3]==='runs'&&segments[4]) {
           const id=segments[4],report=readRun(p,id),directory=runPath(p,id);
+          if(['exam','exam-ai','exam-evidence','exam-evidence-run','customer-report'].includes(segments[5])&&segments.length===6){
+            if(report.runStatus!=='finished'||!report.finishedAt||runIsAlive(directory))reject(409,'完了した診断結果を選択してください');
+            const readAssessment=r=>collectExamEvidence(enrichFailures(r,file=>{const f=boundedPath(directory,file);if(fs.statSync(f).size>8*1024*1024)throw Error('Evidence too large');return readJSON(f);}),file=>{const f=boundedPath(directory,file);if(fs.statSync(f).size>8*1024*1024)throw Error('Evidence too large');return fs.readFileSync(f);});
+            const bundle=readAssessment(report),enriched=bundle.report;
+            const storage=path.join(directory,'site-exam.json');let saved=null;
+            if(fs.existsSync(storage)){const f=boundedPath(directory,'site-exam.json');if(fs.statSync(f).size>2*1024*1024)reject(413,'評価ファイルが大きすぎます');saved=readJSON(f);}
+            const exam=attachGapPlans(buildExam(enriched,saved),readGapRecord(directory));exam.presentationWarnings=customerImageWarnings(exam,bundle.image);
+            if(segments[5]==='exam'&&req.method==='GET')return json(200,exam);
+            if(segments[5]==='exam'&&req.method==='POST'){
+              admission();
+              if(active||closing)reject(409,'処理の終了後に評価を保存してください');
+              const data=await body(req);if(data.fingerprint!==exam.fingerprint||data.version!==exam.version)reject(409,'結果または評価が更新されました。評価を再取得してください');
+              const latest=fs.existsSync(storage)?readJSON(boundedPath(directory,'site-exam.json')):null;
+              const currentReport=readAssessment(readRun(p,id)).report;
+              if(latest?.version!==saved?.version||buildExam(currentReport).fingerprint!==exam.fingerprint)reject(409,'結果または評価が更新されました。評価を再取得してください');
+              let items;try{items=validateExamItems(data.items,exam);}catch(e){reject(400,e.message);}
+              const record={fingerprint:exam.fingerprint,version:randomUUID(),savedAt:new Date().toISOString(),items};
+              if(fs.existsSync(storage)&&fs.lstatSync(storage).isSymbolicLink())reject(403,'評価の保存先が不正です');
+              const temp=storage+'.'+randomUUID()+'.tmp';try{fs.writeFileSync(temp,JSON.stringify(record),{flag:'wx',mode:0o600});fs.renameSync(temp,storage);}finally{if(fs.existsSync(temp))fs.unlinkSync(temp);}
+              const updated=buildExam(enriched,record);return json(200,{...updated,presentationWarnings:customerImageWarnings(updated,bundle.image)});
+            }
+            if(['exam-evidence','exam-evidence-run'].includes(segments[5])&&req.method==='POST'){
+              admission();if(active||closing||preparing||logins.busy)reject(409,'処理の終了後に実行してください');
+              const data=await body(req);if(data.fingerprint!==exam.fingerprint||data.version!==exam.version)reject(409,'結果が更新されています。評価を再取得してください');
+              if(segments[5]==='exam-evidence'){
+                try{return json(200,attachGapPlans(exam,await completeEvidence(p,directory,exam)));}catch(e){reject(400,e.message);}
+              }
+              const current=projectInfo(p);if(current.configHash!==report.configHash)reject(409,'設定が更新されています。現在の設定で検査を実行してください');
+              const plan=exam.evidenceCompletion?.plans?.find(x=>x.issueId===data.issueId&&x.caseIds.includes(data.rowId));
+              const pending=exam.issues.filter(i=>i.certainty==='pending'),index=pending.findIndex(i=>i.id===data.issueId),entry=evidenceGapInput(exam,current.config).find(x=>x.index===index);
+              const allowed=entry?.cases.some(c=>c.rerunPermitted&&pending[index].cases[c.ref].id===data.rowId);
+              const row=report.rows.find(r=>r.id===data.rowId);
+              if(!plan||!allowed||!row)reject(400,'実行可能な証拠取得検査ではありません');
+              try{selectSingleTest(catalog(current.config),row.id);}catch(e){reject(400,e.message);}
+              const {job}=launch(p,['run','--config',p.file,'--suite',row.suite,'--id',row.id],'run');return json(202,jobState(job));
+            }
+            if(segments[5]==='exam-ai'&&req.method==='POST'){
+              admission();
+              if(!ai)reject(503,'AI設定がありません');const data=await body(req);if(data.fingerprint!==exam.fingerprint||data.version!==exam.version)reject(409,'結果が更新されています。評価を再取得してください');
+              try{return json(200,{fingerprint:exam.fingerprint,version:exam.version,suggestions:await ai.explain(exam.issues)});}catch(e){reject(400,e.message);}
+            }
+            if(segments[5]==='customer-report'&&req.method==='GET'){
+              res.setHeader('Content-Type','text/html; charset=utf-8');res.setHeader('Cache-Control','no-store');res.setHeader('Content-Security-Policy',"sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:");
+              if(target.searchParams.get('download')==='1')res.setHeader('Content-Disposition','attachment; filename="site-exam-report.html"');
+              res.end(customerExamHtml(enriched,exam,bundle.image));return;
+            }
+            reject(405,'対応していない操作です');
+          }
           if(segments[5]==='confirmation'&&segments.length===7){
             const row=report.rows.find(r=>r.id===segments[6]);if(!row)reject(404,'検査項目が見つかりません');
             const current=projectInfo(p),plan=confirmationPlan(row);
@@ -472,7 +682,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
             res.setHeader('Cache-Control','no-store');res.setHeader('Content-Type',type);
             if(ext==='.zip')res.setHeader('Content-Disposition','attachment; filename="trace.zip"');
             if(relative==='designer-report.html'&&target.searchParams.get('download')==='1')res.setHeader('Content-Disposition',`attachment; filename="designer-report-${id.replace(/[^a-zA-Z0-9_-]/g,'_')}.html"`);
-            return res.end(fs.readFileSync(file));
+            await pipeline(fs.createReadStream(file),res);return;
           }
         }
         reject(404,'APIが見つかりません');
@@ -480,9 +690,15 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
       if(req.method!=='GET')reject(404,'ページが見つかりません');
       const files={'/':'index.html','/app.js':'app.js','/style.css':'style.css','/automation-inputs.js':'automation-inputs.js','/interaction-profile.js':'interaction-profile.js','/case-generator.js':'case-generator.js','/settings.js':'settings.js','/external-auth.js':'external-auth.js','/registration.js':'registration.js','/coverage-editor.js':'coverage-editor.js','/options-form.js':'options-form.js','/designer-report.js':'designer-report.js'};
       files['/preparation-wizard.js']='preparation-wizard.js';
-      const name=files[target.pathname];if(!name)reject(404,'ページが見つかりません');
+      files['/remote-login.js']='remote-login.js';
+      files['/ai-settings.js']='ai-settings.js';files['/ai-preparation.js']='ai-preparation.js';
+      files['/site-exam.js']='site-exam.js';files['/risk-rubric.js']='risk-rubric.js';
+      const helpFiles={'/help/user-manual.html':'user-manual.html','/help/site-exam-guide.html':'site-exam-guide.html','/help/security-ai-guide.html':'security-ai-guide.html'};
+      const helpName=helpFiles[target.pathname];
+      if(helpName)res.setHeader('Content-Security-Policy',"default-src 'none'; style-src 'unsafe-inline'; img-src data:; frame-ancestors 'none'; base-uri 'none'");
+      const name=helpName??files[target.pathname];if(!name)reject(404,'ページが見つかりません');
       res.setHeader('Cache-Control','no-store');res.setHeader('Content-Type',name.endsWith('.js')?'text/javascript; charset=utf-8':name.endsWith('.css')?'text/css; charset=utf-8':'text/html; charset=utf-8');
-      res.end(fs.readFileSync(path.join(publicDir,name)));
+      res.end(fs.readFileSync(path.join(helpName?path.join(root,'deploy'):publicDir,name)));
     }catch(e){if(e.status===401)res.setHeader('WWW-Authenticate','Basic realm="WordPress QA Pilot", charset="UTF-8"');if(!res.headersSent)json(e.status??500,{error:e.status?e.message:'処理に失敗しました。設定と保存先を確認してください。',...(e.diagnosticId?{diagnosticId:e.diagnosticId,stage:e.stage,code:e.code}:{})});else res.end();}
   });
   await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(port,host,resolve);});

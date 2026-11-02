@@ -24,11 +24,14 @@
     "test:real-wordpress": "powershell -NoProfile -File test/real-wordpress/setup.ps1",
     "ui:shared": "node ui/start-shared.mjs",
     "pilot:init": "node bin/init-pilot.mjs",
-    "test:shared-ui": "node test/shared-pilot-browser.mjs"
+    "test:shared-ui": "node test/shared-pilot-browser.mjs",
+    "test:ai-ui": "node test/ai-browser.mjs",
+    "test:site-exam-ui": "node test/site-exam-browser.mjs"
   },
   "dependencies": {
-    "@playwright/test": "1.64.1",
     "@axe-core/playwright": "4.14.0",
-    "cheerio": "1.2.0"
+    "@playwright/test": "1.64.1",
+    "cheerio": "1.2.0",
+    "undici": "7.30.1"
   }
 }

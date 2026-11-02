@@ -1,0 +1,3 @@
+import test from 'node:test';import assert from 'node:assert/strict';
+import {evaluateFeed} from '../lib/security-inventory.mjs';
+test('identified plugin or theme null vulnerability means no entries; anonymous null remains unknown',()=>{const asset={slug:'sample',version:'1.0',name:'Sample'};assert.deepEqual(evaluateFeed(asset,'plugin',{error:0,data:{plugin:'sample',name:'Sample',link:'https://wordpress.org/plugins/sample/',vulnerability:null}}),{findings:[],unknown:[]});assert.throws(()=>evaluateFeed(asset,'plugin',{error:0,data:{plugin:'sample',name:null,link:null,vulnerability:null}}));assert.throws(()=>evaluateFeed(asset,'plugin',{error:0,data:{plugin:'sample',name:'Sample'}}));});

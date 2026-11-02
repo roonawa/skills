@@ -1,3 +1,4 @@
+import {wordpressSessionStatus} from '../lib/wordpress-session.mjs';
 import {randomUUID} from 'node:crypto';
 import {chromium} from '@playwright/test';
 
@@ -38,8 +39,19 @@ export class BrowserLogin {
       const browser=await this.launch();s.browser=browser;
       if(this.session!==s){await browser.close();throw new Error('cancelled');}
       browser.on('disconnected',()=>{if(this.session===s&&s.phase!=='verified')void this.cancel(s.id);});
-      s.context=await browser.newContext({serviceWorkers:'block',acceptDownloads:false});
-      const page=await s.context.newPage();await page.goto(s.loginURL,{waitUntil:'domcontentloaded',timeout:30000});
+      s.context=await browser.newContext({serviceWorkers:'block',acceptDownloads:false,...(options.remote?{viewport:{width:1100,height:760}}:{})});
+      if(options.remote){
+        // A login surface, not an unrestricted remote browser. External SSO is
+        // deliberately unsupported until explicit trusted origins are configured.
+        await s.context.route('**/*',route=>{
+          const u=new URL(route.request().url());
+          return u.origin===s.baseURL&&!u.username&&!u.password?route.continue():route.abort();
+        });
+        await s.context.routeWebSocket('**/*',socket=>socket.close());
+      }
+      const page=await s.context.newPage();s.page=page;
+      if(options.remote)s.context.on('page',other=>{if(other!==page)void other.close();});
+      await page.goto(s.loginURL,{waitUntil:'domcontentloaded',timeout:30000});
       if(this.session!==s)throw new Error('cancelled');s.phase='waiting';
       return {id:s.id,baseURL:s.baseURL,phase:s.phase,...(s.role?{role:s.role}:{}),expiresInSeconds:this.ttlMs/1000};
     }catch{await this.cancel(s.id);throw new Error('ログイン用ブラウザーを開けませんでした。URLと接続先を確認してください');}
@@ -59,7 +71,7 @@ export class BrowserLogin {
       const page=await probe.newPage();const response=await page.goto(s.profileURL,{timeout:15000,waitUntil:'domcontentloaded'});
       if(response?.status()!==200||page.url()!==s.profileURL||!await page.locator('#wpadminbar').isVisible()||!await page.locator('#your-profile').isVisible())throw new Error('not authenticated');
       if(this.session!==s)throw new Error('cancelled');
-      s.state=state;s.phase='verified';await probe.close();probe=null;await s.browser.close();s.browser=null;
+      const verifiedState=scopeState(await probe.storageState(),s.baseURL);if(wordpressSessionStatus(verifiedState,new URL(s.profileURL).pathname).expired)throw Error('expired');s.state=verifiedState;s.phase='verified';await probe.close();probe=null;await s.browser.close();s.browser=null;
       return {id,phase:'verified'};
     }catch{if(this.session===s)s.phase='waiting';throw new Error('ログインを確認できません。専用ブラウザーでログイン・追加認証を完了してから、もう一度確認してください');}
     finally{await probe?.close().catch(()=>{});}
@@ -67,7 +79,7 @@ export class BrowserLogin {
   save(id,{baseURL,projectId,role},persist){
     const s=this.get(id);
     if(s.phase!=='verified'||s.baseURL!==new URL(baseURL).origin||s.projectId!==(projectId??null)||(s.role??null)!==(role??null))throw new Error('確認済みログインと保存先が一致しません。再度ログインしてください');
-    const result=persist(s.state);clearTimeout(s.timer);this.session=null;return result;
+    if(wordpressSessionStatus(s.state,new URL(s.profileURL??'/wp-admin/profile.php',s.baseURL).pathname).expired)throw Error('WordPress認証の内部期限が切れています。専用ブラウザーで新しいログインを取得してください');const result=persist(s.state);clearTimeout(s.timer);this.session=null;return result;
   }
   async cancel(id){
     const s=this.session;if(!s||s.id!==id)return;

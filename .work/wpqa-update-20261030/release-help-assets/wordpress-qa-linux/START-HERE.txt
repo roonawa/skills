@@ -1,0 +1,3 @@
+SITE EXAM 利用・更新: deploy/site-exam-guide.html
+新規導入: deploy/install-guide.html
+この配布物には認証情報・登録サイト・テスト結果は含まれていません。

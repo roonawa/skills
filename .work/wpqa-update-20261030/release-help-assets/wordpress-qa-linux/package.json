@@ -1,0 +1,37 @@
+{
+  "name": "wordpress-qa-harness",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "test:integration": "node test/integration.mjs",
+    "test:ui": "node test/ui-browser.mjs",
+    "test:report-ui": "node test/issue-report-browser.mjs",
+    "test:designer-report-ui": "node test/designer-report-browser.mjs",
+    "ui": "node ui/start.mjs",
+    "qa": "node bin/qa.mjs",
+    "demo": "node examples/demo-server.mjs",
+    "test:settings": "node test/settings-browser.mjs",
+    "test:registration": "node test/registration-browser.mjs",
+    "test:login": "node test/login-browser.mjs",
+    "test:extended": "node test/extended-integration.mjs",
+    "test:extended-ui": "node test/extended-ui.mjs",
+    "test:hardening": "node test/hardening-integration.mjs",
+    "test:real-wordpress": "powershell -NoProfile -File test/real-wordpress/setup.ps1",
+    "ui:shared": "node ui/start-shared.mjs",
+    "pilot:init": "node bin/init-pilot.mjs",
+    "test:shared-ui": "node test/shared-pilot-browser.mjs",
+    "test:ai-ui": "node test/ai-browser.mjs",
+    "test:site-exam-ui": "node test/site-exam-browser.mjs"
+  },
+  "dependencies": {
+    "@axe-core/playwright": "4.14.0",
+    "@playwright/test": "1.64.1",
+    "cheerio": "1.2.0",
+    "undici": "7.30.1"
+  }
+}

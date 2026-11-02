@@ -96,7 +96,7 @@ test('redirects are not followed and oversized public documents are discarded',a
 
 test('ambiguous or unverified controls are not guessed; subpath REST is preserved',async t=>{
   const {result}=await run(t,{profile:{sitePath:'/blog/'},publicFixture:{'/blog/':fixture['/'].replace('aria-controls="mobile-menu"','aria-controls="missing"')+'<form><input name="s"></form>','/robots.txt':'User-agent: *','/blog/wp-sitemap.xml':'<urlset></urlset>'}});
-  assert.equal(result.public.menu,undefined);assert.equal(result.public.search,undefined);
+  assert.equal(result.public.menu,undefined);assert.ok(result.public.search);
   assert.equal(result.public.forms[0].restPath,'/blog/wp-json/contact-form-7/v1/contact-forms/42/feedback');
   assert.deepEqual(result.public.sitemaps,[{path:'/blog/wp-sitemap.xml'}]);
 });
@@ -199,4 +199,14 @@ test('homepage candidates cannot displace explicit or existing contact candidate
   const paths=requests.filter(r=>r.kind==='public').map(r=>new URL(r.url).pathname);
   assert.ok(paths.includes('/explicit/'));assert.ok(!paths.includes('/inquiry-new/'));
   assert.equal(paths.filter(p=>p.startsWith('/contact-')).length,9);
+});
+
+test('crawl probes are generated even when optional documents are missing; multiple search forms get an observed unique selector',async t=>{
+ const {result}=await run(t,{publicFixture:{'/':'<header><form id="header-search"><input name="s"></form></header><footer><form><input name="s"></form></footer>'}});
+ assert.equal(result.public.search.formSelector,'#header-search');assert.equal(result.public.search.submitSelector,undefined);assert.equal(result.public.crawlProbes.length,4);assert.equal(result.public.sitemaps.length,0);
+});
+
+test('multisite Password Protected gate is retained while admin cookies and test cookies are stripped',async t=>{
+ const {requests}=await run(t,{publicHeaders:{Cookie:'wordpress_logged_in_secret=ADMIN; bid_1_password_protected_auth=GATE; bid_1_password_protected_cookie_test=TEST; unrelated=NO'}});
+ const publicRequest=requests.find(r=>r.kind==='public');assert.equal(publicRequest.headers.Cookie,'bid_1_password_protected_auth=GATE');
 });

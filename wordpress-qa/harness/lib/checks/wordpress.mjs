@@ -90,7 +90,7 @@ export async function run({check,config,requestFactory,runDir,signal,record=()=>
     if(config.headersEnv){
       const supplied=envHeaders(config.headersEnv);
       const cookie=Object.entries(supplied).find(([key])=>key.toLowerCase()==='cookie')?.[1];
-      if(cookie){const gate=cookie.split(';').map(v=>v.trim()).filter(v=>/^password_protected_[a-zA-Z0-9_-]+=[^;\r\n]*$/.test(v)&&!v.startsWith('password_protected_cookie_test='));if(gate.length)publicHeaders.Cookie=gate.join('; ');}
+      if(cookie){const gate=cookie.split(';').map(v=>v.trim()).filter(v=>/^(?:bid_\d+_)?password_protected_[a-zA-Z0-9_-]+=[^;\r\n]*$/.test(v)&&!/(?:^|_)password_protected_cookie_test=/.test(v));if(gate.length)publicHeaders.Cookie=gate.join('; ');}
     }
     const anon=await context(publicHeaders);
     const meResponse=await req(admin,`${rest}/users/me?context=edit`);

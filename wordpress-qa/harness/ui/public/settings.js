@@ -1,4 +1,6 @@
+import {initAiPreparation} from './ai-preparation.js';
 import {createAutomationEditor} from './automation-inputs.js';
+import {remoteLoginView} from './remote-login.js';
 import {showPreparationWizard,preparationError} from './preparation-wizard.js';
 import {generateCases,linkRegistrationCoverage} from './case-generator.js';
 import {initCoverage} from './coverage-editor.js';
@@ -16,14 +18,15 @@ export function initSettings({api,currentProject,onSaved,shared=false}) {
     <section><h3>サイト情報</h3><div class="editor-grid" id="site-fields">${input('name','サイト名')}${input('baseURL','サイトURL（例：https://example.jp）','','url')}${select('environment','環境',[['staging','検証環境'],['production','本番環境'],['local','ローカル']], 'staging')}</div></section>
     <section><div class="editor-section-title"><h3>公開ページの検査</h3><button type="button" id="add-page">ページを追加</button></div><p>検索エンジンへの公開可否、正規URLなどの期待値を登録します。</p><div id="page-editors"></div></section>
     <section><div class="editor-section-title"><h3>管理設定の検査</h3><button type="button" id="add-admin">項目を追加</button></div><p>値の種類も一致させて判定します。チェック状態は「真偽値」を選び、true または false を入力してください。</p><div id="admin-editors"></div></section>
-    <section id="credentials-section"><h3>認証情報</h3><p>このWindowsユーザーで復号できる形式で保存します。未入力なら保存済みの情報を維持します。実サイトはHTTPSを使用してください。</p>
+    <section id="credentials-section"><h3>認証情報</h3><p>${shared?'サーバーの暗号化キーで保護して保存します。':'このWindowsユーザーで復号できる形式で保存します。'}未入力なら保存済みの情報を維持します。実サイトはHTTPSを使用してください。</p>
       <h4>REST APIの認証</h4><p id="rest-state"></p><div class="editor-grid"><label>WordPressユーザー名<input id="auth-user" autocomplete="off"></label><label>アプリケーションパスワード<input id="auth-password" type="password" autocomplete="new-password"></label></div><label class="check-line"><input id="clear-rest" type="checkbox">保存済みREST認証を削除</label>
-      <h4>管理画面へのログイン</h4><p id="browser-state"></p><p>${shared?'共有版では担当者が用意した対象サイト専用のPlaywrightセッションJSONを取り込みます。セッションにはログイン権限が含まれるため、報告書やチャットには添付しないでください。':'専用ブラウザーでWordPressにログインしてください。二段階認証もその画面で操作できます。確認後、この設定画面の「保存」で認証を登録します。'}</p><div class="editor-grid"><label>ログインページのパス<input id="login-path" value="/wp-login.php"></label><label>管理画面のパス<input id="admin-path" value="/wp-admin/"></label></div><div class="login-actions"><button type="button" id="login-start">WordPressにログイン</button><button type="button" id="login-verify" hidden>ログインを確認</button><button type="button" id="login-cancel" hidden>ログインをキャンセル</button></div><p id="login-status" role="status"></p><details><summary>セッションファイルから取り込む（任意）</summary><label>セッションファイル<input id="auth-state" type="file" accept=".json,application/json"></label></details><label class="check-line"><input id="clear-browser" type="checkbox">保存済みセッションを削除</label>
+      <h4>管理画面へのログイン</h4><p id="browser-state"></p><p>${shared?'「WordPressにログイン」を押すと、この画面から専用ブラウザーを操作できます。登録済みサイトは「ログインを確認して保存」で認証の保存まで完了します。新規サイトは最後にサイト登録を行います。PCへのインストールや認証ファイルは不要です。':'専用ブラウザーでWordPressにログインしてください。二段階認証もその画面で操作できます。登録済みサイトは「ログインを確認して保存」で完了します。'}</p><div class="editor-grid"><label>ログインページのパス<input id="login-path" value="/wp-login.php"></label><label>管理画面のパス<input id="admin-path" value="/wp-admin/"></label></div><div class="login-actions"><button type="button" id="login-start">WordPressにログイン</button><button type="button" id="login-verify" hidden>ログインを確認して保存</button><button type="button" id="login-cancel" hidden>ログインをキャンセル</button></div><p id="login-status" role="status"></p><details><summary>セッションファイルから取り込む（任意）</summary><label>セッションファイル<input id="auth-state" type="file" accept=".json,application/json"></label></details><label class="check-line"><input id="clear-browser" type="checkbox">保存済みセッションを削除</label>
     </section>
     <section><details><summary>その他の検査（詳細設定）</summary><p>既存ハーネスの形式でJSON配列を編集できます。操作テストのコード登録は外部設定ファイルで管理します。</p><label>URL応答・公開方針（policies）<textarea id="edit-policies" rows="5" spellcheck="false"></textarea></label><label>表示・アクセシビリティ（visuals）<textarea id="edit-visuals" rows="5" spellcheck="false"></textarea></label><label>手動確認（manual）<textarea id="edit-manual" rows="5" spellcheck="false"></textarea></label></details></section>
     </div><footer><button type="button" id="editor-cancel">キャンセル</button><button type="button" id="editor-copy" hidden>新規サイトとして複製</button><button class="primary" type="submit" id="editor-save">保存</button></footer></form>`;
   document.body.append(dialog);
   const $=s=>dialog.querySelector(s),fields=$('#site-fields');
+  const remote=shared?remoteLoginView({container:$('#credentials-section'),api}):null;
   const profileFields=[
     ['sitePath','公開サイトの起点パス','/'],
     ['timezone','期待するタイムゾーン（例：Asia/Tokyo）'],
@@ -54,8 +57,8 @@ export function initSettings({api,currentProject,onSaved,shared=false}) {
   automationSection.append(rediscoverButton,rediscoverStatus);
   function rediscoveryControls(){
     rediscoverButton.hidden=!editing||!editable;
-    rediscoverButton.disabled=rediscovering||saving||loginBusy||!!loginId||!operationProfile||rediscoveryDirty;
-    if(!rediscovering)rediscoverStatus.textContent=rediscoveryDirty?'未保存の変更があります。保存して設定を開き直すと再取得できます。':'保存済みの管理者認証で公開ページ・管理画面を読み取り、検査条件を追加して保存します。同じIDの設定・基準値と操作許可は維持します。';
+    rediscoverButton.disabled=rediscovering||saving||loginBusy||!!loginId||rediscoveryDirty;
+    if(!rediscovering)rediscoverStatus.textContent=rediscoveryDirty?'未保存の変更があります。保存して設定を開き直すと再取得できます。':'公開ページと、利用できる場合は管理画面を読み取り、検査条件を追加して保存します。管理認証が使えない場合も公開情報の取得を続けます。同じIDの設定・基準値と操作許可は維持します。';
   }
   for(const event of ['input','change'])$('#site-editor').addEventListener(event,()=>{rediscoveryDirty=true;rediscoveryControls();});
   $('#site-editor').addEventListener('click',e=>{if(e.target.closest('#add-page,#add-admin,.remove-setting,[data-remove],[data-add-check],[data-add-plan],#add-role')){rediscoveryDirty=true;rediscoveryControls();}});
@@ -123,6 +126,35 @@ export function initSettings({api,currentProject,onSaved,shared=false}) {
     return profile;
   }
   const coverageSection=document.createElement('section');$('#credentials-section').before(coverageSection);const coverage=initCoverage(coverageSection);
+  let aiChecks=[];
+  function aiConfig(){
+    const config={...original,...coverage.read()};
+    for(const el of fields.querySelectorAll('[data-key]'))config[el.dataset.key]=el.value.trim();
+    config.pages=[...dialog.querySelectorAll('.setting-row[data-kind=page]')].map(box=>{
+      const p={...box._original};for(const el of box.querySelectorAll('[data-key]'))p[el.dataset.key]=el.type==='checkbox'?el.checked:el.value;
+      if(!p.title)delete p.title;return p;
+    });return config;
+  }
+  const aiPreparation=initAiPreparation({container:$('#site-fields').parentElement,api,readConfig:aiConfig,
+    async prepare(){
+      if(!editing)return;
+      const before=aiConfig();
+      if(before.baseURL!==original.baseURL||before.environment!==original.environment)throw Error('サイトURL・環境を変更した場合は先に保存してから補完してください。');
+      const result=await api(`/api/projects/${encodeURIComponent(editing)}/rediscover`,{method:'POST',body:JSON.stringify({version,preview:true})});
+      // Apply only missing/preparation checks; retain unsaved expectations and credentials.
+      if(JSON.stringify(before)!==JSON.stringify(aiConfig()))throw Error('取得中に入力が変わりました。入力を保持しています。もう一度補完してください。');
+      const byId=new Map(result.config.checks.map(c=>[c.id,c]));
+      const checks=before.checks.map(c=>{const next=byId.get(c.id);byId.delete(c.id);return c.kind==='unconfigured'&&next?next:c;});
+      checks.push(...byId.values());
+      aiChecks.push(...checks.filter(c=>JSON.stringify(c)!==JSON.stringify(before.checks.find(x=>x.id===c.id))));
+      coverage.populate({...before,checks});
+      for(const item of result.config.admin??[])if(!original.admin.some(a=>a.id===item.id)){original={...original,admin:[...original.admin,item]};row('admin',item);}
+      for(const [key] of profileFields){const el=profileField(key);if(el&&el.type!=='checkbox'&&!el.value&&result.profile[key]!==undefined)el.value=result.profile[key];}
+      $('#refresh-automation').checked=true;rediscoveryDirty=true;preview();return result.preparation;
+    },
+    applyConfig(config){const before=coverage.read().checks;aiChecks.push(...config.checks.filter(c=>JSON.stringify(c)!==JSON.stringify(before.find(x=>x.id===c.id))));coverage.populate(config);rediscoveryDirty=true;preview();},
+    openCheck(id){const row=[...coverageSection.querySelectorAll('.coverage-row')].find(r=>r.querySelector('[data-c=id]')?.value===id);if(!row)return;showPreparationWizard({row,config:aiConfig(),profile:operationProfile,profileFields:profileField,onProfileChange:()=>{$('#refresh-automation').checked=true;}});dialog.dataset.preparationCheck=id;row.scrollIntoView({block:'start'});}
+  });
   const preparation=document.createElement('section');preparation.id='settings-preparation';preparation.setAttribute('aria-live','polite');coverageSection.before(preparation);
   function preview(){
     try{
@@ -157,8 +189,7 @@ export function initSettings({api,currentProject,onSaved,shared=false}) {
   function roleRow(name='',status={}){const row=document.createElement('fieldset');row.className='role-row';row.innerHTML=`<legend>ロール認証</legend><label>ロール名<input data-role-name value="${esc(name)}" pattern="[a-z][a-z0-9_-]*" required></label><p>REST: ${status.rest?'登録済み':'未登録'} / ブラウザー: ${status.browser?'登録済み':'未登録'}</p><div class="editor-grid"><label>ユーザー名<input data-role-user autocomplete="off"></label><label>アプリケーションパスワード<input data-role-password type="password" autocomplete="new-password"></label></div><label class="check-line"><input type="checkbox" data-role-clear-rest>保存済みREST認証を削除</label><label class="check-line"><input type="checkbox" data-role-clear-browser>保存済みブラウザー認証を削除</label>`;row.querySelector('[data-role-name]').oninput=refreshRoles;$('#role-editors').append(row);refreshRoles();}
   $('#add-role').onclick=()=>roleRow();
   function loginControls(){
-    $('#login-start').disabled=shared||loginBusy||!!loginId||!editable;
-    if(shared){$('#login-start').hidden=true;$('#login-status').textContent='共有版ではREST認証またはセッションファイルを登録してください。専用ログインウィンドウはサーバーでは開きません。';}
+    $('#login-start').disabled=loginBusy||!!loginId||!editable;
     $('#login-verify').hidden=!loginId||loginReady||!loginOwned;$('#login-verify').disabled=loginBusy;
     $('#login-cancel').hidden=!loginId;$('#login-cancel').disabled=loginBusy;
     $('#editor-copy').disabled=!!loginId;
@@ -166,6 +197,7 @@ export function initSettings({api,currentProject,onSaved,shared=false}) {
     $('#login-role').disabled=loginBusy||!!loginId||!editable;
   }
   async function cancelLogin(){
+    remote?.stop();
     if(loginId)await api('/api/logins/'+encodeURIComponent(loginId)+'/cancel',{method:'POST',body:'{}'});
     loginId=null;loginReady=false;loginOwned=true;$('#login-status').textContent='';loginControls();
   }
@@ -185,6 +217,7 @@ export function initSettings({api,currentProject,onSaved,shared=false}) {
     $(kind==='page'?'#page-editors':'#admin-editors').append(box);
   }
   function populate(config,credentials={},profile=null) {
+    aiPreparation.reset();aiChecks=[];
     rediscoveryDirty=false;original=config;loginId=null;loginRole='';loginReady=false;loginBusy=false;loginOwned=true;$('#login-status').textContent='';$('#login-path').value='/wp-login.php';$('#admin-path').value='/wp-admin/';
     coverage.populate(config);$('#role-editors').replaceChildren();for(const [name,status] of Object.entries(credentials.roles??{}))roleRow(name,status);refreshRoles();$('#login-role').value='';
     for(const e of fields.querySelectorAll('[data-key]'))e.value=config[e.dataset.key]??'';
@@ -208,7 +241,7 @@ export function initSettings({api,currentProject,onSaved,shared=false}) {
     $('#rest-state').textContent=credentials.rest?'登録済み（値は表示しません）':'未登録';$('#browser-state').textContent=credentials.browser?'登録済み（値は表示しません）':'未登録';
     $('#auth-user').value='';$('#auth-password').value='';$('#auth-state').value='';$('#clear-rest').checked=false;$('#clear-browser').checked=false;
     $('#editor-heading').textContent=editing?'サイト設定を編集':'サイトを登録';
-    $('#editor-mode').textContent=editable?'新規登録時は基本観点のテストケースを自動生成します。追加条件が必要な観点は準備待ちで残り、すべてが自動実行されるわけではありません。保存前の実行準備を確認してください。':'このサイトは外部ファイルで管理されています。複製すると操作テスト・認証参照・メール連携を除いた新しい登録を作成します。';
+    $('#editor-mode').textContent=editable?'新規登録時は基本観点のテストケースを自動生成します。追加条件が必要な観点は設定が必要で残り、すべてが自動実行されるわけではありません。保存前の実行準備を確認してください。':'このサイトは外部ファイルで管理されています。複製すると操作テスト・認証参照・メール連携を除いた新しい登録を作成します。';
     $('#editor-copy').hidden=editable;$('#editor-save').hidden=!editable;
     for(const e of dialog.querySelectorAll('.editor-body input,.editor-body select,.editor-body textarea,.editor-body button'))e.disabled=!editable;
     $('#enable-operation-profile').disabled=!editable||!!operationProfile;
@@ -239,6 +272,7 @@ export function initSettings({api,currentProject,onSaved,shared=false}) {
         $('#login-status').textContent=!loginOwned?'別のサイトのログインが進行中です。続ける場合はそのサイトの設定を開き、終了する場合はキャンセルしてください。':loginReady?'ログイン確認済み。「保存」で認証を登録できます。':'ログインが進行中です。専用ブラウザーで完了後に確認してください。';loginControls();
       }
       dialog.showModal();$('.editor-body').scrollTop=0;
+      if(shared&&loginId&&loginOwned&&!loginReady)remote.start(loginId);
       if(preparationNotice){const info=document.createElement('p');info.className='preparation-discovery-note';info.textContent=preparationNotice;$('#editor-mode').after(info);}
       if(target?.checkId){
         const row=[...dialog.querySelectorAll('.coverage-row')].find(r=>r.querySelector('[data-c=id]')?.value===target.checkId);
@@ -246,7 +280,7 @@ export function initSettings({api,currentProject,onSaved,shared=false}) {
           const wizard=showPreparationWizard({row,config:data.config,profile:data.profile,profileFields:profileField,onProfileChange:()=>{$('#refresh-automation').checked=true;}});
           if(wizard){dialog.classList.add('preparation-mode');row.classList.add('settings-target');const all=document.createElement('button');all.type='button';all.textContent='認証情報や他の設定も表示';all.onclick=()=>dialog.classList.remove('preparation-mode');wizard.append(all);row.scrollIntoView({block:'start'});wizard.querySelector('input,select,button')?.focus({preventScroll:true});return;}
           row.classList.add('settings-target');
-          const note=document.createElement('p');note.className='settings-target-note';note.textContent='準備待ちの対象項目です。「検査方法」を選択し、ひな形の対象・期待値をこのサイトに合わせて設定してください。';row.prepend(note);
+          const note=document.createElement('p');note.className='settings-target-note';note.textContent='設定が必要の対象項目です。「検査方法」を選択し、ひな形の対象・期待値をこのサイトに合わせて設定してください。';row.prepend(note);
           const guide=document.createElement('div');guide.className='settings-target-guide';
           for(const field of target.fields??[]){const p=document.createElement('p');const title=document.createElement('strong');title.textContent=field.label+'：';p.append(title,document.createTextNode(field.value));guide.append(p);}
           const hint=document.createElement('p');hint.textContent='「対象・期待値を入力」の日本語フォームからも入力できます。JSONのキー名は案内との対応用です。';guide.append(hint);note.after(guide);
@@ -255,7 +289,7 @@ export function initSettings({api,currentProject,onSaved,shared=false}) {
       }
     }catch(e){alert(e.message);}
   }
-  async function close(){if(saving||loginBusy)return;try{if(loginOwned)await cancelLogin();else{loginId=null;loginReady=false;}}catch(e){error(e.message);return;}dialog.close();$('#auth-password').value='';$('#auth-user').value='';$('#auth-state').value='';$('#profile-public-password').value='';$('#profile-clear-public-password').checked=false;for(const e of dialog.querySelectorAll('[data-role-password],[data-role-user]'))e.value='';}
+  async function close(){if(saving||loginBusy)return;try{if(loginOwned)await cancelLogin();else{loginId=null;loginReady=false;}}catch(e){error(e.message);return;}aiPreparation.reset();dialog.close();$('#auth-password').value='';$('#auth-user').value='';$('#auth-state').value='';$('#profile-public-password').value='';$('#profile-clear-public-password').checked=false;for(const e of dialog.querySelectorAll('[data-role-password],[data-role-user]'))e.value='';}
   $('#login-start').onclick=async()=>{
     if(loginBusy||loginId)return;error('');loginBusy=true;loginControls();
     $('#login-status').textContent='専用ブラウザーを開いています…';
@@ -263,13 +297,15 @@ export function initSettings({api,currentProject,onSaved,shared=false}) {
       loginRole=$('#login-role').value;
       const result=await api('/api/logins',{method:'POST',body:JSON.stringify({projectId:editing,baseURL:fields.querySelector('[data-key=baseURL]').value.trim(),environment:fields.querySelector('[data-key=environment]').value,loginPath:$('#login-path').value,adminPath:$('#admin-path').value,...(loginRole?{role:loginRole}:{})})});
       loginId=result.id;loginReady=false;loginOwned=true;$('#clear-browser').checked=false;$('#auth-state').value='';
-      $('#login-status').textContent=result.baseURL+' の専用ブラウザーでログイン後、「ログインを確認」を押してください（10分以内）。';
+      remote?.start(loginId);
+      $('#login-status').textContent=result.baseURL+' の専用ブラウザーでログイン後、「ログインを確認して保存」を押してください（10分以内）。';
     }catch(e){error(e.message);$('#login-status').textContent='ログインを開始できませんでした';}finally{loginBusy=false;loginControls();}
   };
   $('#login-verify').onclick=async()=>{
     if(!loginId||loginBusy)return;loginBusy=true;error('');loginControls();
-    try{await api('/api/logins/'+encodeURIComponent(loginId)+'/verify',{method:'POST',body:'{}'});loginReady=true;$('#login-status').textContent='ログイン確認済み。「保存」でこのサイトに認証を登録します。';}
-    catch(e){error(e.message);}finally{loginBusy=false;loginControls();}
+    remote?.stop();
+    try{if(editing){const saved=await api('/api/projects/'+encodeURIComponent(editing)+'/auth',{method:'POST',body:JSON.stringify({loginId,version,...(loginRole?{role:loginRole}:{})})});version=saved.version;loginId=null;loginReady=false;$('#login-status').textContent='ログインを確認し、自動検査用の認証を保存しました。設定を再保存する必要はありません。';}else{await api('/api/logins/'+encodeURIComponent(loginId)+'/verify',{method:'POST',body:'{}'});loginReady=true;$('#login-status').textContent='ログイン確認済み。サイト登録時に認証を保存します。';}}
+    catch(e){error(e.message);remote?.start(loginId);}finally{loginBusy=false;loginControls();}
   };
   $('#login-cancel').onclick=async()=>{if(loginBusy)return;loginBusy=true;try{await cancelLogin();}catch(e){error(e.message);}finally{loginBusy=false;loginControls();}};
   $('#editor-close').onclick=close;$('#editor-cancel').onclick=close;dialog.addEventListener('cancel',e=>{e.preventDefault();close();});
@@ -302,6 +338,7 @@ export function initSettings({api,currentProject,onSaved,shared=false}) {
       if(!editing) config=generateCases(config);
       const auth={clearRest:$('#clear-rest').checked,clearBrowser:$('#clear-browser').checked};
       const profile=readProfile();
+      if(profile&&aiChecks.length){const ids=new Set(aiChecks.map(c=>c.id));profile.automation={...profile.automation,additionalChecks:[...(profile.automation?.additionalChecks??[]).filter(c=>!ids.has(c.id)),...config.checks.filter(c=>ids.has(c.id)&&/^(coverage-|ai-)/.test(c.id))]};}
       if(profile&&dialog.dataset.preparationCheck){const prepared=config.checks.find(c=>c.id===dialog.dataset.preparationCheck&&c.kind!=='unconfigured');if(prepared)profile.automation={...profile.automation,additionalChecks:[...(profile.automation?.additionalChecks??[]).filter(c=>c.id!==prepared.id),prepared]};}
       const interactionSettings=profile?.interactions??interactions.read();
       if(interactionSettings.admin){

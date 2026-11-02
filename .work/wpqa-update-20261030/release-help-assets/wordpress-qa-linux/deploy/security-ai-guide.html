@@ -1,0 +1,68 @@
+<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>安全対策・AI補完版 更新と利用ガイド</title>
+<style>body{margin:0;background:#edf3f7;color:#183346;font:16px/1.8 system-ui,sans-serif}main{max-width:1020px;margin:auto;padding:32px}section{background:white;border:1px solid #ccdbe4;border-radius:14px;padding:26px;margin:24px 0}h1{font-size:30px}h2{font-size:23px}pre{background:#102c3e;color:#e4f5ff;padding:18px;overflow:auto;white-space:pre-wrap}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccdbe4;padding:12px;text-align:left}a{color:#006883}.note{border-left:5px solid #c7770f;background:#fff5df;padding:18px}.steps{display:flex;flex-wrap:wrap;gap:10px}.steps span{background:#e4f5f0;padding:12px;border-radius:8px}@media print{body{background:white}section{break-inside:avoid}pre{background:#eee;color:black}}</style>
+<main><p class="note"><a href="site-exam-guide.html">SITE EXAM_：同じページでの採点・説明・顧客向けHTML出力の利用ガイド</a></p><h1>安全対策・AI補完版 更新と利用ガイド</h1><p>配布識別子：2026-10-29-security-claude ／ 社内LAN・VPN内の少人数向け</p>
+<p class="note">配布物にAPIキー・ログイン情報・登録サイト・テスト結果は含みません。実際のLinuxコンテナ起動、ブラウザーのサンドボックス、社内TLS、実キーでのAnthropic API接続は導入先で確認してください。コードと構成の改修を実施した段階であり、第三者による侵入試験済みを意味しません。</p>
+<section><h2>1. 診断で見つかった問題への対応</h2><table><tr><th>診断項目</th><th>対応</th><th>確認範囲</th></tr>
+<tr><td>SEC01：メール検査への管理者認証の流用</td><td>管理者用環境変数の指定を拒否。メール専用認証と送信先の完全一致を要求し、転送先には追従しない。</td><td>回帰テスト済み</td></tr>
+<tr><td>SEC02：内部サービスへの任意接続</td><td>管理者が許可した接続元URLだけを専用プロキシで中継。DNS解決したIPを検査して接続時に固定。ループバック・リンクローカル等は禁止。社内サイトは固定IPも登録。</td><td>IP判定・API制限を検証。Linuxでのネットワーク隔離は導入時確認</td></tr>
+<tr><td>SEC03：ブラウザーと機密情報の同居</td><td>Chromium／Firefoxを別コンテナへ分離。秘密ファイルや結果のボリュームをマウントしない。Chromiumのサンドボックスを有効化。</td><td>Compose検証済み。Linuxで起動確認が必要</td></tr>
+<tr><td>SEC04：失敗試行による正規利用者の締め出し</td><td>誤ったパスワードの失敗回数で正しいパスワードを拒否しない。失敗記録の件数も制限。</td><td>12回失敗後の正規ログインを検証</td></tr>
+<tr><td>SEC05：リソース上限不足</td><td>コンテナのメモリ・CPU・PID制限、Dockerログと監査ログのローテーション。保存量・空き容量を開始前と検査中10秒ごとに確認。</td><td>設定検証済み。容量チェックは厳密なディスク割当ではなく、停止・後片付け中に超過し得る。ホスト側の容量監視・割当も併用</td></tr></table>
+<p>利用者は引き続き同じサイト・結果を共有します。サイト別権限や外販向けの顧客分離はありません。AI・接続先設定のみ、指定した管理者に制限します。</p></section>
+<section><h2>2. Linux更新：バックアップと配置</h2><p>この手順は既存配置が <code>/opt/wpqa/wordpress-qa-linux</code> の場合です。実際の場所が異なる場合は読み替えてください。検査とログインの終了を待ち、rootで作業します。旧版の更新ガイドにある「Composeはコピーしない」という扱いは今回には適用しません。</p>
+<ol><li>PCから新しいZIPと .sha256 をサーバーの作業フォルダーへ転送します。</li><li>転送先で整合性を確認して展開します。既存配置へ直接展開しません。</li></ol>
+<pre>mkdir -p /opt/wpqa/update-security-ai
+cd /opt/wpqa/update-security-ai
+# このフォルダーへZIPと .sha256 を転送した後
+sha256sum -c wordpress-qa-linux-2026-10-29-security-claude.zip.sha256
+unzip wordpress-qa-linux-2026-10-29-security-claude.zip
+cd wordpress-qa-linux
+sha256sum -c SHA256SUMS</pre>
+<p>現在のコンテナを止め、プログラム・設定とデータを別々にバックアップします。バックアップには機密情報があるため権限を制限します。</p>
+<pre>cd /opt/wpqa/wordpress-qa-linux
+BACKUP=/opt/wpqa/backup-security-ai-$(date +%Y%m%d-%H%M%S)
+mkdir -m 700 "$BACKUP"
+/bin/cp -a . "$BACKUP/program"
+docker compose --env-file deploy/.env -f deploy/compose.yaml stop
+docker compose --env-file deploy/.env -f deploy/compose.yaml run --rm --no-deps --entrypoint tar qa -czf - -C /data . &gt; "$BACKUP/data.tar.gz"
+chmod 600 "$BACKUP/data.tar.gz"
+tar -tzf "$BACKUP/data.tar.gz" &gt; /dev/null</pre>
+<p><code>tar</code>が正常終了したことを確認した後、新版を配置します。<code>.env</code>、<code>deploy/secrets</code>、<code>Caddyfile</code>は保持します。暗号化キーを作り直さないでください。</p>
+<pre>cd /opt/wpqa/wordpress-qa-linux
+UPDATE=/opt/wpqa/update-security-ai/wordpress-qa-linux
+for item in bin lib builtin tests ui Dockerfile .dockerignore package.json package-lock.json playwright.config.mjs; do
+  /bin/cp -a "$UPDATE/$item" . || break
+done
+/bin/cp -a "$UPDATE/deploy/compose.yaml" deploy/compose.yaml
+/bin/cp -a "$UPDATE/deploy/browser-seccomp.json" deploy/browser-seccomp.json
+/bin/cp -a "$UPDATE/deploy/security-ai-guide.html" deploy/security-ai-guide.html
+/bin/cp -a "$UPDATE/deploy/user-manual.html" deploy/user-manual.html
+diff -qr "$UPDATE/ui" ui
+diff "$UPDATE/deploy/compose.yaml" deploy/compose.yaml</pre>
+<p>エラーが出た場合は起動に進まないでください。diffが無出力なら該当ファイルは一致しています。</p></section>
+<section><h2>3. Linux更新：管理者設定・ビルド・起動</h2><p><code>deploy/.env</code>に次を追加します。管理者名は<strong>このツールに登録済みの利用者名</strong>です。WordPressのユーザー名ではありません。</p>
+<pre>WPQA_ADMINS=実際の管理者名
+WPQA_MAX_DATA_MB=8192</pre>
+<p>複数管理者は半角カンマ区切りです。未登録名では起動を拒否します。APIキーは.envに書かず、起動後に画面で登録します。6GB前後のコンテナ上限合計にOS分を加味し、この構成はメモリ8GB以上を目安に負荷を確認してください。</p>
+<pre>cd /opt/wpqa/wordpress-qa-linux
+docker compose --env-file deploy/.env -f deploy/compose.yaml config --quiet
+docker compose --env-file deploy/.env -f deploy/compose.yaml build
+docker compose --env-file deploy/.env -f deploy/compose.yaml up -d
+docker compose --env-file deploy/.env -f deploy/compose.yaml ps
+docker compose --env-file deploy/.env -f deploy/compose.yaml logs --tail=60 qa egress chromium firefox</pre>
+<p>qa・proxy・egress・chromium・firefoxの5サービスを確認します。ブラウザーが再起動を繰り返す場合は、サーバー担当者がLinuxのユーザー名前空間と同梱seccomp設定を確認してください。サンドボックス無効化では回避しません。既存の認証・結果を保つため、<code>down -v</code>は実行しません。</p>
+<p>切り戻す場合は検査を止め、今回のコンテナを <code>stop</code> してからバックアップのプログラム・旧Composeを同じ配置先に復元し、旧版をビルド・起動します。データ復元が必要な場合は現状も退避し、同じ暗号化キーと組み合わせて担当者が復元してください。旧版へ戻すと今回の安全対策も戻るため、利用を制限してください。</p></section>
+<section><h2>4. 最初に管理者が設定すること</h2><div class="steps"><span>共有画面にログイン</span><span>AI・接続先の設定</span><span>接続先を登録</span><span>保存</span></div>
+<p>更新直後は<strong>接続先が未許可</strong>です。既存の登録サイトも管理者が追加するまで検査・ログインを開始できません。対象URLのホストに加え、利用する画像CDN、ログイン転送先、メール検証サービスを必要な範囲で許可します。URLはパスを付けず、下記のように1行ずつ入力します。</p>
+<pre>https://対象のサイト.example
+https://画像配信.example
+https://社内サイト.example 10.0.0.20
+https://api.anthropic.com</pre>
+<p>社内サイトはDNSが返す固定IPを記入します。IPが変わった場合は再設定が必要です。localhostやクラウドのメタデータIPは許可できません。公開サイトの平文HTTPは許可しません。許可不足はサイト不具合として扱わず、検査条件を整備して再実行します。</p>
+<p>メール認証が必要な場合、管理者がサーバー環境にメール専用 <code>WPQA_MAIL_任意名_HEADERS</code> と <code>WPQA_MAIL_任意名_HEADERS_ORIGIN</code> を対で設定します。後者はメールサービスのoriginと完全一致させ、前者はメール用ヘッダーJSONです。管理画面認証を流用しません。機密値をチャットや報告書に貼らないでください。</p></section>
+<section><h2>5. Claude APIキーの設定と利用</h2><p class="note">旧OpenAI版から更新した場合、AIを無効にして旧キーを使用しません。画面でAnthropicのAPIキーと送信許可を登録し直してください。接続先には https://api.anthropic.com を追加します。古い api.openai.com の許可が不要なら削除してください。Claudeへのログイン情報ではなく、APIキーを入力します。</p><ol><li>管理者が「AI・接続先の設定」を開き、Anthropic APIキーを入力します。</li><li>利用可能なモデル名と1日の呼出回数を設定し、外部送信の許可と「AI補完を有効にする」を選んで保存します。初期モデル名はclaude-sonnet-4-6です。アカウントで利用可能か確認してください。</li><li>サイトの登録・設定画面で「AIで不足ケース・準備事項を確認」を押します。初回の登録前にも利用できます。</li><li>候補を確認し、採用するものだけ選んで「選んだ検査を設定に反映」を押します。ログインと他の入力は維持します。</li><li>確認事項の「この項目を設定する」から、既存の設定で期待値を入力します。サイトから取得できる値は既存の再取得機能を使います。</li><li>最後に「保存」→「検査を実行」で実際の結果を確認します。AIの提案だけで合格にはなりません。</li></ol>
+<p>自動生成の対象は横はみ出し、登録済みcanonicalの比較、合意済み上限を使った読込時間です。既存の広い確認項目を、狭い検査で置き換えて準備完了にすることはありません。他の設定が必要は確認事項を提案し、既存の設定画面へ案内します。注文・送信・テスト投稿の許可は変更しません。AIは仕様や期待値を勝手に確定しません。</p>
+<p>APIキーは暗号化してサーバーに保存し、画面・報告書・ログへ戻しません。送信するのはページ番号・ページ種別・検査種類・準備状況・任意の読込上限です。URL、ページ本文、画像、認証情報、受注・問い合わせ内容は送りません。将来それらを使った診断を追加する場合は別途送信範囲を設計します。</p>
+<p>利用回数は全員共通で、失敗したAPI呼出も数えます。UTCの日付変更で戻ります。金額の上限ではないため、Anthropic側のプロジェクト予算も設定してください。Anthropic側の不正利用監視等を含むデータ取扱いは契約・設定によります。<a href="https://platform.claude.com/docs/en/build-with-claude/structured-outputs">構造化出力の公式説明</a>。</p>
+<p class="note">AIが無効、キー不正、接続拒否、応答不正の場合は設定を変更しません。通常の検査はAIなしで使えます。実キーで最初の1回を試し、候補・費用・接続状況を確認してから利用者へ案内してください。</p></section>
+<section><h2>6. 更新後の確認</h2><ol><li>登録サイト・既存結果が残っている。</li><li>管理者だけがAIキー・接続先を変更できる。</li><li>許可した検証サイトで共有画面からWordPressにログインできる。</li><li>未許可URL・127.0.0.1・169.254.169.254への操作が拒否される（実際の内部サービスを調査しない）。</li><li>読み取り検査を1件実行し、画像と結果ZIPをダウンロードできる。</li><li>AIで1回候補を取得し、選択・保存・再表示・検査実行を確認できる。</li></ol><p>初回は送信・注文を伴わないサイトで確認してください。この配布物ではAPI応答を模擬したテストを使用し、実課金は発生させていません。</p></section></main></html>

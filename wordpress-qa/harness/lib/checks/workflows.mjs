@@ -3,7 +3,7 @@ import { resolve, relative, isAbsolute } from 'node:path';
 import { realpath, readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { createHash } from 'node:crypto';
-import { waitForMail, envHeaders } from '../mailpit.mjs';
+import { waitForMail, mailHeaders } from '../mailpit.mjs';
 import { networkPolicy, validateNetworkPolicy } from '../network-policy.mjs';
 
 export const kinds = ['browser-flow', 'mail-delivery', 'operation-drill'];
@@ -17,6 +17,7 @@ function string(value,label) { assert.ok(typeof value==='string' && value.length
 function mail(options) {
   object(options,['source','expected'],'mail');
   object(options.source,['url','headersEnv'],'mail source'); string(options.source.url,'mail source url');
+  if(options.source.headersEnv!==undefined)assert.match(options.source.headersEnv,/^WPQA_MAIL_[A-Z0-9_]+_HEADERS$/,'メール専用認証以外は指定できません');
   assert.ok(['http:','https:'].includes(new URL(options.source.url).protocol),'mail source must be HTTP');
   object(options.expected,['to','subject','textIncludes','count','timeoutMs','settleMs','attachments'],'mail expected');
   const e=options.expected;
@@ -145,7 +146,7 @@ function siteURL(url,config) {
 async function mailRun(o,token) {
   const result=await waitForMail(o.source,{...o.expected,token});
   if(o.expected.attachments) for(const item of result) {
-    const response=await fetch(new URL(`/api/v1/message/${encodeURIComponent(item.id)}`,o.source.url),{headers:envHeaders(o.source.headersEnv),redirect:'error',signal:AbortSignal.timeout(5000)});
+    const response=await fetch(new URL(`/api/v1/message/${encodeURIComponent(item.id)}`,o.source.url),{headers:mailHeaders(o.source),redirect:'error',signal:AbortSignal.timeout(5000)});
     if(!response.ok) throw new Error('BLOCKED: attachment API unavailable');
     const message=await response.json();
     if(!Array.isArray(message.Attachments)) throw new Error('BLOCKED: attachment metadata unavailable');

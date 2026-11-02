@@ -1,3 +1,4 @@
+import {preparationReason} from '../lib/checks/index.mjs';
 import {validateAutomationInput} from './public/automation-inputs.js';
 
 // Discovery supplies structure, never authorization or business-policy approval.
@@ -12,7 +13,7 @@ export function resolveAutomationProfile(input, discovery={}) {
    const declared=f.fields.filter(x=>typeof x.required==='boolean'&&['text','email','tel','url','number','date','textarea','select','file'].includes(x.type));
    if(declared.length)p.contactExpectedFields=declared.map(({name,type,required})=>({name,type,required}));
   }
-  for(const [key,value] of Object.entries({contactFormId:f.formId,contactPath:f.path,contactNameField:unique('text'),contactEmailField:unique('email'),contactMessageField:unique('textarea'),contactConsentField:unique('checkbox')}))if(p[key]===undefined&&value!==undefined)p[key]=value;
+  for(const [key,value] of Object.entries({contactFormId:f.formId,contactPath:f.path,contactNameField:unique('text')??(()=>{const names=f.fields.filter(x=>x.type==='text'&&/^(?:your[-_])?(?:full[-_])?name$/i.test(x.name));return names.length===1?names[0].name:undefined;})(),contactEmailField:unique('email'),contactMessageField:unique('textarea'),contactConsentField:unique('checkbox')}))if(p[key]===undefined&&value!==undefined)p[key]=value;
  }
  p.automation=validateAutomationInput(p.automation);
  return p;
@@ -24,7 +25,9 @@ export function applyAutomationPlan(input, profile, discovery={}) {
  const remove=id=>{c.checks=c.checks.filter(x=>x.id!==id);};
  const replace=(key,title,suite,options)=>{
   const id='coverage-'+key;if(!pending(id))return;
-  remove(id);c.checks.push({id,title,suite,kind:'discovered-public',required:true,timeoutMs:180000,options});
+  const candidate={id,title,suite,kind:'discovered-public',required:true,timeoutMs:180000,options};
+  if(preparationReason(candidate,c))return;
+  remove(id);c.checks.push(candidate);
  };
  const note=(key,title,reason)=>{const id='discovery-scope-'+key;if(!c.manual.some(x=>x.id===id))c.manual.push({id,title,reason,required:true});};
  if(profile.writes&&c.environment!=='production'&&pending('coverage-cache')){
@@ -46,7 +49,7 @@ export function applyAutomationPlan(input, profile, discovery={}) {
    note(key,label+'の運用方針',`管理画面から取得した現在値（${a.observedAt}）を回帰基準として検査します。設定の運用上の妥当性、追加プラグインの要否は担当者の判断が必要です。既に入力した期待値は優先します。${group==='plugins'?'プラグインは取得時の各プラグインが有効のまま存在することを検査します。追加・バージョン・個別プラグイン設定の正しさは別の条件が必要です。':''}`);
   }
   const pub=a.public??{},path=profile.sitePath||'/';
-  if(pub.search?.submitSelector||pub.menu)replace('navigation','自動取得した検索・メニューの操作','delivery',{area:'navigation',path,...(pub.search?.submitSelector?{search:pub.search}:{}),...(pub.menu?{menu:pub.menu}:{})});
+  if(pub.search||pub.menu)replace('navigation','自動取得した検索・メニューの操作','delivery',{area:'navigation',path,...(pub.search?{search:pub.search}:{}),...(pub.menu?{menu:pub.menu}:{})});
   if(pub.search||pub.menu)note('navigation','検索・メニューの確認範囲','取得できた検索フォームのGET導線と、状態属性を確認できたメニューの開閉を検査します。検索結果の業務上の正しさ、未検出のメニューや実機操作は追加の期待値が必要です。');
   if(pub.forms?.length){
    replace('contact-errors','フォームの宣言済み必須・メール形式のエラー表示','delivery',{area:'contact-errors',path,forms:pub.forms});
@@ -54,9 +57,9 @@ export function applyAutomationPlan(input, profile, discovery={}) {
    note('contact-errors','フォームの固有仕様', '検出した入力項目と宣言済みの必須・形式を検査します。独自の文字数上限・添付制限・サーバー検証の仕様は追加条件で指定してください。通信失敗検査は送信を遮断し、実メールを送りません。');
    note('contact-retry','送信成功時の重複防止','通信失敗後の再操作を検査します。成功時の二重登録・重複メールの防止は、送信許可と受注・受信箱等の照合条件が必要です。');
   }
-  if(pub.robots||pub.sitemaps?.length){
-   replace('crawl','robots・サイトマップの取得と構造・参照先の整合性','seo',{area:'crawl',path,...(pub.robots?{robots:pub.robots}:{}),sitemaps:pub.sitemaps??[]});
-   note('crawl','SEO・移行の運用方針','robots・サイトマップの機械的な整合性を検査します。bot別公開方針・旧URLの転送対応表・掲載すべきURLの完全性は運用条件として追加してください。');
+  if(pub.robots||pub.sitemaps?.length||pub.crawlProbes?.length){
+   replace('crawl','robots・サイトマップの取得と構造・参照先の整合性','seo',{area:'crawl',path,...(pub.robots?{robots:pub.robots}:{}),sitemaps:pub.sitemaps??[],...(pub.crawlProbes?.length?{probes:pub.crawlProbes}:{})});
+   note('crawl','SEO・移行の運用方針','robots・サイトマップの応答と、存在する文書の機械的な整合性を検査します。未宣言の候補URLが404/410の場合は不在、転送の場合は転送応答を記録し、転送先は取得しません。必要な文書が揃っているとは判定しません。bot別公開方針・旧URLの転送対応表・掲載すべきURLの完全性は運用条件として追加してください。');
   }
  }
  // Existing common operations are genuine execution, not a second placeholder.

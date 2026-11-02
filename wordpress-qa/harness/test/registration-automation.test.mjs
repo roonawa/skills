@@ -67,7 +67,7 @@ for(const hasNonce of [false,true])test(`registration collects automation with R
   const result=await discoverRegistration({baseURL,profile,state,launch:async()=>browser});
   assert.equal(result.authenticated,true);assert.equal(result.automation.version,1);
   assert.equal(result.automation.admin.reading[0].expected,'posts');
-  assert.equal(result.automation.public.search.inputSelector,'form input[name="s"]');
+  assert.match(result.automation.public.search.inputSelector,/input\[name="s"\]$/);
   assert.equal(result.pages.length,hasNonce?2:1);
   assert.equal(seen.filter(r=>r.path.startsWith('/wp-json/')).length,hasNonce?2:0);
   assert.ok(seen.filter(r=>!r.path.startsWith('/wp-admin/')&&!r.path.startsWith('/wp-json/')).every(r=>!r.cookie.includes('ADMIN_SECRET')&&!r.nonce));

@@ -22,7 +22,7 @@ const stateFile=path.join(scratch,'session.json');fs.writeFileSync(stateFile,JSO
 const storeDir=path.join(scratch,'projects');let app=await startUI({storeDir,port:0});
 const browser=await chromium.launch();const page=await browser.newPage({viewport:{width:1440,height:1000}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
 try{
- await page.goto(app.url);await page.getByRole('button',{name:'＋ サイトを登録'}).click();
+ await page.goto(app.url);await page.locator('#auto-download-results').uncheck();await page.getByRole('button',{name:'＋ サイトを登録'}).click();
  await page.locator('#registration-advanced').click();const dialog=page.locator('dialog:has(#site-editor)'),site=dialog.locator('#site-fields');
  await site.locator('[data-key=name]').fill('登録テストサイト');await site.locator('[data-key=baseURL]').fill(origin);await site.locator('[data-key=environment]').selectOption('local');
  await dialog.locator('#add-admin').click();
@@ -38,7 +38,7 @@ try{
  assert.equal(savedSettings.config.visuals.length,2);
  assert.ok(savedSettings.config.checks.some(x=>x.id==='coverage-order-cleanup'&&x.required));
  assert.equal((await fetch(app.url+'/api/projects',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).status,403);
- const run=async()=>{await page.locator('#suite-select').selectOption('admin');await page.locator('#run-button').click();await page.getByText('実行中',{exact:true}).first().waitFor();await page.getByText('実行が完了しました',{exact:true}).waitFor({timeout:90000});};
+ const run=async()=>{await page.locator('#suite-select').selectOption('admin');await page.locator('#run-button').click();await page.getByText('実行中',{exact:true}).first().waitFor();await page.getByText('実行が完了しました',{exact:true}).waitFor({timeout:90000});if(await page.locator('#cinema-verdict').isVisible())await page.locator('#cinema-verdict button').click();};
  await run();await expect(page.locator('#metric-pass')).toHaveText('2');
  await page.locator('#edit-site').click();await expect(dialog.locator('#auth-password')).toHaveValue('');await expect(dialog.locator('#rest-state')).toContainText('登録済み');
  await dialog.locator('[data-kind=admin]').first().locator('[data-key=expected]').fill('UTC');await dialog.locator('#editor-save').click();await expect(dialog).not.toBeVisible();

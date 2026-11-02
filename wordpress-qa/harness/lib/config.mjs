@@ -118,7 +118,7 @@ export function catalog(c, suite='all') {
   if(suite==='interaction')for(const row of rows)row.selected=row.kind==='site-interaction';
   for(const check of c.checks??[]){
     const reason=preparationReason(check,c);
-    if(reason)Object.assign(rows.find(r=>r.id==='check.'+check.id),{selected:false,preparationRequired:true,reason:'準備待ち: '+reason});
+    if(reason)Object.assign(rows.find(r=>r.id==='check.'+check.id),{selected:false,preparationRequired:true,reason:'設定が必要: '+reason});
   }
   for(const m of c.manual) rows.push({id:`manual.${m.id}`,suite:'manual',manualReview:true,title:m.title,required:m.required,status:m.status,reason:m.reason,selected:false});
   return rows;
