@@ -75,3 +75,21 @@ test('nextRecord drops resolved',()=>{
   assert.deepEqual(n.issues.map(i=>i.key),['b|k','c|k']);assert.deepEqual(n.excludedKeys,['e|x']);assert.equal(n.actor,'');
   assert.ok(n.issues.every(i=>!('fixedUrlCount' in i)));
 });
+test('a row that now fails only by timeout or unreadable evidence leaves specific issues unverified',()=>{
+  for(const raw of ['timeout:a','unclassified:a']){
+    const c=cmp([mk('a','axe:color-contrast')],[{id:'a',status:'fail'}],[mk('a',raw)]);
+    assert.deepEqual(c.unverified.map(i=>i.key),['a|axe:color-contrast'],raw);assert.equal(c.resolved.length,0);assert.deepEqual(c.added.map(i=>i.key),['a|'+raw]);assert.equal(c.scopeGap,0);
+    const n=nextRecord({record:rec([]),comparison:c,report:rep([]),siteName:'S',handoffId:'h2',now:'2026-11-02T00:00:00Z'});assert.deepEqual(n.issues.map(i=>i.key).sort(),['a|axe:color-contrast','a|'+raw]);
+  }
+  // サーバーの形（ハッシュのキーと接頭辞だけの rawKey）。
+  const s=cmp([{...mk('a','x'),key:'h1',rawKey:''}],[{id:'a',status:'fail'}],[{...mk('a','y'),key:'h2',rawKey:'timeout:'}]);
+  assert.deepEqual(s.unverified.map(i=>i.key),['h1']);assert.equal(s.resolved.length,0);
+  const b=cmp([mk('a','k'),mk('a','j')],[{id:'a',status:'fail'}],[mk('a','k'),mk('a','timeout:a')]);
+  assert.deepEqual(b.unresolved.map(i=>i.key),['a|k']);assert.deepEqual(b.unverified.map(i=>i.key),['a|j']);assert.equal(b.resolved.length,0);
+  // 前回も行単位のキーなら従来どおり未解消。
+  const r=cmp([mk('a','timeout:old')],[{id:'a',status:'fail'}],[mk('a','timeout:new')]);assert.equal(r.unresolved.length,1);assert.equal(r.unverified.length,0);
+});
+test('rows copied from another run are not re-checks',()=>{
+  const c=cmp([mk('a','k'),mk('b','k'),mk('c','k')],[{id:'a',status:'pass',sourceRunId:'run-0'},{id:'b',status:'fail',sourceRunId:'run-0'},{id:'c',status:'pass',sourceRunId:'run-1'}],[mk('b','k')]);
+  assert.deepEqual(c.unverified.map(i=>i.key),['a|k','b|k']);assert.deepEqual(c.resolved.map(i=>i.key),['c|k']);assert.equal(c.added.length,0);assert.equal(c.scopeGap,0);
+});
