@@ -32,7 +32,7 @@ const unusable=r=>r.status>=500||r.status===429||r.status===403&&r.headers['x-wp
 // 分類ごとに1つ作る。件数上限・200ms間隔・64KiB打ち切り・ゲート検出・通信失敗のBLOCKED化を担う。上限到達時は null を返す。
 export function session({config,signal,limit,timeout=config.timeoutMs??15000}){
   const base=new URL(config.baseURL),own=siteHeaders(config),requests=[];let last=0;
-  async function fetch(target,{method='GET'}={}){
+  async function fetch(target,{method='GET',refusal=false}={}){
     assert(['GET','HEAD'].includes(method),'GET/HEAD only');const u=new URL(target,base);
     assert(!u.username&&!u.password&&(u.origin===base.origin||u.protocol==='http:'&&u.hostname===base.hostname&&u.pathname==='/'&&!u.search),'URL must have same origin');u.hash='';
     if(signal?.aborted)cancelled();if(requests.length>=limit)return null;
@@ -46,8 +46,8 @@ export function session({config,signal,limit,timeout=config.timeoutMs??15000}){
       r={url:u,path,status:res.statusCode,headers:h,cookies:[res.headers['set-cookie']??[]].flat().map(String),contentType:h['content-type']??'',bytes:body.length,text:body.toString('utf8')};Object.assign(row,{status:r.status,contentType:r.contentType,bytes:r.bytes});
     }catch(error){if(signal?.aborted)cancelled();throw Object.assign(new Error(`BLOCKED: 通信に失敗しました：${path}`),{network:true,cause:error});}
     finally{last=Date.now();}
-    // WordPress REST の401（JSON・認証要求ヘッダーなし）は閲覧制限ではなく、その操作の拒否として返す。
-    if(r.status===407||r.status===401&&(r.headers['www-authenticate']!==undefined||!/json/i.test(r.contentType)))blocked(`閲覧に認証が必要です（HTTP ${r.status}）：${path}`);
+    // refusal:true の取得（REST のユーザー一覧）だけ、JSON で認証要求ヘッダーのない401をその操作の拒否として返す。
+    if(r.status===407||r.status===401&&!(refusal&&r.headers['www-authenticate']===undefined&&/json/i.test(r.contentType)))blocked(`閲覧に認証が必要です（HTTP ${r.status}）：${path}`);
     if(unusable(r))throw Object.assign(new Error(`BLOCKED: 応答から確認できません（HTTP ${r.status}${r.headers['x-wpqa-egress']!==undefined?'・接続制限':''}）：${path}`),{network:true});
     if(r.status>=300&&r.status<400&&/\/wp-login\.php(?:[?#]|$)/.test(r.headers.location??''))blocked(`ログイン画面へ転送されました：${path}`);
     if(isHtml(r))noGate(r.text);return r;
@@ -77,9 +77,9 @@ async function exposure(o,s,evidence){
   }
 }
 // 同じoriginへの転送だけ最大3段たどる（各段を件数に含める）。別originへの転送・上限到達は null（未確認）。
-async function follow(s,path){
-  let r=await s.fetch(path);
-  for(let i=0;r&&i<3&&r.status>=300&&r.status<400;i++){let to;try{to=new URL(r.headers.location??'',r.url);}catch{return null;}if(to.origin!==r.url.origin)return null;r=await s.fetch(to.pathname+to.search);}
+async function follow(s,path,opt){
+  let r=await s.fetch(path,opt);
+  for(let i=0;r&&i<3&&r.status>=300&&r.status<400;i++){let to;try{to=new URL(r.headers.location??'',r.url);}catch{return null;}if(to.origin!==r.url.origin)return null;r=await s.fetch(to.pathname+to.search,opt);}
   return r&&(r.status<300||r.status>=400)?r:null;
 }
 // fn が null を返した項目と、通信できなくなった後の項目は未確認にする。
@@ -116,7 +116,7 @@ async function disclosure(o,s,evidence){
     if(n)put('wp-version-exposed',r.path,`コアのCSS・JSの ver= に版番号 ${n}件`);});
   await step(wp+'readme.html',async()=>{const r=await follow(s,wp+'readme.html');if(!r)return null;if(ok(r)&&/<title>[^<]*WordPress[^<]*ReadMe/i.test(r.text)&&/Version\s+\d+\.\d/i.test(r.text))put('wp-version-exposed',r.path,'readme.html に版番号があります');});
   await step(dir+'feed/',async()=>{const r=await follow(s,dir+'feed/');if(!r)return null;if(ok(r)&&!isHtml(r)&&/<generator\b[^>]*>[^<]*\?v=\d|<generator\b[^>]*\bversion="\d/i.test(r.text))put('wp-version-exposed',r.path,'フィードの generator に版番号があります');});
-  await step(dir+'wp-json/wp/v2/users',async()=>{const r=await follow(s,dir+'wp-json/wp/v2/users');if(!r)return null;const n=ok(r)&&!isHtml(r)&&/^\s*\[\s*\{/.test(r.text)?(r.text.match(/"slug"\s*:\s*"/g)??[]).length:0;if(n)put('rest-user-enumeration',r.path,`ユーザーのスラッグを含むJSON ${n}件（先頭64KiB内。ユーザー名は保存していません）`);});
+  await step(dir+'wp-json/wp/v2/users',async()=>{const r=await follow(s,dir+'wp-json/wp/v2/users',{refusal:true});if(!r)return null;const n=ok(r)&&!isHtml(r)&&/^\s*\[\s*\{/.test(r.text)?(r.text.match(/"slug"\s*:\s*"/g)??[]).length:0;if(n)put('rest-user-enumeration',r.path,`ユーザーのスラッグを含むJSON ${n}件（先頭64KiB内。ユーザー名は保存していません）`);});
   await step(dir+'?author=1',async()=>{const r=await s.fetch(dir+'?author=1');if(!r)return null;if(r.status>=300&&r.status<400&&/\/author\/[^/?#]+/.test(r.headers.location??''))put('author-enumeration',r.path,'投稿者ページ（/author/…/）への転送 1件（転送先は取得せず、ユーザー名は保存していません）');});
   await step(wp+'xmlrpc.php',async()=>{const r=await follow(s,wp+'xmlrpc.php');if(!r)return null;if(/XML-RPC server accepts POST requests only/i.test(r.text))put('xmlrpc-enabled',r.path,`GET に「POSTのみ受け付ける」と応答（HTTP ${r.status}）。POSTは送っていません`);});
 }

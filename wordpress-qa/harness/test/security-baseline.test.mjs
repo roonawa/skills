@@ -209,7 +209,14 @@ test('wpPath subdirectory is used for readme and xmlrpc',async t=>{
 
 test('REST 401 json is a refusal, not a viewing gate',async t=>{
   const f=await fixture(t,'soft404',(p,q,res)=>{if(p!=='/wp-json/wp/v2/users')return false;res.writeHead(401,{'Content-Type':'application/json; charset=UTF-8'});res.end('{"code":"rest_user_cannot_view"}');return true;});
-  const {error,evidence}=await runIt(f,check('disclosure',{},false));assert.equal(error,undefined);assert.deepEqual(evidence.findings,[]);
+  const {error,evidence}=await runIt(f,check('disclosure',{},false));assert.equal(error,undefined);assert.deepEqual(evidence.findings,[]);assert(!evidence.findings.some(x=>x.rule==='rest-user-enumeration'));
+});
+
+test('401 json without WWW-Authenticate on every path still blocks exposure',async t=>{
+  for(const type of ['application/json','application/problem+json']){
+    const f=await fixture(t,'soft404',(p,q,res)=>{res.writeHead(401,{'Content-Type':type});res.end('{"code":"denied"}');return true;}),{error}=await runIt(f);
+    assert.match(error?.message??'',/^BLOCKED: 閲覧に認証が必要です/,type);
+  }
 });
 
 test('page areas follow same-origin redirects within the budget and leave other origins unchecked',async t=>{
