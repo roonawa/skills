@@ -40,6 +40,10 @@ import {buildIssueReport} from '../lib/issue-report.mjs';
 import {buildDesignerReport} from '../lib/designer-report.mjs';
 import {autoReport} from '../lib/auto-report.mjs';
 import {projectIsAlive,runIsAlive} from '../lib/run-lock.mjs';
+import {redactor} from '../lib/evidence.mjs';
+import {collectIssues,unconfirmedCount} from '../lib/handoff-issues.mjs';
+import {buildHandoffText,compareHandoff,buildCompareText,nextRecord} from '../lib/handoff-text.mjs';
+import {handoffDir,newHandoffId,isHandoffId,saveHandoff,latestHandoff} from '../lib/handoff-store.mjs';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const publicDir=path.join(root,'ui','public');
@@ -52,6 +56,7 @@ function boundedPath(directory,relative) {
   if(rel.startsWith('..')||path.isAbsolute(rel)) reject(403,'アクセスできないファイルです');
   return file;
 }
+const evidenceJSON=directory=>file=>{const f=boundedPath(directory,file);if(fs.statSync(f).size>8*1024*1024)throw Error('Evidence too large');return readJSON(f);};
 async function body(req) {
   let data='';for await(const chunk of req){data+=chunk;if(data.length>1048576)reject(413,'リクエストが大きすぎます');}
   try{return JSON.parse(data);}catch{reject(400,'JSON形式が不正です');}
@@ -179,7 +184,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
     jobs.add(done);done.finally(()=>jobs.delete(done));return {job,done};
   }
   function readExamEvidence(directory,report){
-    return collectExamEvidence(enrichFailures(report,file=>{const f=boundedPath(directory,file);if(fs.statSync(f).size>8*1024*1024)throw Error('Evidence too large');return readJSON(f);}),file=>{const f=boundedPath(directory,file);if(fs.statSync(f).size>8*1024*1024)throw Error('Evidence too large');return fs.readFileSync(f);});
+    return collectExamEvidence(enrichFailures(report,evidenceJSON(directory)),file=>{const f=boundedPath(directory,file);if(fs.statSync(f).size>8*1024*1024)throw Error('Evidence too large');return fs.readFileSync(f);});
   }
   function readGapRecord(directory){
     if(!fs.existsSync(path.join(directory,'evidence-completion.json')))return null;
@@ -499,7 +504,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
           const id=segments[4],report=readRun(p,id),directory=runPath(p,id);
           if(['exam','exam-ai','exam-evidence','exam-evidence-run','customer-report'].includes(segments[5])&&segments.length===6){
             if(report.runStatus!=='finished'||!report.finishedAt||runIsAlive(directory))reject(409,'完了した診断結果を選択してください');
-            const readAssessment=r=>collectExamEvidence(enrichFailures(r,file=>{const f=boundedPath(directory,file);if(fs.statSync(f).size>8*1024*1024)throw Error('Evidence too large');return readJSON(f);}),file=>{const f=boundedPath(directory,file);if(fs.statSync(f).size>8*1024*1024)throw Error('Evidence too large');return fs.readFileSync(f);});
+            const readAssessment=r=>collectExamEvidence(enrichFailures(r,evidenceJSON(directory)),file=>{const f=boundedPath(directory,file);if(fs.statSync(f).size>8*1024*1024)throw Error('Evidence too large');return fs.readFileSync(f);});
             const bundle=readAssessment(report),enriched=bundle.report;
             const storage=path.join(directory,'site-exam.json');let saved=null;
             if(fs.existsSync(storage)){const f=boundedPath(directory,'site-exam.json');if(fs.statSync(f).size>2*1024*1024)reject(413,'評価ファイルが大きすぎます');saved=readJSON(f);}
@@ -572,6 +577,29 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
             try{selectSingleTest(catalog(current.config),row.id);}catch(e){reject(400,e.message);}
             const {job}=launch(p,['run','--config',p.file,'--suite',row.suite,'--id',row.id],'run');return json(202,jobState(job));
           }
+          if(['handoff','handoff-compare'].includes(segments[5])&&segments.length===6&&req.method==='POST'){
+            if(report.runStatus!=='finished'||!report.finishedAt||runIsAlive(directory))reject(409,'完了した実行を選択してください');
+            const data=await body(req),compare=segments[5]==='handoff-compare',keys=data[compare?'uncheckedAddedKeys':'excludedKeys']??[];
+            if(!Array.isArray(keys)||keys.length>500||keys.some(k=>typeof k!=='string'||k.length>1000)||typeof data.save!=='boolean'||(data.handoffId!==undefined&&!isHandoffId(data.handoffId)))reject(400,'引き継ぎの指定が不正です');
+            const current=projectInfo(p),dir=handoffDir(p.outputDir),handoffId=data.handoffId??newHandoffId(),siteName=current.config.name;
+            const clean=redactor(current.config,p.managed?{...process.env,...store.prepare(p.id).env}:process.env),read=evidenceJSON(directory),enriched={...enrichFailures(report,read),runId:report.runId??id};
+            // 課題キーも伏せ字にして、応答・記録・除外指定を同じキーでそろえる。
+            const issues=collectIssues({report:enriched,readEvidence:(_run,file)=>read(file)}).map(i=>Object.fromEntries(Object.entries(i).map(([k,v])=>[k,typeof v==='string'?clean(v):Array.isArray(v)?v.map(clean):v])));
+            const brief=({key,rowTitle,level,title,urls})=>({key,rowTitle,level,title,urls}),actorName=actor?.name??null;
+            if(!compare){
+              const known=new Set(issues.map(i=>i.key)),excludedKeys=[...new Set(keys.filter(k=>known.has(k)))],unconfirmed=unconfirmedCount(enriched);
+              const text=buildHandoffText({report:enriched,siteName,issues,excludedKeys,unconfirmed,publicOrigin:process.env.WPQA_PUBLIC_ORIGIN,projectId:p.id,clean});
+              if(data.save)try{saveHandoff(dir,{handoffId,createdAt:new Date().toISOString(),actor:actorName??'',sourceRunId:enriched.runId,sourceFinishedAt:report.finishedAt,siteName,issues:text.included,excludedKeys});}catch(e){reject(400,e.message);}
+              return json(200,{handoffId,subject:text.subject,body:text.body,truncated:text.truncated,issues:issues.map(i=>({...brief(i),owner:i.owner})),excludedKeys,unconfirmed});
+            }
+            const record=latestHandoff(dir,{exclude:handoffId}),at=r=>Date.parse(r?.finishedAt??r?.startedAt);
+            let source=null;try{source=record&&readRun(p,record.sourceRunId);}catch{}
+            if(!record||record.sourceRunId===id||!((source?at(source):Date.parse(record.sourceFinishedAt))<at(report)))reject(409,'比較できる引き継ぎ記録がありません');
+            const comparison=compareHandoff({record,report:enriched,issues}),text=buildCompareText({comparison,report:enriched,uncheckedAddedKeys:keys,clean});
+            if(data.save)try{saveHandoff(dir,nextRecord({record,comparison,uncheckedAddedKeys:keys,report:enriched,siteName,handoffId,actor:actorName}));}catch(e){reject(400,e.message);}
+            const {scopeGap,...lists}=comparison;
+            return json(200,{handoffId,baseline:{handoffId:record.handoffId,sourceRunId:record.sourceRunId,createdAt:record.createdAt},comparison:Object.fromEntries(Object.entries(lists).map(([k,v])=>[k,v.map(brief)])),scopeGap,body:text.body,truncated:text.truncated});
+          }
           if(['issue-report','designer-report'].includes(segments[5])&&segments.length===6&&req.method==='POST'){
             if(report.runStatus!=='finished'||!report.finishedAt||runIsAlive(directory))reject(409,'完了した実行を選択してください');
             const data=await body(req);
@@ -613,11 +641,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
             return json(200,{file:outputName,issueCount:generated.issueCount,failedCases:generated.failedCases,warnings:generated.warnings});
           }
           if(segments.length===5&&req.method==='GET') {
-            Object.assign(report,enrichFailures(report,file=>{
-              const target=boundedPath(directory,file);
-              if(fs.statSync(target).size>8*1024*1024)throw Error('Evidence too large');
-              return readJSON(target);
-            }));
+            Object.assign(report,enrichFailures(report,evidenceJSON(directory)));
             let log='';try{log=fs.readFileSync(path.join(directory,'ui.log'),'utf8');}catch{}
             const {configHash}=projectInfo(p);
             const candidates=report.rows.filter(r=>r.id.startsWith('snapshot.')&&fs.existsSync(path.join(directory,'candidates',`${r.id}.png`))).map(r=>r.id);
