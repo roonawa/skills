@@ -54,10 +54,10 @@ export function validateRuntime(check,config){
   }
   if(o.area==='crawl'){if(!o.robots&&!o.sitemaps?.length&&!o.probes?.length)blocked('Discover robots.txt or sitemap URLs');if(o.robots)need(o.robots.path,'robots.path');for(const m of o.sitemaps??[])need(m.path,'sitemap.path');}
 }
-function publicHeaders(config){
+export function publicHeaders(config){
   const headers={cookie:''};for(const [key,value] of Object.entries(envHeaders(config.headersEnv))){assert(!/[\r\n]/.test(key+value),'invalid public header');const k=key.toLowerCase();if(['authorization','proxy-authorization','x-wp-nonce','host'].includes(k))continue;if(k==='cookie'){const cookies=value.split(';').map(s=>s.trim()).filter(s=>/^(?:bid_\d+_)?password_protected_[\w-]+=[^;]*$/.test(s)&&!/(?:^|_)password_protected_cookie_test=/.test(s));if(cookies.length)headers.cookie=cookies.join('; ');}else headers[k]=value;}return headers;
 }
-function noGate(body){const $=load(body);if($('#loginform,[name="password_protected_pwd"]').length)blocked('Public gate expired; refresh public gate headers');}
+export function noGate(body){const $=load(body);if($('#loginform,[name="password_protected_pwd"]').length)blocked('Public gate expired; refresh public gate headers');}
 async function get(client,url,timeout){
   const response=await client.get(url,{maxRedirects:0,timeout});try{assert.equal(response.status(),200,`GET ${new URL(url).pathname} status`);assert(Number(response.headers()['content-length']||0)<=2*1024*1024,'response too large');const body=await response.text();assert(Buffer.byteLength(body)<=2*1024*1024,'response too large');noGate(body);return body;}finally{await response.dispose();}
 }
