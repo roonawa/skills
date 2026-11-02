@@ -17,12 +17,14 @@ const file=path.join(scratch,'site.json');fs.writeFileSync(file,JSON.stringify(c
 const app=await startUI({configPaths:[file],port:0});
 const browser=await chromium.launch();const page=await browser.newPage({viewport:{width:1440,height:1000}});
 const errors=[];page.on('pageerror',e=>errors.push(e.message));
+// The completion toast is replaced at once by the automatic-download toast, so accept either.
+const finished=()=>page.getByText(/^(実行が完了しました|結果のダウンロードを開始しました.*)$/).first().waitFor({timeout:90000});
 try {
   await page.goto(app.url);
   await page.getByText('まだ実行履歴がありません',{exact:true}).waitFor();
   await page.getByRole('button',{name:'検査を実行',exact:true}).click();
   await page.getByText('実行中',{exact:true}).first().waitFor();
-  await page.getByText('実行が完了しました',{exact:true}).waitFor({timeout:90000});
+  await finished();
   await expect(page.locator('#cinema-verdict')).toContainText('ACCESS PENDING');
   await page.locator('#cinema-verdict button').click();
   await page.locator('[data-group="snapshot"]').click();
@@ -54,7 +56,7 @@ try {
   demo.faults.add('canonical');
   await page.getByRole('button',{name:'検査を実行',exact:true}).click();
   await page.getByText('実行中',{exact:true}).first().waitFor();
-  await page.getByText('実行が完了しました',{exact:true}).waitFor({timeout:90000});
+  await finished();
   await expect(page.locator('#cinema-verdict')).toContainText('ACCESS DENIED');
   await page.screenshot({path:path.join(scratch,'access-denied.png'),fullPage:false});
   await page.locator('#cinema-verdict button').click();
@@ -70,7 +72,7 @@ try {
   demo.faults.add('admin-value');
   await page.getByRole('button',{name:'検査を実行',exact:true}).click();
   await page.getByText('実行中',{exact:true}).first().waitFor();
-  await page.getByText('実行が完了しました',{exact:true}).waitFor({timeout:90000});
+  await finished();
   await page.locator('[data-group="admin.timezone"]').click();
   await page.getByRole('button',{name:'admin.timezone',exact:false}).click();
   await expect(page.locator('#detail')).toContainText('Asia/Tokyo');
@@ -80,7 +82,7 @@ try {
   demo.faults.add('admin-auth');
   await page.getByRole('button',{name:'検査を実行',exact:true}).click();
   await page.getByText('実行中',{exact:true}).first().waitFor();
-  await page.getByText('実行が完了しました',{exact:true}).waitFor({timeout:90000});
+  await finished();
   await expect(page.locator('#metric-blocked')).toHaveText('2');
   config.baseURL='https://changed.example.test';config.environment='staging';fs.writeFileSync(file,JSON.stringify(config));
   await expect(page.locator('#environment')).toHaveText('検証環境');
@@ -95,6 +97,23 @@ try {
     const results=fs.readFileSync(path.join(config.outputDir,run,'results.json'),'utf8');
     assert.ok(!results.includes('fixture-secret-never-save'));
   }
+  // caution: a failing optional security-baseline row shows as 注意 and is not counted as 不合格.
+  const fixtureId=latest+'-caution',fixtureDir=path.join(config.outputDir,fixtureId);
+  fs.cpSync(path.join(config.outputDir,latest),fixtureDir,{recursive:true});
+  const fixtureReport=JSON.parse(fs.readFileSync(path.join(fixtureDir,'results.json'),'utf8'));
+  const cautionRow=fixtureReport.rows.find(r=>r.id.startsWith('page.'));
+  Object.assign(cautionRow,{status:'fail',level:'caution',required:false,reason:'caution fixture'});
+  fixtureReport.startedAt='2999-01-01T00:00:00.000Z';fixtureReport.gatePassed=false;fixtureReport.summary={...fixtureReport.summary,fail:(fixtureReport.summary.fail??0)+1,caution:1};
+  fs.writeFileSync(path.join(fixtureDir,'results.json'),JSON.stringify(fixtureReport));
+  await page.reload();
+  await page.locator(`[data-run="${fixtureId}"]`).click();
+  await expect(page.locator('#metric-caution')).toHaveText('1');
+  await expect(page.locator('#metric-fail')).toHaveText(String(fixtureReport.summary.fail-1));
+  const groupButton=page.locator('[data-group="page"]');
+  if(await groupButton.getAttribute('aria-expanded')!=='true')await groupButton.click();
+  const cautionTr=page.locator('tr.group-child',{has:page.locator(`[data-row="${cautionRow.id}"]`)});
+  await expect(cautionTr.locator('.pill')).toHaveText('注意');
+  await expect(cautionTr.locator('.pill.caution')).toHaveCount(1);
   assert.deepEqual(errors,[]);
   console.log(`UI browser acceptance passed: ${scratch}`);
 } finally {await browser.close();await app.close();await demo.close();}

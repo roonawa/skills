@@ -1,5 +1,6 @@
 // Japanese preparation recipes. Discovery provides targets, not permissions or business expectations.
 export const profilePreparation={
+ 'auto-security-exposure':['sensitivePaths'],
  'coverage-publishing':['writes'], 'coverage-scheduled':['writes'], 'coverage-cache':['writes'],
  'coverage-contact-success':['writes','submit','testEmail'],
  'coverage-order':['writes','bankOrder','testEmail','productPath','cartPath','customerPrefecture','bankPaymentLabel','expectedTotal'],
@@ -65,7 +66,7 @@ export function showPreparationWizard({row,config,profile,profileFields,onProfil
  const keys=profilePreparation[key];
  if(keys&&profile){
   for(const fieldKey of keys){const original=profileFields(fieldKey);if(!original)continue;
-   const label=document.createElement('label');label.textContent=original.closest('label')?.childNodes[0]?.textContent||({writes:'検証環境でテストデータの作成・変更・削除を許可',submit:'テストの問い合わせ送信を許可',bankOrder:'テスト注文の確定・取消を許可'}[fieldKey]??fieldKey);
+   const label=document.createElement('label');label.textContent=original.closest('label')?.childNodes[0]?.textContent||({writes:'検証環境でテストデータの作成・変更・削除を許可',submit:'テストの問い合わせ送信を許可',bankOrder:'テスト注文の確定・取消を許可',sensitivePaths:'機密ファイル露出の確認を許可'}[fieldKey]??fieldKey);
    if(!label.textContent.trim())label.textContent=original.closest('label').textContent;
    const input=original.cloneNode(true);input.removeAttribute('id');input.removeAttribute('data-key');input.disabled=original.disabled;input.value=original.value;input.checked=original.checked;
    input.oninput=()=>{if(original.type==='checkbox')original.checked=input.checked;else original.value=input.value;original.dispatchEvent(new Event('input',{bubbles:true}));original.dispatchEvent(new Event('change',{bubbles:true}));onProfileChange();};

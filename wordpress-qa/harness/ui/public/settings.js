@@ -45,7 +45,7 @@ export function initSettings({api,currentProject,onSaved,shared=false}) {
     ['expectedTotal','送料込みの期待合計（円）','','number']
   ];
   const profileSection=document.createElement('section');profileSection.id='operation-profile-section';profileSection.hidden=true;
-  profileSection.innerHTML=`<details><summary>登録済みの操作テスト・閲覧パスワード</summary><p>操作の許可と対象を変更できます。管理設定や公開ページの期待値は、それぞれの検査欄で編集してください。</p><fieldset id="operation-profile-fields"><legend>操作テストの条件</legend>${check('writes','検証環境でテストデータの作成・変更・削除を許可する',false)}${check('submit','指定したCF7フォームをテスト送信する（通知先のテスト設定済み）',false)}${check('bankOrder','銀行振込注文の確定・取消を検査する',false)}<p id="operation-profile-policy" role="status"></p><div class="editor-grid">${profileFields.map(([key,label,value,type])=>input(key,label,value,type)).join('')}</div></fieldset><p>送信・注文検査には操作の許可が必要です。受信箱への到着は別の確認が必要です。</p><h4>サイト閲覧パスワード</h4><p>管理者ログインとは別の閲覧保護用です。未入力なら保存済みの値を維持し、値は再表示しません。</p><label>新しい閲覧パスワード<input id="profile-public-password" type="password" autocomplete="new-password"></label><label class="check-line"><input id="profile-clear-public-password" type="checkbox">保存済みの閲覧パスワードを削除する</label></details>`;
+  profileSection.innerHTML=`<details><summary>登録済みの操作テスト・閲覧パスワード</summary><p>操作の許可と対象を変更できます。管理設定や公開ページの期待値は、それぞれの検査欄で編集してください。</p><fieldset id="operation-profile-fields"><legend>操作テストの条件</legend>${check('writes','検証環境でテストデータの作成・変更・削除を許可する',false)}${check('submit','指定したCF7フォームをテスト送信する（通知先のテスト設定済み）',false)}${check('bankOrder','銀行振込注文の確定・取消を検査する',false)}${check('sensitivePaths','機密ファイル露出の確認（存在確認のみ。顧客の監視に検知される場合があります）',false)}<p id="operation-profile-policy" role="status"></p><div class="editor-grid">${profileFields.map(([key,label,value,type])=>input(key,label,value,type)).join('')}</div></fieldset><p>送信・注文検査には操作の許可が必要です。受信箱への到着は別の確認が必要です。</p><h4>サイト閲覧パスワード</h4><p>管理者ログインとは別の閲覧保護用です。未入力なら保存済みの値を維持し、値は再表示しません。</p><label>新しい閲覧パスワード<input id="profile-public-password" type="password" autocomplete="new-password"></label><label class="check-line"><input id="profile-clear-public-password" type="checkbox">保存済みの閲覧パスワードを削除する</label></details>`;
   $('#credentials-section').before(profileSection);
   const enableProfile=document.createElement('label');enableProfile.className='check-line';enableProfile.innerHTML='<input id="enable-operation-profile" type="checkbox">WordPressの標準操作テストを登録する（CMS照合・フォーム・投稿・予約公開・銀行振込）';profileSection.prepend(enableProfile);
   $('#operation-profile-fields').prepend(document.createRange().createContextualFragment(check('indexable','検索エンジンへの公開を期待する',false)));
@@ -98,7 +98,7 @@ export function initSettings({api,currentProject,onSaved,shared=false}) {
     $('#profile-public-password').disabled=!editable||!enabled||$('#profile-clear-public-password').checked;
     $('#profile-clear-public-password').disabled=!editable||!enabled;
   }
-  fields.querySelector('[data-key=environment]').addEventListener('change',profilePolicy);
+  fields.querySelector('[data-key=environment]').addEventListener('change',()=>{profileField('sensitivePaths').checked=fields.querySelector('[data-key=environment]').value!=='production';profilePolicy();});
   $('#profile-clear-public-password').onchange=()=>{if($('#profile-clear-public-password').checked)$('#profile-public-password').value='';profilePolicy();};
   profileField('adminPath').oninput=()=>{$('#admin-path').value=profileField('adminPath').value;};
   function readProfile(){
@@ -108,7 +108,7 @@ export function initSettings({api,currentProject,onSaved,shared=false}) {
     profile.indexable=profileField('indexable').checked;
     profile.interactions=interactions.read();
     if(!operationProfile||operationProfile.automation!==undefined||automation.changed())profile.automation=automation.read();
-    for(const key of ['writes','submit','bankOrder'])profile[key]=profileField(key).checked;
+    for(const key of ['writes','submit','bankOrder','sensitivePaths'])profile[key]=profileField(key).checked;
     for(const [key,label,,type] of profileFields){
       const value=profileField(key).value.trim();
       if(!value){delete profile[key];continue;}
@@ -233,6 +233,7 @@ export function initSettings({api,currentProject,onSaved,shared=false}) {
     for(const [key,,fallback] of profileFields)profileField(key).value=operationProfile?.[key]??(operationProfile?'':fallback??'');
     profileField('indexable').checked=operationProfile?.indexable===true;
     for(const key of ['writes','submit','bankOrder'])profileField(key).checked=operationProfile?.[key]===true;
+    profileField('sensitivePaths').checked=config.allowSensitivePaths===true;
     $('#profile-public-password').value='';$('#profile-clear-public-password').checked=false;
     if(operationProfile?.adminPath)$('#admin-path').value=operationProfile.adminPath;
     $('#page-editors').replaceChildren();$('#admin-editors').replaceChildren();

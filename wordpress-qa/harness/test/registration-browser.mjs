@@ -86,6 +86,13 @@ try{
   await expect(dialog).toContainText('初回の画像基準と、内容・運用方針は直接確認として残します');
   await expect(dialog).toContainText(/受信箱[\s\S]*(?:未確認として報告|合格にはしません)/);
   await expect(dialog.locator('#registration-save')).toHaveText('ログインを確認して登録・検査を準備');
+  // production unchecks sensitivePaths but keeps it enabled (the operator may opt in); staging/local check it again.
+  await expect(dialog.locator('[name=sensitivePaths]')).not.toBeChecked();
+  await expect(dialog.locator('[name=sensitivePaths]')).toBeEnabled();
+  await dialog.locator('[name=environment]').selectOption('staging');
+  await expect(dialog.locator('[name=sensitivePaths]')).toBeChecked();
+  await dialog.locator('[name=environment]').selectOption('production');
+  await expect(dialog.locator('[name=sensitivePaths]')).not.toBeChecked();
   await dialog.locator('[name=environment]').selectOption('local');
   for(const name of ['writes','submitContact','bankOrder'])await expect(dialog.locator(`[name=${name}]`)).toBeEnabled();
   for(const name of ['writes','submitContact','bankOrder'])await expect(dialog.locator(`[name=${name}]`)).not.toBeChecked();
@@ -106,6 +113,7 @@ try{
   const submitted=registration.request().postDataJSON();
   assert.equal(submitted.environment,'local');
   assert.equal(submitted.profile.writes,false);
+  assert.equal(submitted.profile.sensitivePaths,true,'local registration sends the checked sensitivePaths');
   assert(!submitted.profile.submit&&!submitted.profile.bankOrder,'switching back to local does not silently restore write/submit/order consent');
   assert.equal(registration.status(),201,await registration.text());
   const saved=await registration.json(),id=saved.id;
@@ -116,6 +124,7 @@ try{
   const boot=await getJSON('/api/bootstrap');token=boot.token;
   assert.equal(boot.projects.length,1);
   const settings=await getJSON(`/api/projects/${id}/settings`);
+  assert.equal(settings.config.allowSensitivePaths,true);
   assert.equal(settings.credentials.browser,true);
   assert.equal(settings.config.admin.length,5);
   assert.deepEqual(settings.config.admin.map(a=>a.id).sort(),['home','indexing','language','siteurl','timezone']);

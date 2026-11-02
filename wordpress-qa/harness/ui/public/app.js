@@ -24,7 +24,7 @@ function showVerdict(report,exitCode){
  panel.querySelector('button').onclick=()=>{panel.hidden=true;clearTimeout(verdictTimer);};
  verdictTimer=setTimeout(()=>{panel.hidden=true;},7500);
 }
-const names={preparation:'設定が必要',pass:'合格',fail:'不合格',blocked:'実行不能',not_run:'未実施',review:'直接確認',not_applicable:'対象外',running:'実行中'};
+const names={preparation:'設定が必要',pass:'合格',fail:'不合格',blocked:'実行不能',not_run:'未実施',review:'直接確認',caution:'注意',not_applicable:'対象外',running:'実行中'};
 const suites={admin:'管理設定',audit:'URL・公開設定',journey:'操作・メール',visual:'表示検査',manual:'手動確認',...extendedSuites};
 for(const [value,label] of Object.entries(extendedSuites))$('#suite-select').add(new Option(label,value));
 const escape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -92,14 +92,15 @@ function setPreparationMotion(stopped){document.body.classList.toggle('preparati
 setPreparationMotion(localStorage.getItem('wpqa-preparation-motion')==='off');
 motionButton.onclick=()=>{const stopped=!document.body.classList.contains('preparation-motion-off');localStorage.setItem('wpqa-preparation-motion',stopped?'off':'on');setPreparationMotion(stopped);};
 function priorityLabel(row){const info=preparationImportance(row);return info?`<span class="preparation-priority-label" title="${escape(info.reason)}">重要 · ${escape(info.category)}</span>`:'';}
-const displayStatus=row=>needsPreparation(row)?'preparation':row.active?'running':row.status;
+const displayStatus=row=>needsPreparation(row)?'preparation':row.active?'running':row.level==='caution'&&row.status==='fail'?'caution':row.status;
+const failCount=s=>(s?.fail??0)-(s?.caution??0);
 function badge(row){const status=displayStatus(row);return `<span class="pill ${escape(status)}">${escape(names[status]??status)}</span>`;}
 function renderHistory(runs){
   const key=JSON.stringify([runs,state.runId]);if(key===state.historyKey)return;state.historyKey=key;
   $('#history-count').textContent=runs.length;
   $('#run-list').innerHTML=runs.length?runs.map(r=>{
-    const active=state.active?.runId===r.runId;const label=active?'実行中':r.gatePassed?'必須条件充足':r.summary?.fail?'不合格あり':'未確認あり';
-    return `<button class="history-item ${r.runId===state.runId?'selected':''}" data-run="${escape(r.runId)}"><span class="history-top"><span><i class="dot ${active?'blue':r.gatePassed?'green':r.summary?.fail?'red':'orange'}"></i>${escape(date(r.startedAt))}</span></span><small>${label} · ${r.summary?.pass??0}件合格</small></button>`;
+    const active=state.active?.runId===r.runId;const label=active?'実行中':r.gatePassed?'必須条件充足':failCount(r.summary)?'不合格あり':'未確認あり';
+    return `<button class="history-item ${r.runId===state.runId?'selected':''}" data-run="${escape(r.runId)}"><span class="history-top"><span><i class="dot ${active?'blue':r.gatePassed?'green':failCount(r.summary)?'red':'orange'}"></i>${escape(date(r.startedAt))}</span></span><small>${label} · ${r.summary?.pass??0}件合格${r.summary?.caution?` · 注意${r.summary.caution}件`:''}</small></button>`;
   }).join(''):'<p class="quiet">履歴はここに表示されます</p>';
 }
 const openGroups=new Set();let groupScope='';
@@ -137,7 +138,7 @@ function renderRows(){
     if(!groups.has(id))groups.set(id,{id,title,description,rows:[]});
     groups.get(id).rows.push(r);
   }
-  const visible=[...groups.values()].map(g=>({...g,matches:g.rows.filter(r=>(state.filter==='all'||(state.filter==='attention'?['fail','blocked','review','preparation'].includes(displayStatus(r)):displayStatus(r)===state.filter))&&`${g.title} ${g.description} ${r.id} ${r.title}`.toLowerCase().includes(state.search.toLowerCase()))})).filter(g=>g.matches.length);
+  const visible=[...groups.values()].map(g=>({...g,matches:g.rows.filter(r=>(state.filter==='all'||(state.filter==='attention'?['fail','blocked','review','caution','preparation'].includes(displayStatus(r)):displayStatus(r)===state.filter))&&`${g.title} ${g.description} ${r.id} ${r.title}`.toLowerCase().includes(state.search.toLowerCase()))})).filter(g=>g.matches.length);
   const key=JSON.stringify([visible,state.detail,[...openGroups]]);if(key!==state.rowsKey){
     const causes=new Map();
     for(const g of visible)for(const r of g.matches)for(const f of r.failures??[]){if(!causes.has(f.key))causes.set(f.key,{...f,rows:[]});causes.get(f.key).rows.push(r);}
@@ -146,7 +147,7 @@ function renderRows(){
       const expanded=openGroups.has(g.id),counts={};
       for(const r of g.rows){const status=displayStatus(r);counts[status]=(counts[status]??0)+1;}
       const summary=Object.entries(counts).map(([status,count])=>`${names[status]??status} ${count}`).join(' / ');
-      const status=['fail','blocked','running','review','preparation','not_run','pass','not_applicable'].find(s=>counts[s])??'not_run';
+      const status=['fail','blocked','running','review','caution','preparation','not_run','pass','not_applicable'].find(s=>counts[s])??'not_run';
       const children=g.matches.map(r=>`<tr class="group-child ${preparationImportance(r)?'preparation-priority':''} ${state.detail===r.id?'row-selected':''}"><td><button class="row-button" data-row="${escape(r.id)}"><strong>${escape(r.title)}</strong>${priorityLabel(r)}<small>${escape(r.id)}${r.required?' · 必須':''}</small></button></td><td class="suite-col">${escape(suites[r.suite]??r.suite)}</td><td>${badge(r)}</td><td class="time-col">${duration(r.durationMs)}</td></tr>`).join('');
       const importantCount=g.matches.filter(r=>preparationImportance(r)).length;
       return `<tr class="group-heading ${importantCount?'preparation-priority':''}"><td colspan="2"><button class="row-button group-toggle" data-group="${escape(g.id)}" aria-expanded="${expanded}" aria-controls="group-${index}"><strong>${expanded?'▾':'▸'} ${escape(g.title)} <span class="count">${g.rows.length}</span></strong>${importantCount?`<span class="preparation-priority-label">重要 · 設定が必要 ${importantCount}件</span>`:''}<small>全体: ${escape(summary)}${g.matches.length!==g.rows.length?` · 絞り込み一致 ${g.matches.length}件`:''}</small></button></td><td>${badge({status})}</td><td class="time-col">${duration(g.rows.reduce((total,r)=>total+(r.durationMs??0),0))}</td></tr><tr id="group-${index}" class="group-results" ${expanded?'':'hidden'}><td colspan="4">${expanded?`<div class="group-detail-panel"><table class="group-table"><thead><tr><th>URL・条件</th><th class="suite-col">種別</th><th>結果</th><th class="time-col">時間</th></tr></thead><tbody>${children}</tbody></table></div>`:''}</td></tr>`;
@@ -163,7 +164,7 @@ function renderDetail(){
   const key=JSON.stringify([state.runId,r,state.report?.canApprove,state.report?.candidates,state.busy]);if(key===state.detailKey)return;state.detailKey=key;
   if(!r){$('#detail').innerHTML='<div class="detail-placeholder"><span aria-hidden="true">↖</span><h3>確認したい項目を選択</h3></div>';return;}
   const preparing=needsPreparation(r),files=r.evidence??[],candidate=!preparing&&state.report.candidates.includes(r.id),canApprove=state.report.canApprove&&!state.busy;
-  const descriptions={preparation:'検査条件や期待値が未定義のため、実行対象に含めていません。設定を登録してから検査してください。',pass:'この検査は期待した結果に一致しました。',not_run:'この実行では確認していません。対象の検査範囲を選んで実行してください。',review:'人による確認が必要です。証拠と期待する状態を照合してください。',blocked:'前提条件や実行環境を確認してから再実行してください。',not_applicable:'このサイトでは適用外として登録されています。',fail:'期待結果との違いがあります。証拠から原因を確認してください。'};
+  const descriptions={preparation:'検査条件や期待値が未定義のため、実行対象に含めていません。設定を登録してから検査してください。',pass:'この検査は期待した結果に一致しました。',not_run:'この実行では確認していません。対象の検査範囲を選んで実行してください。',review:'人による確認が必要です。証拠と期待する状態を照合してください。',caution:'参考検査で兆候が見つかりました。必須条件には影響しません。内容を確認し、必要に応じて対応してください。',blocked:'前提条件や実行環境を確認してから再実行してください。',not_applicable:'このサイトでは適用外として登録されています。',fail:'期待結果との違いがあります。証拠から原因を確認してください。'};
   $('#detail').innerHTML=`${badge(r)}<h3 class="detail-title">${escape(r.title)}</h3><div class="detail-id">${escape(r.id)}</div><span class="detail-label">判定の内容</span><p class="detail-description">${escape(descriptions[displayStatus(r)]??'')}</p>${r.setting?`<span class="detail-label">設定の照合</span><dl><dt>取得方法</dt><dd>${escape(r.setting.source)}</dd><dt>期待値</dt><dd>${escape(JSON.stringify(r.setting.expected))}</dd><dt>取得した値</dt><dd>${escape(JSON.stringify(r.setting.actual))}</dd></dl>`:''}${r.reason?`<pre class="reason">${escape(r.reason.replace(/\x1b\[[0-9;]*m/g,''))}</pre>`:''}${files.length?'<span class="detail-label">証拠ファイル</span>':''}<div class="evidence-list">${files.map(f=>`<a class="evidence-link" href="${fileURL(f)}" target="_blank" rel="noopener">${escape(f.split('/').at(-1))} ↗</a>${/\.png$/i.test(f)?`<a href="${fileURL(f)}" target="_blank" rel="noopener"><img class="evidence-image" src="${fileURL(f)}" alt="${escape(f.split('/').at(-1))}"></a>`:''}`).join('')}</div>${candidate?`<div class="approval"><span class="detail-label">基準画像のレビュー</span><p class="detail-description">表示が意図どおりか確認した画像のみ承認します。承認後も、再実行するまで以前の判定は変わりません。</p>${canApprove?'<label><input type="checkbox" id="approve-check">候補画像を確認し、意図した表示であることを確認しました</label><button class="primary" id="approve-button" disabled>この画像を基準として承認</button>':'<p class="approval-note">実行中、または現在の設定と異なる履歴のため承認できません。必要に応じて再実行してください。</p>'}</div>`:''}`;
   const importance=preparationImportance(r);
   if(importance)$('#detail .detail-id').insertAdjacentHTML('afterend',`<section class="preparation-priority-note">${priorityLabel(r)}<p>${escape(importance.reason)}</p></section>`);
@@ -221,7 +222,7 @@ function render(){
   else if(live){title='検査を実行しています';subtitle=rows.find(r=>r.active)?.title??'テストを準備しています';label='実行中';tone='running';icon='◌';}
   else if(state.report?.orphaned){title='実行の完了を確認できません';subtitle='アプリの終了などで中断した可能性があります。ログを確認してください。';label='未完了';tone='blocked';icon='!';}
   else if(report?.runStatus==='planned'){title='テストケースを実行できます';subtitle='検査範囲を選択できます。';label='未実施';tone='not_run';icon='○';}
-  else if(report){title=report.gatePassed?'必須条件を満たしています':report.summary?.fail?'不合格の項目を確認してください':'確認が必要な項目が残っています';subtitle=`${date(report.startedAt)} の実行結果`;label=report.gatePassed?'必須条件充足':report.summary?.fail?'不合格あり':'未確認あり';tone=report.gatePassed?'pass':report.summary?.fail?'fail':'review';icon=report.gatePassed?'✓':report.summary?.fail?'!':'○';}
+  else if(report){title=report.gatePassed?'必須条件を満たしています':failCount(report.summary)?'不合格の項目を確認してください':'確認が必要な項目が残っています';subtitle=`${date(report.startedAt)} の実行結果`;label=report.gatePassed?'必須条件充足':failCount(report.summary)?'不合格あり':'未確認あり';tone=report.gatePassed?'pass':failCount(report.summary)?'fail':'review';icon=report.gatePassed?'✓':failCount(report.summary)?'!':'○';}
   if(report?.aggregation&&!live){title='実行結果・実査レビューの統合';subtitle='複数の実行履歴を統合した結果です。新たな全件実行ではありません。各項目の採用元・確認日を参照してください。';}
   const preparationCount=rows.filter(needsPreparation).length;
   if(preparationCount)subtitle+=` · 設定が必要 ${preparationCount}件（実行対象外）`;
@@ -229,7 +230,8 @@ function render(){
   $('#run-indicator').className=`status-icon ${live?'running':tone==='pass'?'good':tone==='fail'?'bad':''}`;$('#run-indicator').textContent=icon;
   $('#progress-fill').style.width=`${percent}%`;$('.progress-track').setAttribute('aria-valuenow',percent);$('#progress-label').textContent=`${completed} / ${selected.length} 項目`;
   if(report?.aggregation&&!live)$('#progress-label').textContent=`${rows.length}項目の保存証拠を統合`;
-  for(const status of ['pass','fail','blocked','review','not_run'])$(`#metric-${status}`).textContent=report?.summary?.[status]??'—';
+  for(const status of ['pass','blocked','review','not_run'])$(`#metric-${status}`).textContent=report?.summary?.[status]??'—';
+  $('#metric-fail').textContent=report?.summary?failCount(report.summary):'—';$('#metric-caution').textContent=report?.summary?report.summary.caution??0:'—';
   $('#metric-preparation').textContent=report?preparationCount:'—';
   $('#metric-not_run').textContent=report?rows.filter(r=>r.status==='not_run'&&!needsPreparation(r)).length:'—';
   $('#report-link').hidden=!report;if(report)$('#report-link').href=fileURL(report.aggregation&&rows.some(r=>r.evidence?.includes('followup-summary.html'))?'followup-summary.html':'report.html');
