@@ -129,6 +129,8 @@ SITE EXAMは、依頼されたWordPressサイトに不具合やセキュリテ�
 6. 結果は分類単位で表示。開くとURL・条件ごとの子項目、選択すると詳細・証拠・不足条件を表示する。
 7. 必要なら「設定」を修正し、「この項目を再検査」または範囲を選んで再実行する。
 8. 人による判断・証拠・評価を記録し、必要な報告書を生成・保存する。
+9. 修正を開発担当へ渡す場合は、結果画面の「開発担当への引き継ぎ（C-HUB）」で「文面を作成」を押す。課題のチェック（既定ですべて選択）を確認し、読み取り専用の件名・本文を見て「件名をコピー」「本文をコピー」を押し、C-HUBへ手動で貼り付ける。引き継ぎ記録はコピーボタンを押した時点で保存され、同じ画面での再コピーは同じ記録を更新する。自動コピーできない場合はCtrl+Cの案内が出る。外部への自動送信はしない。
+10. 修正後は同じサイトを再診断する（前回と同じ検査範囲を選ぶ）。同じサイトに過去の引き継ぎ記録があれば、結果画面に「前回の引き継ぎと比較」が出る。解消／未解消／再確認できず／新たに発生を確認し、「新たに発生」のうち不要なものはチェックを外して「比較結果をコピー」を押す。このコピーが次回の比較基準となる引き継ぎ記録として保存される。
 
 演出表示は装飾。英語の演出やACCESS DENIEDだけで原因や安全性を判断せず、実際の集計・詳細を読む。演出停止と重要表示の点滅停止を用意している。操作マニュアルはヘルプから閲覧できる。
 
@@ -229,6 +231,8 @@ Anthropic Claude APIを使用する。モデルはUIから設定でき、現行�
 |---|---|
 | 検査HTML／results.json | ケースごとの結果、理由、実行情報、証拠への参照 |
 | 不具合報告書 | 検出内容をまとめ、理由・影響・管理画面優先の対応候補・再現・証拠を整理 |
+| C-HUB貼り付け文面 | 不合格・注意の課題を開発担当向けにまとめたプレーンテキスト。件名は`{サイト名}：SITE EXAM 診断結果の修正（YYYY-MM-DD）`（日付は実行日の日本時間。サイト名内のコロン・改行は置換）。本文は担当区分別（管理画面・プラグイン／サーバー・ホスティング／テーマ・開発／担当区分の確認が必要）に、不合格を注意より先に並べる。URLは1課題につき最大5件と「ほかn件」。2万字を超える場合は段階的に短縮し、不具合報告書の参照を追記する。秘密情報はマスクし、実行IDを記載する。リンクは共有UIのorigin（`WPQA_PUBLIC_ORIGIN`）で、実行ごとの個別リンクではない |
+| 再診断比較 | 前回の引き継ぎ記録と今回の結果を比較し、解消／未解消／再確認できず／新たに発生（および前回引き継ぎ対象外）に分類。解消は実際に再確認できた行のみ。設定が必要・実行不能・未実施・直接確認・対象外・該当行なしは「再確認できず」。前回と検査範囲が違う場合は警告を出す。比較結果の文面もコピーでき、そのコピーが次回の比較基準になる（解消済みは除く） |
 | デザイナー向けHTML | 表示・配色・入力欄等に加え、実装・運用への引継ぎ事項も掲載 |
 | 顧客向け診断HTML | 分かりやすい説明、危険度、採点理由、暫定／確定、再現手順、選択した画像等 |
 | 結果ZIP | ローカルPCへ保存・受渡しするための結果一式 |
@@ -281,11 +285,13 @@ Node.jsのアプリサーバー、Playwrightの検査、CaddyのTLS proxy、egre
 
 ### 11.2 保持対象
 
-- qaの`/data`：サイト、履歴、認証、AI設定、監査情報等。
+- qaの`/data`：サイト、履歴、認証、AI設定、監査情報、引き継ぎ記録（`handoffs`）等。
 - `/policy`：外部接続の許可設定。
 - proxyの`/data`・`/config`：証明書・CA・設定状態。
 - `deploy/.env`、`deploy/secrets/key`、`deploy/secrets/users.json`。
 - 独自に追加したbind mount・外部保存領域。
+
+引き継ぎ記録はサイトごとに、結果フォルダー（outputDir）と同じ階層の`handoffs-<outputDirの名前>`へ保存する（UI管理の既定は`<project>/handoffs-runs`、Linuxでは`/data`配下でバックアップ対象）。直近20件を保持し、課題の識別はsha256ダイジェストで行うため証拠の文字列は保存しない。
 
 暗号化キーを失うと、暗号化した認証を復号できなくなる。バックアップ自体も機密情報として保護する。
 
@@ -447,7 +453,7 @@ SITE EXAM独自の対応優先度（CVSSではありません）。影響度×�
 | ui/secret-codec.mjs | Linux用の暗号化 | 10740ec2e822ec31939d87016a57ec6cad5ee7c72338538b9197835a6ede3622 |
 | ui/shared-access.mjs | 共有版利用者認証・負荷制限 | 3fd4e01cba6765b52442dd59f01f3dff2ba6cb67946cd9769a644c5bb8c1c033 |
 | ui/remote-login.mjs | 共有版の画面内ログイン | 9fcc849a8251576cb53b0c3bb359f4e8cd7ef5b696ad8db1bc1e0fdbe1b2fa19 |
-| ui/public/app.js | 分類・詳細・ステータス・表示操作 | c9626467e38f5c4bbdc6f194f0723830692c6f04739ed9e3ef9e87fbca7141b6 |
+| ui/public/app.js | 分類・詳細・ステータス・表示操作 | 2a7571b08bb0a177da6e0fed1c1963af33afdf2097efd00946f2e2a474d5b924 |
 | ui/public/case-generator.js | 観点一覧・重要表示の定義 | 8727eeb0be233645e01465f9c8f02bd718e2426a621473d6db3db534724b9d0a |
 | ui/public/interaction-profile.js | 固有操作の条件・許可・入力項目 | 20bd170f960b37e8828f497d69693e987e5e960ea63a04b316ea70b290753fc2 |
 | ui/public/risk-rubric.js | 採点軸・固定マトリクス | 542960913cbdfa8baf340eabe82b7060576f6c45c04c7ff3c579c8a50a63279c |
@@ -458,14 +464,17 @@ SITE EXAM独自の対応優先度（CVSSではありません）。影響度×�
 | lib/results.mjs | 合否・必須条件の判定 | fb9dcaf31ea1b4bb2c8e03cba4e9424dcdf5193f08bbd6231c3ae48b01a8b510 |
 | lib/site-exam.mjs | 確定評価の条件・顧客向けHTML | fe1586a79bb1f5c300b5e63b153fe4f30c229d97c252e5de6353fa43aa9b96c3 |
 | lib/exam-evidence.mjs | 評価証拠の照合 | d192c450f381ae71619dee8f649496ff52a84dbc4f1f22940cb6891222663894 |
-| lib/issue-report.mjs | 不具合報告書 | 5ecf59f841a67b9b0f47d13a5b98c2bf10213b7ef0fa2c03a3bdaffae6b0a428 |
+| lib/issue-report.mjs | 不具合報告書 | b19ce2c37ee5520e88fdf96ebea2df4bd69865d74653315f8e11140f0bd61a6d |
 | lib/designer-report.mjs | デザイナー向けHTML | c984345a095f46bc5b72855f5415741e165679ca42d8536a7fca6a87e408a6f2 |
+| lib/handoff-issues.mjs | 引き継ぎ対象課題の抽出・担当区分・照合キー | f8edc6a48eebd7dc2d4fc4c1a7cfa08f82c514fdfb975fb565ff893aa0bc0ae3 |
+| lib/handoff-text.mjs | C-HUB貼り付け文面・再診断比較の生成 | bffb19a4d3c1ec5530832c5ac8437d56eaa5b36555598ff9d3e9309567c2fcc2 |
+| lib/handoff-store.mjs | 引き継ぎ記録の保存（サイト別・直近20件） | a93a9838abfefab1931061b820e327dadb93de81887b39cb1ea2553c1b75557a |
 | lib/egress-policy.mjs | 許可origin・IPの検証 | 153e8fbe1d93af0dff087c40767d2bc87adaea17424d1c2aa116ba23de70af83 |
 | lib/network-policy.mjs | 別originへの資格情報分離 | c04ae4442f163a7cff6a5b2f3663b6a6ee84890777c40a990cf9ffd54c6aecac |
 | lib/recovery.mjs | テストデータ回収 | fccd61f8131591f39bc5a7c64eb498ef542ebcd4891a3d9a1497a602a74a9f08 |
 | deploy/compose.yaml | Linuxサービス・ネットワーク・永続領域 | c8bf5adb7f7ddae3b64b704ff49ba8ae1e6b238dba49bb09573d60e654455e61 |
 | Dockerfile | 配布イメージ | 38418c389f79f84b93943da5f943efae9f595049b0d1f7a00bdbbc4b134c7511 |
-| package.json | 依存関係と実行コマンド | ffc2455eb4a04edab60d834a27aaeaf2af0b974b2daaa3731815d4c11b925f25 |
+| package.json | 依存関係と実行コマンド | 9a0a576720c0c2535ed0f079e73a72df3b80855e3735f1cc069057f6bffbc9fd |
 
 ## 付録D. AIへの質問テンプレート
 
