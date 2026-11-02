@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import {randomBytes} from 'node:crypto';
 import {sameOrigin} from '../config.mjs';
-import {request} from 'undici';
+import {request,ProxyAgent} from 'undici';
 import {load} from 'cheerio';
 import {envHeaders} from '../mailpit.mjs';
 import {scopedHeaders} from '../headers.mjs';
 import {publicHeaders,noGate} from './discovered.mjs';
 import {RULES} from '../security-baseline-rules.mjs';
+import {evaluateCertificate,inspectCertificate} from '../tls-certificate.mjs';
 
 export const kinds=['security-baseline'];
 export const LIMITS={exposure:16,transport:4,mixed:10,headers:10,disclosure:10};
@@ -32,7 +33,7 @@ const unusable=r=>r.status>=500||r.status===429||r.status===403&&r.headers['x-wp
 // 分類ごとに1つ作る。件数上限・200ms間隔・64KiB打ち切り・ゲート検出・通信失敗のBLOCKED化を担う。上限到達時は null を返す。
 export function session({config,signal,limit,timeout=config.timeoutMs??15000}){
   const base=new URL(config.baseURL),own=siteHeaders(config),requests=[];let last=0;
-  async function fetch(target,{method='GET',refusal=false}={}){
+  async function fetch(target,{method='GET',refusal=false,dispatcher}={}){
     assert(['GET','HEAD'].includes(method),'GET/HEAD only');const u=new URL(target,base);
     assert(!u.username&&!u.password&&(u.origin===base.origin||u.protocol==='http:'&&u.hostname===base.hostname&&u.pathname==='/'&&!u.search),'URL must have same origin');u.hash='';
     if(signal?.aborted)cancelled();if(requests.length>=limit)return null;
@@ -40,7 +41,7 @@ export function session({config,signal,limit,timeout=config.timeoutMs??15000}){
     const path=u.origin===base.origin?u.pathname+u.search:u.href,row={method,path,status:null,contentType:null,bytes:0};requests.push(row);
     const headers={'user-agent':'Mozilla/5.0 (compatible; SITE EXAM)',accept:'*/*',...scopedHeaders(own,own,u.href,base.href),...method==='GET'?{range:`bytes=0-${MAX_BODY-1}`}:{}};
     let r;
-    try{const res=await request(u.href,{method,headers,signal:AbortSignal.any([AbortSignal.timeout(timeout),...signal?[signal]:[]])}),chunks=[];let n=0;
+    try{const res=await request(u.href,{method,headers,...dispatcher?{dispatcher}:{},signal:AbortSignal.any([AbortSignal.timeout(timeout),...signal?[signal]:[]])}),chunks=[];let n=0;
       try{for await(const c of res.body){chunks.push(c);n+=c.length;if(n>=MAX_BODY)break;}}finally{res.body.destroy();}
       const body=Buffer.concat(chunks).subarray(0,MAX_BODY),h=Object.fromEntries(Object.entries(res.headers).map(([k,v])=>[k,Array.isArray(v)?v.join(', '):String(v)]));
       r={url:u,path,status:res.statusCode,headers:h,cookies:[res.headers['set-cookie']??[]].flat().map(String),contentType:h['content-type']??'',bytes:body.length,text:body.toString('utf8')};Object.assign(row,{status:r.status,contentType:r.contentType,bytes:r.bytes});
@@ -48,7 +49,7 @@ export function session({config,signal,limit,timeout=config.timeoutMs??15000}){
     finally{last=Date.now();}
     // refusal:true の取得（REST のユーザー一覧）だけ、JSON で認証要求ヘッダーのない401をその操作の拒否として返す。
     if(r.status===407||r.status===401&&!(refusal&&r.headers['www-authenticate']===undefined&&/json/i.test(r.contentType)))blocked(`閲覧に認証が必要です（HTTP ${r.status}）：${path}`);
-    if(unusable(r))throw Object.assign(new Error(`BLOCKED: 応答から確認できません（HTTP ${r.status}${r.headers['x-wpqa-egress']!==undefined?'・接続制限':''}）：${path}`),{network:true});
+    if(unusable(r))throw Object.assign(new Error(`BLOCKED: 応答から確認できません（HTTP ${r.status}${r.headers['x-wpqa-egress']!==undefined?'・接続先が許可されていません':''}）：${path}`),{network:true});
     if(r.status>=300&&r.status<400&&/\/wp-login\.php(?:[?#]|$)/.test(r.headers.location??''))blocked(`ログイン画面へ転送されました：${path}`);
     if(isHtml(r))noGate(r.text);return r;
   }
@@ -120,16 +121,30 @@ async function disclosure(o,s,evidence){
   await step(dir+'?author=1',async()=>{const r=await s.fetch(dir+'?author=1');if(!r)return null;if(r.status>=300&&r.status<400&&/\/author\/[^/?#]+/.test(r.headers.location??''))put('author-enumeration',r.path,'投稿者ページ（/author/…/）への転送 1件（転送先は取得せず、ユーザー名は保存していません）');});
   await step(wp+'xmlrpc.php',async()=>{const r=await follow(s,wp+'xmlrpc.php');if(!r)return null;if(/XML-RPC server accepts POST requests only/i.test(r.text))put('xmlrpc-enabled',r.path,`GET に「POSTのみ受け付ける」と応答（HTTP ${r.status}）。POSTは送っていません`);});
 }
-const AREAS={exposure,mixed,headers:headerArea,disclosure};
-const SCOPE={mixed:'HTTPSの代表ページ（最大5件）のHTML先頭64KiBから、http: の script・iframe・form action・stylesheet 等を数える。HTTPのページは対象外（HTTPS転送は transport で確認）。URLは保存しない。',
+// http://<host>/ を1件だけ取得し、Location が同じホストの https:// かを見る（転送先は取得しない）。設定済みの認証情報はこのoriginへ送らない（scopedHeaders）。
+// 共有版の egress proxy は平文HTTPの GET / だけを通すので、トンネルではなく転送プロキシとして送る。
+async function transport(o,s,evidence,{config,signal,httpOrigin,tlsInspector}){
+  const base=new URL(config.baseURL),site=base.origin+'/';
+  if(base.protocol==='http:'){if(config.environment!=='local')add(evidence,'site-http-only',site,'登録しているサイトのURLが http:// です');return;}
+  const probe=(httpOrigin??'http://'+base.hostname)+'/',proxy=process.env.WPQA_EGRESS_PROXY,dispatcher=proxy?new ProxyAgent({uri:proxy,proxyTunnel:false}):undefined;let r;
+  try{r=await s.fetch(probe,{dispatcher});}catch(error){if(!error.network)throw error;evidence.unchecked.push(error.message.replace(/^BLOCKED: /,''));}finally{await dispatcher?.close();}
+  if(r){const loc=r.status>=300&&r.status<400?r.headers.location:undefined;let to=null;try{to=loc?new URL(loc,r.url):null;}catch{}
+    if(!(to?.protocol==='https:'&&to.hostname===base.hostname))add(evidence,'https-not-enforced',r.path,loc?`HTTP ${r.status} の転送先：${to?to.origin:'読み取れない Location'}`:`HTTP ${r.status}（https:// への転送なし）`);}
+  const where=`TLS証明書 ${base.host}`;let c,rules;
+  try{c=await tlsInspector(base.hostname,Number(base.port||443),{proxy,timeoutMs:config.timeoutMs??15000,signal});rules=evaluateCertificate(c,new Date());}catch(error){if(signal?.aborted)cancelled();return void evidence.unchecked.push(`${where}（${String(error?.message).slice(0,120)}）`);}
+  const day=c.validTo.toISOString().slice(0,10),note={'cert-expired':`有効期限 ${day} を過ぎています`,'cert-expiring':`有効期限 ${day}（残り14日未満）`,'cert-untrusted':`信頼チェーンを検証できません：${String(c.authorizationError??'').slice(0,80)}`,'cert-hostname-mismatch':`ホスト名 ${base.hostname} が証明書の対象に含まれません`};
+  for(const rule of rules)add(evidence,rule,site,note[rule]);
+}
+const AREAS={exposure,transport,mixed,headers:headerArea,disclosure};
+const SCOPE={transport:'http://<同じホスト>/ へのGET 1件の Location（転送先は取得せず、登録した認証情報も送らない）と、TLS接続で読んだ証明書の有効期限・ホスト名・信頼チェーン（この接続ではデータを送らない）。local環境の http:// サイトは対象外。',mixed:'HTTPSの代表ページ（最大5件）のHTML先頭64KiBから、http: の script・iframe・form action・stylesheet 等を数える。HTTPのページは対象外（HTTPS転送は transport で確認）。URLは保存しない。',
   headers:'代表ページ（最大5件）の応答ヘッダー（HSTSはHTTPS時のみ）、Set-Cookie の Secure（HTTPS時のみ）・HttpOnly・SameSite（Cookie名だけ記録し値は保存しない）、HTML先頭64KiB内の http: の画像等の件数。',
   disclosure:'先頭の代表ページの meta generator・Server・X-Powered-By・コアのCSS/JSの ver=、readme.html、feed/、wp-json/wp/v2/users、?author=1 の転送先（Location だけを見て転送先は取得しない）、xmlrpc.php へのGET。POSTは送らない。ユーザー名は件数だけ記録する。',
   exposure:'既知の機密パスへの読み取り（GET）のみ。HTTP 200だけでは判定せず、内容の特徴が一致したときだけ露出とする。存在しないURLの応答（soft 404）と同じ特徴のルールは判定不能として未確認に入れる。本文は保存しない。'};
 // requestFactory は互換のため受け取るが使わない（本文を64KiBで打ち切るため undici で取得する）。
-export async function run({check,config,attach=async()=>{},signal}){
+export async function run({check,config,attach=async()=>{},signal,httpOrigin,tlsInspector=inspectCertificate}){
   validateRuntime(check,config);const o=check.options,area=AREAS[o.area];if(!area)blocked('未実装');
   const s=session({config,signal,limit:LIMITS[o.area]}),evidence={schema:'security-baseline-v1',area:o.area,requests:s.requests,findings:[],unchecked:[],scope:SCOPE[o.area]};
-  try{await area(o,s,evidence);}finally{await attach('security-baseline',evidence);}
+  try{await area(o,s,evidence,{config,signal,httpOrigin,tlsInspector});}finally{await attach('security-baseline',evidence);}
   const required=check.required!==false,hit=[...new Set(evidence.findings.filter(f=>!required||f.level==='problem').map(f=>f.rule))];
   if(hit.length)assert.fail(hit.join('\n'));
   if(evidence.unchecked.length)blocked('上限または通信失敗により未確認：'+evidence.unchecked.join('、'));

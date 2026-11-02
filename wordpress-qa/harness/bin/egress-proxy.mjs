@@ -1,7 +1,7 @@
 import http from 'node:http';
 import net from 'node:net';
 import fs from 'node:fs';
-import {resolveDestination} from '../lib/egress-policy.mjs';
+import {resolveDestination,upstreamHeaders} from '../lib/egress-policy.mjs';
 const file=process.env.WPQA_POLICY_FILE??'/policy/egress.json';
 const policy=()=>{if(!fs.existsSync(file))return [];if(fs.statSync(file).size>65536)throw Error('policy too large');return JSON.parse(fs.readFileSync(file,'utf8'));};
 let active=0;
@@ -10,7 +10,7 @@ const server=http.createServer(async(req,res)=>{
   try{
     const d=await resolveDestination(req.url,policy(),undefined,{method:req.method,hasBody:Number(req.headers['content-length']||0)>0||!!req.headers['transfer-encoding']});if(d.url.protocol!=='http:')throw Error('CONNECT required');
     const headers={...req.headers,host:d.url.host};delete headers['proxy-authorization'];delete headers['proxy-connection'];
-    const out=http.request({host:d.address,port:d.port,family:d.family,method:req.method,path:d.url.pathname+d.url.search,headers,timeout:30000},r=>{res.writeHead(r.statusCode,r.headers);r.pipe(res);});
+    const out=http.request({host:d.address,port:d.port,family:d.family,method:req.method,path:d.url.pathname+d.url.search,headers,timeout:30000},r=>{res.writeHead(r.statusCode,upstreamHeaders(r.headers));r.pipe(res);});
     out.on('error',()=>{if(!res.headersSent)res.writeHead(502);res.end();});out.on('timeout',()=>out.destroy());req.on('aborted',()=>out.destroy());req.pipe(out);
   }catch{res.writeHead(403,{'x-wpqa-egress':'denied'});res.end('接続先が許可されていません');}
 });

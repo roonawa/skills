@@ -41,3 +41,5 @@ export async function resolveDestination(url,entries,resolver=lookup,{method,has
 }
 
 async function timedLookup(resolver,host){let timer;try{return await Promise.race([resolver(host,{all:true,verbatim:true}),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('DNS timeout')),5000);})]);}finally{clearTimeout(timer);}}
+// 接続先が付けた x-wpqa-egress は除く。拒否の印はproxy自身だけが付ける。
+export const upstreamHeaders=h=>{const out={...h};delete out['x-wpqa-egress'];return out;};

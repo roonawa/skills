@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import {request} from '@playwright/test';
-import {validate, validateRuntime, run, inspectMixed, inspectHeaders} from '../lib/checks/security-baseline.mjs';
+import {validate, validateRuntime, run, inspectMixed, inspectHeaders, LIMITS} from '../lib/checks/security-baseline.mjs';
 import {RULES} from '../lib/security-baseline-rules.mjs';
 import {preparationReason, validateChecks} from '../lib/checks/index.mjs';
 
@@ -223,4 +223,53 @@ test('page areas follow same-origin redirects within the budget and leave other 
   const f=await fixture(t,'soft404',(p,q,res)=>{if(p==='/')return serve(safeHeaders)(p,q,res);if(p==='/old/'){res.writeHead(301,{Location:'/'});res.end();return true;}if(p==='/away/'){res.writeHead(302,{Location:'https://outside.test/'});res.end();return true;}return false;});
   const {error,evidence}=await runIt(f,check('headers',{paths:['/old/','/away/']},false));
   assert.match(error.message,/^BLOCKED: /);assert.deepEqual(evidence.unchecked,['/away/']);assert.deepEqual(f.seen.map(s=>s.url),['/old/','/','/away/']);
+});
+
+const sound=async()=>({validTo:new Date(Date.now()+90*864e5),authorized:true});
+async function runT(t,route,{config={},tlsInspector=sound}={}){
+  const f=await fixture(t,'soft404',route),port=new URL(f.config.baseURL).port,files={},calls=[];let error;
+  try{await run({check:check('transport'),config:{baseURL:'https://127.0.0.1/',timeoutMs:1500,environment:'production',...config},httpOrigin:`http://127.0.0.1:${port}`,attach:async(n,d)=>{files[n]=d;},tlsInspector:async(...a)=>{calls.push(a);return tlsInspector(...a);}});}catch(e){error=e;}
+  return {f,error,calls,evidence:files['security-baseline']};
+}
+const to=location=>(p,q,res)=>{if(p!=='/')return false;res.writeHead(301,{Location:location});res.end();return true;};
+test('transport flags missing https redirect',async t=>{
+  let x=await runT(t,serve({}));assert.equal(x.error?.name,'AssertionError');assert.match(x.error.message,/^https-not-enforced$/);assert.equal(x.evidence.findings[0].level,'problem');
+  assert.deepEqual(x.f.seen.map(s=>[s.method,s.url]),[['GET','/']]);
+  x=await runT(t,to('https://127.0.0.1/'));assert.equal(x.error,undefined);assert.deepEqual(x.evidence.findings,[]);assert.deepEqual(x.evidence.unchecked,[]);
+  x=await runT(t,to('https://other.test/'));assert.match(x.error?.message??'',/https-not-enforced/);assert.match(x.evidence.findings[0].observation,/https:\/\/other\.test/);
+  x=await runT(t,to('http://127.0.0.1/'));assert.match(x.error?.message??'',/https-not-enforced/);
+  for(const rule of ['https-not-enforced','site-http-only','cert-expired','cert-expiring','cert-untrusted','cert-hostname-mismatch'])assert.equal(RULES[rule]?.level,'problem',rule),assert.equal(RULES[rule].area,'transport',rule),assert.deepEqual(Object.keys(RULES[rule]).sort(),['admin','area','code','impact','level','owner','title','verify']);
+});
+test('transport inspects the certificate and reports problems',async t=>{
+  let x=await runT(t,to('https://127.0.0.1/'));assert.deepEqual(x.calls.map(([h,p,o])=>[h,p,o.timeoutMs,o.proxy]),[['127.0.0.1',443,1500,undefined]]);
+  x=await runT(t,to('https://127.0.0.1/'),{tlsInspector:async()=>({validTo:new Date(Date.now()-864e5),authorized:false,authorizationError:'CERT_HAS_EXPIRED',hostnameError:'Hostname/IP does not match'})});
+  assert.deepEqual(x.error.message.split('\n').sort(),['cert-expired','cert-hostname-mismatch']);
+  x=await runT(t,to('https://127.0.0.1/'),{config:{baseURL:'https://127.0.0.1:8443/'},tlsInspector:async()=>{throw new Error('ECONNRESET');}});
+  assert.equal(x.calls[0][1],8443);assert.match(x.error.message,/^BLOCKED: .*TLS/);assert.equal(x.evidence.unchecked.length,1);
+});
+test('egress denied header becomes BLOCKED',async t=>{
+  const x=await runT(t,(p,q,res)=>{res.writeHead(403,{'x-wpqa-egress':'denied'});res.end();return true;});
+  assert.match(x.error.message,/^BLOCKED:.*接続先/);
+});
+test('transport stays within 4 requests',async t=>{
+  assert.equal(LIMITS.transport,4);
+  for(const r of [serve({}),to('https://127.0.0.1/'),to('/')]){const x=await runT(t,r);assert(x.evidence.requests.length>=1&&x.f.seen.length<=4&&x.evidence.requests.length<=4);assert(x.f.seen.every(s=>s.url==='/'&&s.method==='GET'));}
+});
+test('site-http-only outside local and no https rules for local http',async t=>{
+  const f=await fixture(t,'soft404',serve({})),port=new URL(f.config.baseURL).port,files={};let calls=0;
+  const go=environment=>run({check:check('transport'),config:{...f.config,environment},httpOrigin:`http://127.0.0.1:${port}`,attach:async(n,d)=>{files[n]=d;},tlsInspector:async()=>{calls++;return sound();}});
+  await assert.rejects(go('staging'),/site-http-only/);assert.deepEqual(files['security-baseline'].findings.map(x=>x.rule),['site-http-only']);
+  await go('local');assert.deepEqual(files['security-baseline'].findings,[]);assert.equal(calls,0);
+});
+test('configured credentials are not sent to the http origin',async t=>{
+  const name='SECURITY_TRANSPORT_HEADERS';process.env[name]=JSON.stringify({Authorization:'Basic eDp5',Cookie:'password_protected_fixture=good'});t.after(()=>delete process.env[name]);
+  const x=await runT(t,to('https://127.0.0.1/'),{config:{headersEnv:name}});assert.equal(x.error,undefined);
+  assert.equal(x.f.seen.length,1);assert.equal(x.f.seen[0].headers.authorization,undefined);assert.equal(x.f.seen[0].headers.cookie,undefined);
+});
+test('shared mode sends the http probe as a plain forward-proxy request, not a tunnel',async t=>{
+  const seen=[],proxy=http.createServer((req,res)=>{seen.push([req.method,req.url]);res.writeHead(301,{Location:'https://site.test/'});res.end();});proxy.on('connect',(req,socket)=>{seen.push(['CONNECT',req.url]);socket.destroy();});
+  await new Promise(r=>proxy.listen(0,'127.0.0.1',r));t.after(()=>new Promise(r=>{proxy.closeAllConnections();proxy.close(r);}));
+  const uri=`http://127.0.0.1:${proxy.address().port}`,old=process.env.WPQA_EGRESS_PROXY;process.env.WPQA_EGRESS_PROXY=uri;t.after(()=>{if(old===undefined)delete process.env.WPQA_EGRESS_PROXY;else process.env.WPQA_EGRESS_PROXY=old;});
+  const calls=[];await run({check:check('transport'),config:{baseURL:'https://site.test/',timeoutMs:1500,environment:'production'},attach:async()=>{},tlsInspector:async(...a)=>{calls.push(a);return sound();}});
+  assert.deepEqual(seen,[['GET','http://site.test/']]);assert.equal(calls[0][0],'site.test');assert.equal(calls[0][2].proxy,uri);
 });

@@ -1,6 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {resolveDestination} from '../lib/egress-policy.mjs';
+import fs from 'node:fs';
+import {resolveDestination,upstreamHeaders} from '../lib/egress-policy.mjs';
+test('proxy drops an upstream x-wpqa-egress header so a site cannot fake a denial',()=>{
+  assert.deepEqual(upstreamHeaders({'x-wpqa-egress':'denied','content-type':'text/html',location:'https://example.com/'}),{'content-type':'text/html',location:'https://example.com/'});
+  assert.match(fs.readFileSync(new URL('../bin/egress-proxy.mjs',import.meta.url),'utf8'),/res\.writeHead\(r\.statusCode,upstreamHeaders\(r\.headers\)\)/);
+});
 const pub=async()=>[{address:'93.184.216.34',family:4}];
 const priv=async()=>[{address:'10.0.0.5',family:4}];
 const entries=[{origin:'https://example.com'}];
