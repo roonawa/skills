@@ -5,7 +5,6 @@ import {initExternalAuth} from './external-auth.js';
 import {initRegistration} from './registration.js';
 import {initDesignerReport} from './designer-report.js';
 import {extendedSuites} from './coverage-editor.js';
-import {preparationImportance} from './case-generator.js';
 const $=selector=>document.querySelector(selector);
 const state={token:'',projects:[],projectId:'',project:null,runId:null,report:null,detail:null,filter:'all',search:'',busy:false,active:null,follow:true,lastActive:false,notice:'',detailKey:'',rowsKey:'',historyKey:'',requesting:false};
 let refreshTicket=0;
@@ -130,15 +129,14 @@ function notify(message){state.notice=message;$('#toast').textContent=message;$(
 function showError(message){$('#error').textContent=message;$('#error').hidden=!message;}
 async function api(url,options={}){
   const response=await fetch(url,{...options,headers:{...(options.body?{'Content-Type':'application/json','X-QA-Token':state.token}:{}),...options.headers}});
-  const data=await response.json();if(!response.ok)throw new Error(data.error??data.message??'処理に失敗しました');return data;
+  const data=await response.json();if(!response.ok)throw Object.assign(new Error(data.error??data.message??'処理に失敗しました'),{status:response.status});return data;
 }
 const needsPreparation=row=>row.preparationRequired===true;
-$('#filters').insertAdjacentHTML('afterend','<p class="quiet">黄色：優先設定（不具合確定ではありません） <button type="button" id="preparation-motion" aria-pressed="false">重要項目の点滅を停止</button></p>');
+$('#todo-summary').insertAdjacentHTML('afterend','<p class="quiet todo-motion">黄色の点滅：次にやること（不具合確定ではありません） <button type="button" id="preparation-motion" aria-pressed="false">重要項目の点滅を停止</button></p>');
 const motionButton=$('#preparation-motion');
 function setPreparationMotion(stopped){document.body.classList.toggle('preparation-motion-off',stopped);motionButton.setAttribute('aria-pressed',String(stopped));motionButton.textContent=stopped?'重要項目の点滅を再開':'重要項目の点滅を停止';}
 setPreparationMotion(localStorage.getItem('wpqa-preparation-motion')==='off');
 motionButton.onclick=()=>{const stopped=!document.body.classList.contains('preparation-motion-off');localStorage.setItem('wpqa-preparation-motion',stopped?'off':'on');setPreparationMotion(stopped);};
-function priorityLabel(row){const info=preparationImportance(row);return info?`<span class="preparation-priority-label" title="${escape(info.reason)}">重要 · ${escape(info.category)}</span>`:'';}
 const displayStatus=row=>needsPreparation(row)?'preparation':row.active?'running':row.level==='caution'&&row.status==='fail'?'caution':row.status;
 const failCount=s=>(s?.fail??0)-(s?.caution??0);
 function badge(row){const status=displayStatus(row);return `<span class="pill ${escape(status)}">${escape(names[status]??status)}${row.autoNotApplicable?'・自動判定':''}</span>`;}
@@ -187,17 +185,13 @@ function renderRows(){
   }
   const visible=[...groups.values()].map(g=>({...g,matches:g.rows.filter(r=>(state.filter==='all'||(state.filter==='attention'?['fail','blocked','review','caution','preparation'].includes(displayStatus(r)):displayStatus(r)===state.filter))&&`${g.title} ${g.description} ${r.id} ${r.title}`.toLowerCase().includes(state.search.toLowerCase()))})).filter(g=>g.matches.length);
   const key=JSON.stringify([visible,state.detail,[...openGroups]]);if(key!==state.rowsKey){
-    const causes=new Map();
-    for(const g of visible)for(const r of g.matches)for(const f of r.failures??[]){if(!causes.has(f.key))causes.set(f.key,{...f,rows:[]});causes.get(f.key).rows.push(r);}
-    const causeHTML=causes.size?`<tr><td colspan="4"><section class="preparation-help"><h3>不合格の理由・対応方法（${causes.size}項目）</h3><p>同じ検出内容を集約しています。根本原因の一致は未確定です。</p>${[...causes.values()].map(f=>`<details><summary><strong>${escape(f.title)}</strong> — ${f.rows.length}ケース</summary>${failureHTML(f)}<h4>対象URL・条件</h4>${f.rows.map(r=>`<button class="row-button" data-row="${escape(r.id)}">${escape(r.title)} — 詳細・証拠を確認</button>`).join('')}</details>`).join('')}</section></td></tr>`:'';
-    state.rowsKey=key;$('#test-rows').innerHTML=causeHTML+visible.map((g,index)=>{
+    state.rowsKey=key;$('#test-rows').innerHTML=visible.map((g,index)=>{
       const expanded=openGroups.has(g.id),counts={};
       for(const r of g.rows){const status=displayStatus(r);counts[status]=(counts[status]??0)+1;}
       const summary=Object.entries(counts).map(([status,count])=>`${names[status]??status} ${count}`).join(' / ');
       const status=['fail','blocked','running','review','caution','preparation','not_run','pass','not_applicable'].find(s=>counts[s])??'not_run';
-      const children=g.matches.map(r=>`<tr class="group-child ${preparationImportance(r)?'preparation-priority':''} ${state.detail===r.id?'row-selected':''}"><td><button class="row-button" data-row="${escape(r.id)}"><strong>${escape(r.title)}</strong>${priorityLabel(r)}<small>${escape(r.id)}${r.required?' · 必須':''}</small></button></td><td class="suite-col">${escape(suites[r.suite]??r.suite)}</td><td>${badge(r)}</td><td class="time-col">${duration(r.durationMs)}</td></tr>`).join('');
-      const importantCount=g.matches.filter(r=>preparationImportance(r)).length;
-      return `<tr class="group-heading ${importantCount?'preparation-priority':''}"><td colspan="2"><button class="row-button group-toggle" data-group="${escape(g.id)}" aria-expanded="${expanded}" aria-controls="group-${index}"><strong>${expanded?'▾':'▸'} ${escape(g.title)} <span class="count">${g.rows.length}</span></strong>${importantCount?`<span class="preparation-priority-label">重要 · 設定が必要 ${importantCount}件</span>`:''}<small>全体: ${escape(summary)}${g.matches.length!==g.rows.length?` · 絞り込み一致 ${g.matches.length}件`:''}</small></button></td><td>${badge({status})}</td><td class="time-col">${duration(g.rows.reduce((total,r)=>total+(r.durationMs??0),0))}</td></tr><tr id="group-${index}" class="group-results" ${expanded?'':'hidden'}><td colspan="4">${expanded?`<div class="group-detail-panel"><table class="group-table"><thead><tr><th>URL・条件</th><th class="suite-col">種別</th><th>結果</th><th class="time-col">時間</th></tr></thead><tbody>${children}</tbody></table></div>`:''}</td></tr>`;
+      const children=g.matches.map(r=>`<tr class="group-child ${state.detail===r.id?'row-selected':''}"><td><button class="row-button" data-row="${escape(r.id)}"><strong>${escape(r.title)}</strong><small>${escape(r.id)}${r.required?' · 必須':''}</small></button></td><td class="suite-col">${escape(suites[r.suite]??r.suite)}</td><td>${badge(r)}</td><td class="time-col">${duration(r.durationMs)}</td></tr>`).join('');
+      return `<tr class="group-heading"><td colspan="2"><button class="row-button group-toggle" data-group="${escape(g.id)}" aria-expanded="${expanded}" aria-controls="group-${index}"><strong>${expanded?'▾':'▸'} ${escape(g.title)} <span class="count">${g.rows.length}</span></strong><small>全体: ${escape(summary)}${g.matches.length!==g.rows.length?` · 絞り込み一致 ${g.matches.length}件`:''}</small></button></td><td>${badge({status})}</td><td class="time-col">${duration(g.rows.reduce((total,r)=>total+(r.durationMs??0),0))}</td></tr><tr id="group-${index}" class="group-results" ${expanded?'':'hidden'}><td colspan="4">${expanded?`<div class="group-detail-panel"><table class="group-table"><thead><tr><th>URL・条件</th><th class="suite-col">種別</th><th>結果</th><th class="time-col">時間</th></tr></thead><tbody>${children}</tbody></table></div>`:''}</td></tr>`;
     }).join('');
   }
   $('#row-count').textContent=`${groups.size}分類`;$('#empty-state').hidden=!!visible.length;
@@ -205,6 +199,105 @@ function renderRows(){
   else if(!rows.length){$('#empty-state h3').textContent=state.active?'検査を準備しています':'まだ実行履歴がありません';$('#empty-state p').textContent=state.active?'結果の保存を待っています。自動で更新されます。':'「検査を実行」から開始できます。';}
   $('#table-note').textContent=rows.length?`${visible.length} / ${groups.size}分類 · URL・条件別 ${rows.length}件（絞り込み一致 ${visible.reduce((n,g)=>n+g.matches.length,0)}件）`:'';
 }
+// 結果画面B案：分かったこと（選んだ実行）と、次にやること・未確認（サイトの現在の設定）。
+let findingsKey='';
+const findingButton=r=>`<button class="row-button" data-row="${escape(r.id)}">${escape(r.title)} — 詳細・証拠を確認</button>`;
+function renderFindings(){
+  const report=state.report?.report,rows=report?.rows??[],key=JSON.stringify([state.runId,rows]);if(key===findingsKey)return;findingsKey=key;
+  if(!report){$('#findings-body').innerHTML='<p class="quiet">実行結果を選ぶと表示します。</p>';return;}
+  const section=(status,label)=>{
+    const list=rows.filter(r=>displayStatus(r)===status),causes=new Map(),plain=list.filter(r=>!r.failures?.length);if(!list.length)return '';
+    for(const r of list)for(const f of r.failures??[]){if(!causes.has(f.key))causes.set(f.key,{...f,rows:[]});causes.get(f.key).rows.push(r);}
+    return `<section class="preparation-help findings-${status}"><h3>${label} ${list.length}件${causes.size?` — ${status==='fail'?'不合格':'注意'}の理由・対応方法（${causes.size}項目）`:''}</h3>${causes.size?'<p>同じ検出内容を集約しています。根本原因の一致は未確定です。</p>':''}${[...causes.values()].map(f=>`<details><summary><strong>${escape(f.title)}</strong> — ${f.rows.length}ケース</summary>${failureHTML(f)}<h4>対象URL・条件</h4>${f.rows.map(findingButton).join('')}</details>`).join('')}${plain.length?`<ul>${plain.map(r=>`<li>${findingButton(r)}</li>`).join('')}</ul>`:''}</section>`;
+  };
+  const passed=rows.filter(r=>displayStatus(r)==='pass');
+  $('#findings-body').innerHTML=(section('fail','不合格')+section('caution','注意')||'<p>この実行では不合格・注意はありませんでした。</p>')+`<details class="findings-pass"><summary>合格 ${passed.length}件</summary>${passed.length?`<ul>${passed.map(r=>`<li>${findingButton(r)}</li>`).join('')}</ul>`:'<p class="quiet">ありません。</p>'}</details>`;
+}
+$('#findings-body').addEventListener('click',e=>{const button=e.target.closest('[data-row]');if(!button)return;state.detail=button.dataset.row;renderRows();renderDetail();$('.detail-panel').scrollIntoView({block:'nearest'});});
+const todoUI={data:null,project:'',key:'',dirty:false,saving:false,ticket:0};
+const todoNames={writes:'投稿・キャッシュ・予約公開',submit:'フォーム送信',performance:'表示速度',sensitivePaths:'機密ファイル露出'};
+// 保存すると検査の行が操作テストに置き換わるもの（linkRegistrationCoverage）。
+const todoReplaced={'coverage-publishing':['journey.profile-post-lifecycle'],'coverage-scheduled':['journey.profile-scheduled'],'coverage-contact-success':['journey.profile-contact-submit'],'coverage-performance':['check.registration-performance']};
+const todoBuckets=[['toolGap','ツールが取得できなかったもの','ツールが自動で取得できなかった項目です。担当者の入力は要りません。'],['technical','技術担当の準備が要るもの','技術担当が準備してから検査します。'],['notRelevant','このサイトに関係しないもの','登録時に取得した情報から、このサイトに関係しないと判断しました。根拠を確かめ、関係がある場合は戻してください。']];
+const todoPending=d=>new Set([...d.todo.flatMap(x=>x.checkIds),...d.toolGap.map(x=>x.id),...d.technical.map(x=>x.id),...d.notRelevant.map(x=>x.id)]);
+function todoMeasured(){
+  const found=[],walk=x=>{if(Array.isArray(x))x.forEach(walk);else if(x&&typeof x==='object')for(const [k,v] of Object.entries(x))k==='durationMs'&&typeof v==='number'?found.push(v):walk(v);};
+  for(const r of state.report?.report?.rows??[])if(/^check\.(auto|interaction)-performance$/.test(r.id)&&r.status!=='not_run')walk(r.details);
+  found.sort((a,b)=>a-b);return found.length?found[found.length>>1]:null;
+}
+function todoItemHTML(x){
+  const effect=`${escape(x.effect)} → ${escape(todoNames[x.key]??x.label)}の${x.count}件が${x.key==='performance'?'合否で判定されます':'動きます'}`,head=`<div class="todo-item preparation-priority" data-todo="${escape(x.key)}"><span class="preparation-priority-label">重要</span>`;
+  if(x.key==='submit')return `${head}<strong>${escape(x.label)}</strong><label class="todo-field">テスト用メールアドレス<input type="email" data-input="testEmail" value="${escape(x.input?.current?.testEmail??'')}" placeholder="qa-test@example.co.jp" autocomplete="off"></label><label><input type="checkbox" data-input="submit" ${x.input?.current?.submit?'checked':''}><span class="checkbox-copy"><strong>このフォームに実際に送信してよい</strong><small>${effect}</small></span></label></div>`;
+  if(x.key==='performance')return `${head}<strong>${escape(x.label)}</strong><label class="todo-field"><input type="number" data-input="performance" min="0.1" max="120" step="0.1" placeholder="3.0" inputmode="decimal" aria-label="${escape(x.label)}"> 秒以内</label><small><span data-measured></span>${effect}</small></div>`;
+  return `${head}<label><input type="checkbox" data-input="${escape(x.key)}"><span class="checkbox-copy"><strong>${escape(x.label)}</strong><small>${effect}</small></span></label></div>`;
+}
+function renderTodo(){
+  const d=todoUI.data,managed=d?.managed===true;
+  $('#todo-panel').hidden=!managed;$('#unconfirmed').hidden=!managed;$('#metric-todo').textContent=managed?d.todo.length:'—';
+  if(!managed)return;
+  const kept=new Map([...$('#todo-items').querySelectorAll('[data-input]')].map(el=>[el.dataset.input,el.type==='checkbox'?el.checked:el.value]));
+  $('#todo-summary').textContent=d.todo.length?`あと${d.todo.length}つ設定すると、さらに${d.todo.reduce((n,x)=>n+x.count,0)}件を検査できます`:'やることはありません';
+  $('#todo-items').innerHTML=d.todo.map(todoItemHTML).join('');
+  for(const el of $('#todo-items').querySelectorAll('[data-input]'))if(kept.has(el.dataset.input))el[el.type==='checkbox'?'checked':'value']=kept.get(el.dataset.input);
+  $('#todo-actions').hidden=!d.todo.length;$('.todo-motion').hidden=!d.todo.length;
+  const rows=todoBuckets.reduce((n,[k])=>n+d[k].length,0);$('#unconfirmed-count').textContent=rows;
+  $('#unconfirmed-body').innerHTML=todoBuckets.map(([k,title,note])=>`<section data-bucket="${k}"><h3>${title}（${d[k].length}件）</h3><p class="quiet">${note}</p>${d[k].length?`<ul>${d[k].map(r=>`<li data-check="${escape(r.id)}"><strong>${escape(r.title)}</strong><small>${escape(r.message)}</small>${k==='notRelevant'?`<small>根拠：${escape(r.reason)}</small>${r.revertible?`<button type="button" data-revert="${escape(r.id)}">関係ありに戻す</button>`:''}`:''}</li>`).join('')}</ul>`:'<p class="quiet">ありません。</p>'}</section>`).join('');
+  renderTodoState();
+}
+function todoEntered(){
+  const box=$('#todo-items'),value=k=>box.querySelector(`[data-input="${k}"]`);
+  return (todoUI.data?.todo??[]).filter(x=>x.key==='performance'?!!value('performance')?.value.trim():!!value(x.key)?.checked);
+}
+function renderTodoState(){
+  if(!todoUI.data?.managed)return;
+  const off=state.busy||state.requesting||todoUI.saving,count=todoEntered().reduce((n,x)=>n+x.count,0),measured=todoMeasured();
+  for(const el of document.querySelectorAll('#todo-items input,#todo-actions button,#unconfirmed-body button'))el.disabled=off;
+  $('#todo-save-run').textContent=`保存して、増えた${count}件だけ実行`;if(!off)$('#todo-save-run').disabled=!count;
+  const note=$('#todo-items [data-measured]');if(note)note.textContent=(measured===null?'今回の実行では表示時間を測っていません':`今回の実測は ${(measured/1000).toFixed(measured<1000?2:1)} 秒でした`)+'（参考値。上限は顧客と合意した値を入れてください）。';
+}
+function todoStatus(message,error=false){$('#todo-status').textContent=message;$('#todo-status').classList.toggle('error',error);}
+async function refreshTodo(data){
+  const key=JSON.stringify([state.projectId,data.project.configHash,data.busy,data.runs[0]?.runId,data.runs[0]?.runStatus]);
+  // 入力中は取り直さない。古い版のまま保存すると、別の画面の更新として知らせる。
+  if(key===todoUI.key||todoUI.saving||(todoUI.dirty&&todoUI.project===state.projectId))return;
+  todoUI.key=key;const ticket=++todoUI.ticket,projectId=state.projectId;
+  try{const d=await api(projectAPI()+'/todo');if(ticket===todoUI.ticket&&projectId===state.projectId&&!todoUI.saving){Object.assign(todoUI,{data:d,project:projectId,dirty:false});renderTodo();}}
+  catch{if(ticket===todoUI.ticket)todoUI.key='';}
+}
+async function todoRunIds(base,items,before,after){
+  const pending=todoPending(after),freed=items.flatMap(x=>x.checkIds).filter(id=>before.has(id)&&!pending.has(id));if(!freed.length)return [];
+  const {config:c}=await api(base+'/settings'),rows=new Set([...(c.checks??[]).map(x=>'check.'+x.id),...(c.journeys??[]).filter(j=>!j.explicitOnly).map(j=>'journey.'+j.id)]);
+  return [...new Set(freed.flatMap(id=>rows.has('check.'+id)||/^auto-security-/.test(id)?['check.'+id]:(todoReplaced[id]??[]).filter(r=>rows.has(r))))];
+}
+async function todoSave(run,revert){
+  if(todoUI.saving||state.busy||state.requesting||!todoUI.data?.managed)return;
+  const box=$('#todo-items'),value=k=>box.querySelector(`[data-input="${k}"]`),patch={},items=revert?[]:todoEntered();let sensitive=false;
+  if(!revert){
+    const email=value('testEmail')?.value.trim();if(email)patch.testEmail=email;
+    for(const x of items){
+      if(x.key==='writes'||x.key==='submit')patch[x.key]=true;
+      if(x.key==='sensitivePaths')sensitive=true;
+      if(x.key==='performance'){const ms=Math.round(Number(value('performance').value)*1000);if(!Number.isInteger(ms)||ms<100||ms>120000){todoStatus('表示上限は0.1〜120秒の数値で入力してください',true);return;}patch.performanceMs=ms;}
+    }
+    if(!items.length&&!email){todoStatus('入力された項目がありません。チェックを入れるか、値を入れてください',true);return;}
+  }
+  const projectId=state.projectId,base=projectAPI(),version=todoUI.data.version,before=todoPending(todoUI.data);
+  ++refreshTicket;todoUI.saving=true;state.requesting=true;render();showError('');todoStatus('保存しています…');
+  try{
+    const saved=await api(base+'/settings'),{headersEnv,mailpit,...config}=saved.config,profile={...saved.profile,...patch};
+    if(revert)profile.automation={...profile.automation,relevantOverrides:[...new Set([...(profile.automation?.relevantOverrides??[]),revert])]};
+    await api(base+'/settings',{method:'POST',body:JSON.stringify({version,config,profile,...(sensitive?{sensitivePaths:true}:{})})});
+    const next=await api(base+'/todo');if(projectId!==state.projectId)return;
+    Object.assign(todoUI,{data:next,project:projectId,dirty:false,key:''});renderTodo();
+    const ids=run?await todoRunIds(base,items,before,next):[];
+    if(ids.length){await api(base+'/runs',{method:'POST',body:JSON.stringify({suite:'all',ids})});state.follow=true;state.runId=null;state.report=null;state.detail=null;state.lastActive=true;todoStatus(`保存しました。増えた${ids.length}件の検査を実行しています。`);}
+    else todoStatus(revert?'関係ありに戻しました。次の実行から検査の対象に戻ります。':run?'保存しました。新しく実行できる検査はありません。':'保存しました。');
+  }catch(error){if(projectId===state.projectId)todoStatus(error.status===409||/別の画面で設定が更新/.test(error.message)?'別の画面で設定が更新されました。再読み込みしてください':error.message,true);}
+  finally{todoUI.saving=false;state.requesting=false;render();await refresh();}
+}
+$('#todo-items').addEventListener('input',()=>{todoUI.dirty=true;renderTodoState();});
+$('#todo-save-run').onclick=()=>todoSave(true);$('#todo-save').onclick=()=>todoSave(false);
+$('#unconfirmed-body').addEventListener('click',e=>{const button=e.target.closest('[data-revert]');if(button)todoSave(false,button.dataset.revert);});
 function failureHTML(f){return `<dl><dt>不合格の理由・取得結果</dt><dd>${escape(f.actual)}</dd><dt>利用者への影響</dt><dd>${escape(f.impact)}</dd><dt>管理画面での対応・確認方法</dt><dd>${escape(f.admin)}</dd><dt>設定で直らない場合</dt><dd>${escape(f.code)}</dd><dt>修正後の確認</dt><dd>${escape(f.verify)}</dd></dl>`;}
 function renderDetail(){
   const r=state.report?.report?.rows.find(r=>r.id===state.detail);
@@ -213,8 +306,6 @@ function renderDetail(){
   const preparing=needsPreparation(r),files=r.evidence??[],candidate=!preparing&&state.report.candidates.includes(r.id),canApprove=state.report.canApprove&&!state.busy;
   const descriptions={preparation:'検査条件や期待値が未定義のため、実行対象に含めていません。設定を登録してから検査してください。',pass:'この検査は期待した結果に一致しました。',not_run:'この実行では確認していません。対象の検査範囲を選んで実行してください。',review:'人による確認が必要です。証拠と期待する状態を照合してください。',caution:'参考検査で兆候が見つかりました。必須条件には影響しません。内容を確認し、必要に応じて対応してください。',blocked:'前提条件や実行環境を確認してから再実行してください。',not_applicable:'このサイトでは適用外として登録されています。',fail:'期待結果との違いがあります。証拠から原因を確認してください。'};
   $('#detail').innerHTML=`${badge(r)}<h3 class="detail-title">${escape(r.title)}</h3><div class="detail-id">${escape(r.id)}</div><span class="detail-label">判定の内容</span><p class="detail-description">${escape(r.autoNotApplicable?'このサイトに関係しないと自動で判定し、対象外にしました。根拠を確認してください。':descriptions[displayStatus(r)]??'')}</p>${r.setting?`<span class="detail-label">設定の照合</span><dl><dt>取得方法</dt><dd>${escape(r.setting.source)}</dd><dt>期待値</dt><dd>${escape(JSON.stringify(r.setting.expected))}</dd><dt>取得した値</dt><dd>${escape(JSON.stringify(r.setting.actual))}</dd></dl>`:''}${r.reason?`<pre class="reason">${escape(r.reason.replace(/\x1b\[[0-9;]*m/g,''))}</pre>`:''}${files.length?'<span class="detail-label">証拠ファイル</span>':''}<div class="evidence-list">${files.map(f=>`<a class="evidence-link" href="${fileURL(f)}" target="_blank" rel="noopener">${escape(f.split('/').at(-1))} ↗</a>${/\.png$/i.test(f)?`<a href="${fileURL(f)}" target="_blank" rel="noopener"><img class="evidence-image" src="${fileURL(f)}" alt="${escape(f.split('/').at(-1))}"></a>`:''}`).join('')}</div>${candidate?`<div class="approval"><span class="detail-label">基準画像のレビュー</span><p class="detail-description">表示が意図どおりか確認した画像のみ承認します。承認後も、再実行するまで以前の判定は変わりません。</p>${canApprove?'<label><input type="checkbox" id="approve-check">候補画像を確認し、意図した表示であることを確認しました</label><button class="primary" id="approve-button" disabled>この画像を基準として承認</button>':'<p class="approval-note">実行中、または現在の設定と異なる履歴のため承認できません。必要に応じて再実行してください。</p>'}</div>`:''}`;
-  const importance=preparationImportance(r);
-  if(importance)$('#detail .detail-id').insertAdjacentHTML('afterend',`<section class="preparation-priority-note">${priorityLabel(r)}<p>${escape(importance.reason)}</p></section>`);
   $('#detail .detail-id').insertAdjacentHTML('afterend',`<details class="check-details"><summary>検査内容</summary><p>${escape(classifyRow(r)[2])}</p></details>`);
   if(r.failures?.length)$('#detail .detail-id').insertAdjacentHTML('afterend',r.failures.map(f=>`<section class="preparation-help"><h4>${escape(f.title)}</h4>${failureHTML(f)}</section>`).join(''));
   if(preparing||r.status==='blocked'){
@@ -280,7 +371,8 @@ function render(){
   for(const status of ['pass','blocked','review','not_run'])$(`#metric-${status}`).textContent=report?.summary?.[status]??'—';
   $('#metric-fail').textContent=report?.summary?failCount(report.summary):'—';$('#metric-caution').textContent=report?.summary?report.summary.caution??0:'—';
   $('#metric-preparation').textContent=report?preparationCount:'—';
-  $('#metric-not_run').textContent=report?rows.filter(r=>r.status==='not_run'&&!needsPreparation(r)).length:'—';
+  const notRun=rows.filter(r=>r.status==='not_run'&&!needsPreparation(r)).length;
+  $('#metric-not_run').textContent=report?notRun:'—';$('#metric-unconfirmed').textContent=report?(report.summary?.review??0)+notRun+preparationCount:'—';
   $('#report-link').hidden=!report;if(report)$('#report-link').href=fileURL(report.aggregation&&rows.some(r=>r.evidence?.includes('followup-summary.html'))?'followup-summary.html':'report.html');
   $('#results-download').hidden=!report||['running','starting','planned'].includes(report.runStatus);if(report)$('#results-download').href=runAPI()+'/download';
   $('#issue-report-panel').hidden=!report;
@@ -291,7 +383,7 @@ function render(){
   if(handoff.scope!==reportScope){handoff.scope=reportScope;handoff.id=handoff.cmpId='';$('#handoff-result').hidden=true;$('#handoff-compare-result').hidden=true;$('#handoff-status').textContent='';}
   const finished=report?.runStatus==='finished'&&report.runId===state.runId,probeKey=reportScope+finished;if(handoff.probeKey!==probeKey){handoff.probeKey=probeKey;handoffProbe(finished);}
   if(report?.autoReport?.file==='issue-report.html'){$('#issue-report-open').href=`${projectAPI()}/runs/${state.runId}/files?path=issue-report.html`;$('#issue-report-open').hidden=false;$('#issue-report-status').textContent='検査完了時に報告書を自動生成しました。';}
-  renderRows();renderDetail();
+  renderRows();renderDetail();renderFindings();renderTodoState();
   $('#run-time').textContent=report?date(report.finishedAt??report.startedAt):'';
   const metadata=[['対象サイト',report?.baseURL??state.project?.baseURL??'—'],['実行ID',report?.runId??'—'],['環境',({local:'ローカル',staging:'検証環境',production:'本番環境'})[report?.environment??state.project?.environment]??'—'],['設定ファイル',state.project?.configPath??'—'],['対象リビジョン',report?.revision??'未指定'],['実行環境',report?.runtime??'—']];
   $('#metadata').innerHTML=metadata.map(([k,v])=>`<div><dt>${escape(k)}</dt><dd>${escape(v)}</dd></div>`).join('');
@@ -326,14 +418,14 @@ async function refresh(){
     state.project=data.project;state.busy=data.busy;state.active=data.active;
     if(state.lastActive&&!running){notify(completedReport?.report.runStatus==='interrupted'?'検査を停止しました。実行済みの結果と後始末の状態を確認してください。':'実行が完了しました');if(data.lastJob?.exitCode===2&&!data.lastJob.runId)showError(data.lastJob.log||'実行を開始できませんでした');}
     state.lastActive=running;state.runId=runId;state.report=report;
-    renderHistory(data.runs);render();void refreshLatest(data);
+    renderHistory(data.runs);render();void refreshLatest(data);void refreshTodo(data);
     if(completedReport)showVerdict(completedReport.report,data.lastJob.exitCode);
     if(completedReport&&$('#auto-download-results').checked&&!downloadedRuns.has(expectedProject+'/'+completedId)){
       downloadedRuns.add(expectedProject+'/'+completedId);const link=document.createElement('a');link.href=`/api/projects/${encodeURIComponent(expectedProject)}/runs/${encodeURIComponent(completedId)}/download`;link.download='';document.body.append(link);link.click();link.remove();notify('結果のダウンロードを開始しました。保存されない場合は「結果をPCに保存（ZIP）」を押してください。');
     }
   }catch(e){if(current())showError('状態を取得できませんでした：'+e.message);}
 }
-$('#project-select').addEventListener('change',async e=>{++refreshTicket;state.projectId=e.target.value;state.project=null;localStorage.setItem('wpqa-project',state.projectId);state.runId=null;state.report=null;state.detail=null;state.follow=true;state.lastActive=false;state.rowsKey='';state.historyKey='';notify('');showError('');render();await refresh();});
+$('#project-select').addEventListener('change',async e=>{++refreshTicket;state.projectId=e.target.value;state.project=null;localStorage.setItem('wpqa-project',state.projectId);state.runId=null;state.report=null;state.detail=null;state.follow=true;state.lastActive=false;state.rowsKey='';state.historyKey='';Object.assign(todoUI,{data:null,key:'',dirty:false});renderTodo();notify('');showError('');render();await refresh();});
 $('#run-button').addEventListener('click',async()=>{
   const verdict=document.querySelector('#cinema-verdict');if(verdict)verdict.hidden=true;
   if(state.busy||state.requesting||!state.project)return;++refreshTicket;state.requesting=true;render();showError('');notify('');

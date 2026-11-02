@@ -27,7 +27,8 @@
     "pilot:init": "node bin/init-pilot.mjs",
     "test:shared-ui": "node test/shared-pilot-browser.mjs",
     "test:ai-ui": "node test/ai-browser.mjs",
-    "test:site-exam-ui": "node test/site-exam-browser.mjs"
+    "test:site-exam-ui": "node test/site-exam-browser.mjs",
+    "test:first-screen-ui": "node test/first-screen-browser.mjs"
   },
   "dependencies": {
     "@axe-core/playwright": "4.14.0",
