@@ -1,0 +1,54 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import {chromium,expect} from '@playwright/test';
+import {startUI} from '../ui/server.mjs';
+import {writeReport} from '../lib/results.mjs';
+const scratch=path.resolve('.selftest',`handoff-${Date.now()}`);
+fs.mkdirSync(scratch,{recursive:true});
+const baseURL='https://example.test',XSS='<img src=x onerror=alert(1)>';
+const config={name:'引き継ぎUIテスト',baseURL,environment:'production',outputDir:'runs',pages:[{id:'home',path:'/',indexable:true,canonical:baseURL+'/'}],policies:[],journeys:[],visuals:[],manual:[]};
+const file=path.join(scratch,'site.json');fs.writeFileSync(file,JSON.stringify(config));
+const row=(id,status,evidence,title)=>({id,title,required:true,status,evidence});
+function writeRun(runId,finishedAt,rows,files){
+  const dir=path.join(scratch,'runs',runId);fs.mkdirSync(path.join(dir,'evidence'),{recursive:true});
+  for(const [name,data] of Object.entries(files))fs.writeFileSync(path.join(dir,name),JSON.stringify(data));
+  writeReport(dir,{runId,name:config.name,baseURL,environment:'production',runStatus:'finished',startedAt:finishedAt,finishedAt,configHash:'x',rows});
+}
+const audit=(id,title,error)=>[row(id,'fail',[`evidence/${id}.json`],title),{[`evidence/${id}.json`]:{url:baseURL+'/'+id+'/',errors:[error]}}];
+const [xRow,xFile]=audit('check.audit-x',XSS,'broken xss page'),[lRow,lFile]=audit('check.audit-links','リンク確認','broken link found');
+writeRun('run-a','2026-10-01T01:00:00.000Z',[xRow,lRow],{...xFile,...lFile});
+writeRun('run-b','2026-10-02T01:00:00.000Z',[row('check.audit-x','pass',[],XSS),lRow],{...lFile});
+const app=await startUI({configPaths:[file],port:0});
+const browser=await chromium.launch();const context=await browser.newContext();await context.grantPermissions(['clipboard-read','clipboard-write'],{origin:app.url});
+const page=await context.newPage();const dialogs=[];page.on('dialog',d=>{dialogs.push(d.message());d.dismiss();});
+const saved=()=>{const dir=path.join(scratch,'handoffs-runs');return fs.existsSync(dir)?fs.readdirSync(dir).filter(f=>f.endsWith('.json')):[];};
+try{
+  await page.goto(app.url);await expect(page.locator('#metadata')).toContainText('run-b');
+  await page.locator('[data-run="run-a"]').click();await expect(page.locator('#metadata')).toContainText('run-a');
+  await page.locator('#handoff-panel summary').click();
+  await expect(page.locator('#handoff-compare-open')).toBeHidden();
+  await page.getByRole('button',{name:'文面を作成',exact:true}).click();
+  await expect(page.locator('#handoff-subject')).toHaveValue(/^引き継ぎUIテスト：SITE EXAM 診断結果の修正/);
+  await expect(page.locator('#handoff-body')).toHaveValue(/【サーバー・ホスティング】|【管理画面・プラグイン】|【担当区分の確認が必要】|【テーマ・開発】/);
+  await expect(page.locator('#handoff-body')).toHaveValue(/対象：リンク確認/);
+  assert.equal(await page.locator('#handoff-issues input:checked').count(),2);
+  await page.locator('#handoff-issues label',{hasText:'リンク確認'}).locator('input').uncheck();
+  await expect(page.locator('#handoff-body')).not.toHaveValue(/対象：リンク確認/);
+  assert.equal(saved().length,0);
+  await page.locator('#handoff-copy-body').click();await expect(page.locator('#handoff-status')).toContainText('コピーしました');
+  await page.locator('#handoff-copy-body').click();await page.locator('#handoff-copy-subject').click();
+  await expect.poll(()=>page.evaluate(()=>navigator.clipboard.readText())).toMatch(/^引き継ぎUIテスト：/);
+  assert.equal(saved().length,1,'copying repeatedly keeps one record');
+  assert.equal(await page.locator('#handoff-issues img').count(),0);
+  await page.locator('[data-run="run-b"]').click();await expect(page.locator('#metadata')).toContainText('run-b');
+  await expect(page.locator('#handoff-compare-open')).toBeVisible();
+  await page.locator('#handoff-compare-open').click();
+  await expect(page.locator('#handoff-compare-counts')).toContainText('解消 1件');
+  await expect(page.locator('#handoff-compare-body')).toHaveValue(/SITE EXAM 再診断結果/);
+  await page.locator('#handoff-compare-copy').click();await expect(page.locator('#handoff-status')).toContainText('コピーしました');
+  assert.equal(saved().length,2);
+  await page.setViewportSize({width:390,height:844});assert(await page.locator('#handoff-panel').evaluate(el=>el.getBoundingClientRect().width>250));
+  assert.equal(dialogs.length,0,'no script executed from evidence text');
+  console.log('Handoff UI, preview, exclusion, single record, compare and escaping checks passed');
+}finally{await browser.close();await app.close();}

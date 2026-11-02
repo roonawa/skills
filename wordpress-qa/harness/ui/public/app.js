@@ -77,6 +77,52 @@ $('#issue-report-generate').onclick=async()=>{
   }catch(error){if(scope===`${state.projectId}/${state.runId}`){showError(error.message);$('#issue-report-status').textContent='生成できませんでした。';}}
   finally{state.requesting=false;render();}
 };
+$('#issue-report-panel').insertAdjacentHTML('afterend','<details id="handoff-panel"><summary>開発担当への引き継ぎ（C-HUB）</summary><p>不合格・注意の課題を、開発担当に渡す文面にまとめます。コピーした時点の内容が引き継ぎ記録として保存されます。</p><button id="handoff-make" type="button">文面を作成</button><div id="handoff-result" hidden><p>引き継ぐ課題（外すと文面から消えます）</p><div id="handoff-issues"></div><label for="handoff-subject">件名</label><input id="handoff-subject" readonly><label for="handoff-body">本文</label><textarea id="handoff-body" readonly rows="14"></textarea><button id="handoff-copy-subject" type="button">件名をコピー</button><button id="handoff-copy-body" type="button">本文をコピー</button></div><div id="handoff-compare" hidden><button id="handoff-compare-open" type="button" hidden>前回の引き継ぎと比較</button><div id="handoff-compare-result" hidden><p id="handoff-compare-counts"></p><p>新たに発生した課題（外すと比較文面から消えます）</p><div id="handoff-compare-added"></div><label for="handoff-compare-body">比較文面</label><textarea id="handoff-compare-body" readonly rows="12"></textarea><button id="handoff-compare-copy" type="button">比較結果をコピー</button></div></div><p id="handoff-status" role="status"></p></details>');
+const handoff={scope:'',id:'',cmpId:'',ticket:0};
+const handoffURL=kind=>`${runAPI()}/${kind}`,handoffKeys=box=>[...box.querySelectorAll('input:not(:checked)')].map(i=>i.dataset.key);
+const handoffList=(box,items)=>{box.innerHTML=items.map(i=>`<label><input type="checkbox" data-key="${escape(i.key)}" checked> <span>${escape(i.level==='caution'?'注意':'不合格')}：${escape(i.rowTitle)} — ${escape(i.title)}</span></label>`).join('')||'<p class="quiet">該当する課題はありません。</p>';};
+const handoffCurrent=scope=>scope===`${state.projectId}/${state.runId}`;
+async function handoffPreview(fresh,save){
+  const scope=`${state.projectId}/${state.runId}`,box=$('#handoff-issues');
+  const data=await api(handoffURL('handoff'),{method:'POST',body:JSON.stringify({...(handoff.id?{handoffId:handoff.id}:{}),excludedKeys:fresh?[]:handoffKeys(box),save})});
+  if(!handoffCurrent(scope))return null;
+  handoff.id=data.handoffId;if(fresh)handoffList(box,data.issues);
+  $('#handoff-subject').value=data.subject;$('#handoff-body').value=data.body;$('#handoff-result').hidden=false;
+  return data;
+}
+async function handoffCompare(save,fresh){
+  const scope=`${state.projectId}/${state.runId}`,box=$('#handoff-compare-added');
+  const data=await api(handoffURL('handoff-compare'),{method:'POST',body:JSON.stringify({...(handoff.cmpId?{handoffId:handoff.cmpId}:{}),uncheckedAddedKeys:fresh?[]:handoffKeys(box),save})});
+  if(!handoffCurrent(scope))return null;
+  handoff.cmpId=data.handoffId;return data;
+}
+function handoffCopy(text,done){
+  const fallback=()=>{const area=$('#handoff-body');area.hidden=false;area.focus();area.select();$('#handoff-status').textContent='自動コピーできませんでした。Ctrl+C でコピーしてください。';};
+  (navigator.clipboard?.writeText?navigator.clipboard.writeText(text).then(()=>{$('#handoff-status').textContent=done;},fallback):Promise.resolve().then(fallback));
+}
+async function handoffAction(task){
+  if(state.requesting)return;const scope=`${state.projectId}/${state.runId}`;state.requesting=true;render();showError('');
+  try{await task();}catch(error){if(handoffCurrent(scope)){showError(error.message);$('#handoff-status').textContent='処理できませんでした。';}}
+  finally{state.requesting=false;render();}
+}
+$('#handoff-make').onclick=()=>handoffAction(async()=>{$('#handoff-status').textContent='文面を作成しています…';if(await handoffPreview(true,false))$('#handoff-status').textContent='プレビューです。コピーすると引き継ぎ記録として保存します。';});
+$('#handoff-issues').onchange=()=>handoffAction(()=>handoffPreview(false,false));
+for(const [id,field,label] of [['#handoff-copy-subject','subject','件名'],['#handoff-copy-body','body','本文']])$(id).onclick=()=>handoffAction(async()=>{const data=await handoffPreview(false,true);if(data)await handoffCopy(data[field],`${label}をコピーしました。引き継ぎ記録を保存しました。`);});
+$('#handoff-compare-open').onclick=()=>handoffAction(async()=>{const data=await handoffCompare(false,true);if(data)handoffShowCompare(data,true);});
+$('#handoff-compare-added').onchange=()=>handoffAction(async()=>{const data=await handoffCompare(false,false);if(data)handoffShowCompare(data,false);});
+$('#handoff-compare-copy').onclick=()=>handoffAction(async()=>{const data=await handoffCompare(true,false);if(data){handoffShowCompare(data,false);await handoffCopy(data.body,'比較結果をコピーしました。引き継ぎ記録を保存しました。');}});
+function handoffShowCompare(data,fresh){
+  const c=data.comparison;
+  $('#handoff-compare-counts').textContent=[['解消',c.resolved],['未解消',c.unresolved],['再確認できず',c.unverified],['新たに発生',c.added],['除外のまま',c.carriedExcluded]].map(([label,list])=>`${label} ${list.length}件`).join(' / ')+(data.scopeGap?`（前回と検査範囲が違う項目：${data.scopeGap}件）`:'');
+  if(fresh)handoffList($('#handoff-compare-added'),c.added);
+  $('#handoff-compare-body').value=data.body;$('#handoff-compare-result').hidden=false;
+}
+async function handoffProbe(finished){
+  const scope=`${state.projectId}/${state.runId}`;$('#handoff-compare').hidden=true;
+  if(!$('#handoff-panel').open||!state.runId||!finished)return;
+  try{await api(handoffURL('handoff-compare'),{method:'POST',body:JSON.stringify({uncheckedAddedKeys:[],save:false})});if(handoffCurrent(scope)){$('#handoff-compare').hidden=false;$('#handoff-compare-open').hidden=false;}}catch{}
+}
+$('#handoff-panel').ontoggle=()=>handoffProbe(state.report?.report?.runStatus==='finished'&&state.report.report.runId===state.runId);
 const designerReportUI=initDesignerReport({state,api,render,showError});
 const siteExamUI=initSiteExam({state,api});
 function notify(message){state.notice=message;$('#toast').textContent=message;$('#toast').hidden=!message;}
@@ -240,6 +286,9 @@ function render(){
   $('#issue-report-generate').disabled=state.requesting||report?.runStatus!=='finished';
   const reportScope=`${state.projectId}/${state.runId}`;
   if(issueReportScope!==reportScope){issueReportScope=reportScope;$('#issue-report-open').hidden=true;$('#issue-report-status').textContent='';$('#issue-report-notes').value='';}
+  $('#handoff-panel').hidden=!report;$('#handoff-make').disabled=state.requesting||report?.runStatus!=='finished';
+  if(handoff.scope!==reportScope){handoff.scope=reportScope;handoff.id=handoff.cmpId='';$('#handoff-result').hidden=true;$('#handoff-compare-result').hidden=true;$('#handoff-status').textContent='';}
+  const finished=report?.runStatus==='finished'&&report.runId===state.runId,probeKey=reportScope+finished;if(handoff.probeKey!==probeKey){handoff.probeKey=probeKey;handoffProbe(finished);}
   if(report?.autoReport?.file==='issue-report.html'){$('#issue-report-open').href=`${projectAPI()}/runs/${state.runId}/files?path=issue-report.html`;$('#issue-report-open').hidden=false;$('#issue-report-status').textContent='検査完了時に報告書を自動生成しました。';}
   renderRows();renderDetail();
   $('#run-time').textContent=report?date(report.finishedAt??report.startedAt):'';

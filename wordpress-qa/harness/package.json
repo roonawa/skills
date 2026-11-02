@@ -11,6 +11,7 @@
     "test:integration": "node test/integration.mjs",
     "test:ui": "node test/ui-browser.mjs",
     "test:report-ui": "node test/issue-report-browser.mjs",
+    "test:handoff-ui": "node test/handoff-browser.mjs",
     "test:designer-report-ui": "node test/designer-report-browser.mjs",
     "ui": "node ui/start.mjs",
     "qa": "node bin/qa.mjs",
