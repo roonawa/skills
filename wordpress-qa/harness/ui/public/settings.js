@@ -88,6 +88,8 @@ export function initSettings({api,currentProject,onSaved,shared=false}) {
     automationNote.hidden=enabled;
     for(const el of automationSection.querySelectorAll('input,textarea'))el.disabled=!editable||!enabled;
     for(const el of profileSection.querySelectorAll('[data-key]'))el.disabled=!editable||!enabled;
+    // 機密パス確認は操作テストの有無に関係なく保存時に送る（sensitivePaths）。
+    profileField('sensitivePaths').disabled=!editable;
     for(const key of ['writes','submit','bankOrder']){
       if(production)profileField(key).checked=false;
       profileField(key).disabled=!editable||!enabled||production;
@@ -369,7 +371,7 @@ export function initSettings({api,currentProject,onSaved,shared=false}) {
       if($('#auth-user').value||$('#auth-password').value)auth.rest={username:$('#auth-user').value,password:$('#auth-password').value};
       const file=$('#auth-state').files[0];if(file){if(file.size>800000)throw new Error('セッションファイルは800KB以下にしてください');try{auth.browser=JSON.parse(await file.text());}catch{throw new Error('セッションファイルのJSONを確認してください');}}
       saving=true;$('#editor-save').disabled=true;
-      const result=await api(editing?`/api/projects/${encodeURIComponent(editing)}/settings`:'/api/projects',{method:'POST',body:JSON.stringify({version,config,auth,...(profile?{profile}:{})})});
+      const result=await api(editing?`/api/projects/${encodeURIComponent(editing)}/settings`:'/api/projects',{method:'POST',body:JSON.stringify({version,config,auth,sensitivePaths:profileField('sensitivePaths').checked,...(profile?{profile}:{})})});
       saving=false;loginId=null;loginReady=false;await close();await onSaved(result.id);
     }catch(e){error(e.message);}finally{saving=false;loginControls();}
   };

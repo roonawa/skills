@@ -3,7 +3,7 @@ import {attachGapPlans,gapVersion,evidenceGapInput} from '../lib/evidence-gaps.m
 import {releaseVersion} from '../lib/release-version.mjs';
 import {deletionPlan,deleteSiteData} from './project-removal.mjs';
 import {pipeline} from 'node:stream/promises';
-import {completePreparation,prepareSaved} from './automatic-preparation.mjs';
+import {completePreparation,prepareSaved,preparationWidens} from './automatic-preparation.mjs';
 import {discoverAutomation} from './automation-discovery.mjs';
 import {collectExamEvidence} from '../lib/exam-evidence.mjs';
 import {preparationEvidence,applyEvidenceDecision,unresolvedPreparation,requiredRegistrationInputs} from './evidence-preparation.mjs';
@@ -209,7 +209,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
       const secrets=record.sealed?JSON.parse(store.codec(record.sealed,true)):{};
       const result=await prepareSaved(record,{secrets,registrationDiscovery,publicDiscovery,ai,aiEnabled:!!system?.view().enabled&&system.view().approved&&system.view().evidenceApproved});
       if(closing||store.record(p.id).version!==record.version||projectIsAlive(p.outputDir))reject(409,'取得中に設定または実行状態が変わりました。再実行してください');
-      for(const key of ['writes','submit','bankOrder'])if(result.profile[key]===true&&record.profile?.[key]!==true)reject(400,'自動補完は操作許可を変更できません');
+      if(preparationWidens(record,result))reject(400,'自動補完は操作許可を変更できません');
       saveSettings({config:result.config,...(record.profile?{profile:result.profile}:{}),version:record.version,auth:{}},p.id,{compileAutomation:false});registerManaged(p.id);
       fs.mkdirSync(path.join(storeDir,p.id),{recursive:true});fs.writeFileSync(path.join(storeDir,p.id,'preparation-summary.json'),JSON.stringify(result.summary),{mode:0o600});return result.summary;
     }finally{preparing=null;}
@@ -241,7 +241,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
         const observedGroups=['reading','discussion','permalink','plugins'].filter(group=>(config.admin??[]).some(row=>row.id.startsWith('observed-'+group+'-')&&row.source==='browser'&&Object.hasOwn(row,'expected')));
         config.checks=config.checks.filter(check=>!(check.kind==='unconfigured'&&observedGroups.some(group=>check.id==='coverage-admin-'+group)));
       }
-      return store.save({id:projectId??undefined,version:data.version,config,auth:savedAuth,profile:data.profile});
+      return store.save({id:projectId??undefined,version:data.version,config,auth:savedAuth,profile:data.profile,sensitivePaths:data.sensitivePaths});
     };
     try{return loginId?logins.save(loginId,{baseURL:data.config.baseURL,projectId,role},persist):persist();}catch(e){reject(400,e.message);}
   }

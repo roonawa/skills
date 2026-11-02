@@ -52,6 +52,15 @@ try{
  await app.close();app=await startUI({storeDir,port:0});await page.goto(app.url);await expect(page.locator('#project-name')).toContainText('登録テストサイト');
  await page.locator('#edit-site').click();await expect(dialog.locator('#rest-state')).toContainText('登録済み');await dialog.locator('#clear-rest').check();await dialog.locator('#clear-browser').check();await dialog.locator('#editor-save').click();await expect(dialog).not.toBeVisible();
  await page.locator('#edit-site').click();await expect(dialog.locator('#rest-state')).toHaveText('未登録');await expect(dialog.locator('#browser-state')).toHaveText('未登録');
+ // A site without an operation profile can still change sensitivePaths (sent as sensitivePaths); choosing production clears the box.
+ const sensitive=async()=>(await(await fetch(app.url+'/api/projects/'+id+'/settings')).json()).config.allowSensitivePaths,sp=dialog.locator('[data-key=sensitivePaths]'),openProfile=()=>dialog.locator('summary',{hasText:'登録済みの操作テスト'}).click();
+ assert.equal(await sensitive(),true);
+ await dialog.locator('#editor-cancel').click();await expect(dialog).not.toBeVisible();
+ await page.locator('#edit-site').click();await openProfile();await expect(dialog.locator('#enable-operation-profile')).not.toBeChecked();await expect(sp).toBeEnabled();await expect(sp).toBeChecked();
+ await site.locator('[data-key=environment]').selectOption('production');await expect(sp).not.toBeChecked();await site.locator('[data-key=environment]').selectOption('local');await expect(sp).toBeChecked();
+ await sp.uncheck();await dialog.locator('#editor-save').click();await expect(dialog).not.toBeVisible();assert.equal(await sensitive(),false);
+ await page.locator('#edit-site').click();await openProfile();await expect(sp).toBeEnabled();await expect(sp).not.toBeChecked();await sp.check();await dialog.locator('#editor-save').click();await expect(dialog).not.toBeVisible();assert.equal(await sensitive(),true);
+ await page.locator('#edit-site').click();
  await page.setViewportSize({width:390,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));await page.screenshot({path:path.join(scratch,'settings-mobile.png'),fullPage:true});
  assert.deepEqual(errors,[]);console.log('Settings UI acceptance passed: '+scratch);
 }finally{await browser.close();await app.close();await new Promise(r=>fixture.close(r));}

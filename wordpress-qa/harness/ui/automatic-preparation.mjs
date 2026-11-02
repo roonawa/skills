@@ -45,6 +45,8 @@ export async function completePreparation(config,profile,discovery,{ai,aiEnabled
  return {config:c,profile:p,summary:{mode,warning,createdAt:new Date().toISOString(),adopted:resolvedIds.length,adoptedIds:resolvedIds,controlRefs:controls,aiFailure:mode==='rules'?ai?.lastEvidenceFailure??null:null,bindings:result.bindings,remaining:after,verification:'実行前の条件検証済み。操作の合否は検査結果を参照してください。'}};
 }
 
+// 自動補完は操作許可・機密パス確認の許可を広げない。
+export const preparationWidens=(record,result)=>['writes','submit','bankOrder','sensitivePaths'].some(k=>result.profile?.[k]===true&&record.profile?.[k]!==true)||result.config?.allowSensitivePaths===true&&record.config.allowSensitivePaths!==true;
 export async function prepareSaved(record,{secrets={},registrationDiscovery,publicDiscovery,ai,aiEnabled=false}={}){
  if(record.profile?.writes===true&&record.config.allowTestWrites!==true)throw Error('保存済みの操作許可が一致しません');
  const first=record.config.pages?.[0]?.path??'/';

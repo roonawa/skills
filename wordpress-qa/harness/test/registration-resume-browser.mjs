@@ -15,11 +15,12 @@ try{
  await page.route('**/api/registration',route=>{attempts++;return route.fulfill({status:400,json:{error:'一時的な接続エラー'}});});
  await page.goto(app.url);await page.locator('#registration-dialog').waitFor({state:'attached'});await page.locator('#new-site').click();
  const d=page.locator('#registration-dialog');await d.locator('[name=name]').fill('Draft site');await d.locator('[name=baseURL]').fill('https://example.test/sub');
- await d.locator('[name=publicPassword]').fill('do-not-persist');await d.locator('[name=writes]').uncheck();
+ await d.locator('[name=publicPassword]').fill('do-not-persist');await d.locator('[name=writes]').uncheck();await d.locator('[name=sensitivePaths]').uncheck();
  await d.locator('#registration-login').click();await expect(d.locator('#registration-login-state')).toContainText('開きました');
  assert(!await page.evaluate(()=>JSON.stringify(sessionStorage).includes('do-not-persist')));
  await page.reload();await expect(d).toBeVisible();
  await expect(d.locator('[name=name]')).toHaveValue('Draft site');await expect(d.locator('[name=publicPassword]')).toHaveValue('');await expect(d.locator('[name=writes]')).not.toBeChecked();
+ await expect(d.locator('[name=sensitivePaths]')).not.toBeChecked();// draft restore keeps a staging opt-out
  await expect(d.locator('#registration-login-state')).toContainText('引き継');
  await d.locator('#registration-save').click();await expect(d.locator('#registration-status')).toContainText('一時的');
  await page.reload();await expect(d).toBeVisible();await expect(d.locator('#registration-login-state')).toContainText('確認済み');

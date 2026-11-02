@@ -23,7 +23,7 @@ export function buildExam(report,saved=null){
  });
  const scores=issues.map(i=>i.score).filter(n=>n!==null);const maxFor=certainty=>{const a=issues.filter(i=>i.certainty===certainty&&i.score!==null).map(i=>i.score);return a.length?Math.max(...a):null;};
  const pendingCounts={};for(const i of issues.filter(i=>i.score===null)){const k=i.pendingCategory??'manual';pendingCounts[k]=(pendingCounts[k]??0)+1;}
- const unresolvedSecurity=report.rows.filter(r=>(r.id?.startsWith('check.security-')||r.failures?.some(f=>f.key.startsWith('security:')))&&r.status!=='pass').length;
+ const unresolvedSecurity=report.rows.filter(r=>(r.id?.startsWith('check.security-')||r.id?.startsWith('check.auto-security-')&&r.required!==false||r.failures?.some(f=>f.key.startsWith('security:')))&&r.status!=='pass').length;
  const warning=(issues.some(i=>i.score===null)||unresolvedSecurity)?'評価未完了：未評価の課題があります。表示された点数だけで低リスク・安全とは判断できません。'+(unresolvedSecurity?' セキュリティ未解決・未確認 '+unresolvedSecurity+'項目。':''):'';
  return {warning,pendingCounts,unresolvedSecurity,confirmedMaximum:maxFor('confirmed'),provisionalMaximum:maxFor('provisional'),rubricVersion,fingerprint,version:saved?.version??null,stale:!!saved&&!valid,issues,maximum:scores.length?Math.max(...scores):null,pending:issues.filter(i=>i.score===null).length,reviewed:issues.filter(i=>i.reviewed).length,coverage:{total:report.rows.length,executed:report.rows.filter(r=>['pass','fail'].includes(r.status)).length,unconfirmed:report.rows.filter(r=>!['pass','fail'].includes(r.status)).map(r=>({id:r.id,title:r.title,status:r.status}))},savedAt:valid?saved.savedAt:null};
 }

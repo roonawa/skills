@@ -104,10 +104,11 @@ export function initRegistration({api,onSaved}){
   else {summary.focus();summary.scrollIntoView({block:'center'});}
  }
  function controls(){for(const e of form.querySelectorAll('button'))e.disabled=busy;for(const name of ['writes','submitContact','bankOrder'])field(name).disabled=busy||field('environment').value==='production';}
- function policy(){const production=field('environment').value==='production';if(production){field('writes').checked=false;field('submitContact').checked=false;field('bankOrder').checked=false;}field('sensitivePaths').checked=!production;controls();preview();}
+ // 機密パス確認の初期値は環境を変えたときだけ取り直す（下書き復元では選択を保つ）。
+ function policy(reset=true){const production=field('environment').value==='production';if(production){field('writes').checked=false;field('submitContact').checked=false;field('bankOrder').checked=false;}if(reset)field('sensitivePaths').checked=!production;controls();preview();}
  async function cancel(){if(loginId)await api(`/api/logins/${loginId}/cancel`,{method:'POST',body:'{}'});loginId=null;loginTargetKey=null;discardDraft();form.reset();policy();dialog.close();}
  trigger.onclick=()=>{q('#registration-error').textContent='';q('#registration-status').textContent='';dialog.showModal();saveDraft();void restoreLogin().catch(registrationFailure);};
- field('environment').onchange=policy;
+ field('environment').onchange=()=>policy();
  q('#registration-cancel').onclick=()=>{if(!busy)cancel().catch(e=>q('#registration-error').textContent=e.message);};dialog.oncancel=e=>{e.preventDefault();if(!busy)cancel().catch(e=>q('#registration-error').textContent=e.message);};
  q('#registration-advanced').onclick=async()=>{await cancel();advanced();};
  q('#registration-login').onclick=async()=>{if(busy)return;if(!validateInputs(true))return;busy=true;controls();q('#registration-error').textContent='';q('#registration-login-state').textContent='専用ブラウザーを起動中です。別ウィンドウで開きます…';try{const target=registrationTarget(field('baseURL').value,field('loginPath').value,field('adminPath').value);if(loginId)await api(`/api/logins/${loginId}/cancel`,{method:'POST',body:'{}'});loginId=null;const r=await api('/api/logins',{method:'POST',body:JSON.stringify({baseURL:target.baseURL,environment:field('environment').value,loginPath:target.loginPath,adminPath:target.adminPath})});loginId=r.id;loginTargetKey=identity();saveDraft();q('#registration-login-state').textContent='専用ブラウザー「Google Chrome for Testing」を別ウィンドウで開きました。見当たらない場合はタスクバーを確認してください。ログイン後、この画面の登録ボタンを押してください。';}catch(e){q('#registration-error').textContent=e.message;q('#registration-login-state').textContent='起動できませんでした：'+e.message;}finally{busy=false;controls();}};
@@ -135,7 +136,7 @@ export function initRegistration({api,onSaved}){
   const saved=JSON.parse(sessionStorage.getItem(draftKey)||'null');
   if(saved?.values&&typeof saved.values==='object'){
    for(const el of form.elements)if(el.name&&!['password','file'].includes(el.type)&&Object.hasOwn(saved.values,el.name)){const value=saved.values[el.name];if(el.type==='checkbox'&&typeof value==='boolean')el.checked=value;else if(el.type!=='checkbox'&&typeof value==='string')el.value=value;}
-   loginId=typeof saved.loginId==='string'?saved.loginId:null;loginTargetKey=typeof saved.loginTargetKey==='string'?saved.loginTargetKey:null;policy();
+   loginId=typeof saved.loginId==='string'?saved.loginId:null;loginTargetKey=typeof saved.loginTargetKey==='string'?saved.loginTargetKey:null;policy(false);
    if(saved.open)dialog.showModal();q('#registration-status').textContent='入力内容を復元しました。閲覧パスワードが必要な場合は再入力してください。';
    busy=true;controls();void restoreLogin().catch(registrationFailure).finally(()=>{busy=false;controls();});
   }

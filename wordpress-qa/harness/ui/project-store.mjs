@@ -30,16 +30,22 @@ export class ProjectStore {
   record(id){return JSON.parse(fs.readFileSync(this.file(id),'utf8'));}
   view(id){const r=this.record(id);return {config:r.config,version:r.version,credentials:r.credentials,profile:r.profile,managed:true};}
   context(id){const r=this.record(id),dir=path.join(this.directory,id),config=validateConfig({...r.config,trustedAdapters:structuredClone(this.trustedAdapters)});return {config,trustedAdapters:config.trustedAdapters,configHash:createHash('sha256').update(JSON.stringify(config)).digest('hex'),configPath:path.join(dir,'site.json'),configDir:dir,outputDir:config.outputDir,baselineDir:config.baselineDir};}
-  save({id,version,config,auth={},profile}){
+  save({id,version,config,auth={},profile,sensitivePaths}){
     const old=id?this.record(id):null;
     if(old&&old.version!==version)throw new Error('別の画面で設定が更新されました。閉じてから再度開いてください');
     id??=randomUUID();const dir=path.join(this.directory,id);
     // UI can edit test data, never introduce executable modules or arbitrary output paths.
+    // 機密パス確認の明示的な指定は、この保存の profile.sensitivePaths（操作テストあり）か sensitivePaths（設定画面のチェックボックス）だけ。
+    if(sensitivePaths!==undefined&&typeof sensitivePaths!=='boolean')throw new Error('機密ファイル露出の確認は真偽値で指定してください');
+    const explicit=profile?.sensitivePaths??sensitivePaths;
     profile=profile===undefined?old?.profile:validateProfile(profile,config.environment);
     const allowed=new Set(Object.values(builtinModules));
     if((config.journeys??[]).some(j=>!profile||!allowed.has(j.module)))throw new Error('UIで利用できる操作テストのコードは登録済みの標準検査のみです');
     if(config.headersEnv!==undefined&&!(profile&&config.headersEnv==='WPQA_UI_PUBLIC_HEADERS')||config.mailpit!==undefined)throw new Error('認証・メール連携はこの編集画面では設定できません');
-    if(profile){profile=validateProfile(profile,config.environment);config={...config,revision:'registration-'+createHash('sha256').update(JSON.stringify(profile)).digest('hex'),headersEnv:'WPQA_UI_PUBLIC_HEADERS',allowTestWrites:profile.writes,allowSensitivePaths:profile.sensitivePaths??(old&&old.config.environment===config.environment?old.config.allowSensitivePaths===true:config.environment!=='production'),allowProductionJourneys:config.environment==='production',journeys:profileJourneys(profile)};}
+    if(profile){profile=validateProfile(profile,config.environment);config={...config,revision:'registration-'+createHash('sha256').update(JSON.stringify(profile)).digest('hex'),headersEnv:'WPQA_UI_PUBLIC_HEADERS',allowTestWrites:profile.writes,allowSensitivePaths:profile.sensitivePaths??sensitivePaths??(old&&old.config.environment===config.environment?old.config.allowSensitivePaths===true:config.environment!=='production'),allowProductionJourneys:config.environment==='production',journeys:profileJourneys(profile)};}
+    else if(sensitivePaths!==undefined)config={...config,allowSensitivePaths:sensitivePaths};
+    // 本番へ変える保存・本番の新規保存（コピーを含む）は、明示的な許可がなければ機密パス確認を無効にする。
+    if(config.environment==='production'&&old?.config.environment!=='production'&&explicit!==true)config={...config,allowSensitivePaths:false};
     config=validateConfig({...config,trustedAdapters:structuredClone(this.trustedAdapters),outputDir:path.join(dir,'runs'),baselineDir:path.join(dir,'baselines')});
     const roles=auth.roleCredentials??[];
     if(!Array.isArray(roles))throw new Error('roleCredentialsは配列で指定してください');
