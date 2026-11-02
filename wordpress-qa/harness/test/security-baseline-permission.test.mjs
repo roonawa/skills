@@ -43,6 +43,11 @@ test('ProjectStore.save derives allowSensitivePaths without resetting stored val
   const id2=store.save({config:cfg('production'),profile:{...prof,sensitivePaths:true}});assert.equal(flag(id2),true);
   assert.equal(flag(store.save({id:id2,version:store.view(id2).version,config:cfg('production'),profile:prof})),true);
   assert.equal(flag(store.save({id:id2,version:store.view(id2).version,config:cfg('production'),profile:{...prof,sensitivePaths:false}})),false);
+  const idE=store.save({config:cfg('staging'),profile:prof});assert.equal(flag(idE),true);
+  assert.equal(flag(store.save({id:idE,version:store.view(idE).version,config:cfg('staging'),profile:prof})),true);
+  assert.equal(flag(store.save({id:idE,version:store.view(idE).version,config:cfg('production'),profile:prof})),false);
+  const idP=store.save({config:cfg('production'),profile:prof});assert.equal(flag(idP),false);
+  assert.equal(flag(store.save({id:idP,version:store.view(idP).version,config:cfg('staging'),profile:prof})),true);
   const id3=store.save({config:cfg('staging'),profile:prof});
   const rec=store.record(id3);delete rec.config.allowSensitivePaths;fs.writeFileSync(store.file(id3),JSON.stringify(rec));
   assert.equal(flag(store.save({id:id3,version:store.view(id3).version,config:cfg('staging'),profile:prof})),false);

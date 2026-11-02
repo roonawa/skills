@@ -39,7 +39,7 @@ export class ProjectStore {
     const allowed=new Set(Object.values(builtinModules));
     if((config.journeys??[]).some(j=>!profile||!allowed.has(j.module)))throw new Error('UIで利用できる操作テストのコードは登録済みの標準検査のみです');
     if(config.headersEnv!==undefined&&!(profile&&config.headersEnv==='WPQA_UI_PUBLIC_HEADERS')||config.mailpit!==undefined)throw new Error('認証・メール連携はこの編集画面では設定できません');
-    if(profile){profile=validateProfile(profile,config.environment);config={...config,revision:'registration-'+createHash('sha256').update(JSON.stringify(profile)).digest('hex'),headersEnv:'WPQA_UI_PUBLIC_HEADERS',allowTestWrites:profile.writes,allowSensitivePaths:profile.sensitivePaths??(old?old.config.allowSensitivePaths===true:config.environment!=='production'),allowProductionJourneys:config.environment==='production',journeys:profileJourneys(profile)};}
+    if(profile){profile=validateProfile(profile,config.environment);config={...config,revision:'registration-'+createHash('sha256').update(JSON.stringify(profile)).digest('hex'),headersEnv:'WPQA_UI_PUBLIC_HEADERS',allowTestWrites:profile.writes,allowSensitivePaths:profile.sensitivePaths??(old&&old.config.environment===config.environment?old.config.allowSensitivePaths===true:config.environment!=='production'),allowProductionJourneys:config.environment==='production',journeys:profileJourneys(profile)};}
     config=validateConfig({...config,trustedAdapters:structuredClone(this.trustedAdapters),outputDir:path.join(dir,'runs'),baselineDir:path.join(dir,'baselines')});
     const roles=auth.roleCredentials??[];
     if(!Array.isArray(roles))throw new Error('roleCredentialsは配列で指定してください');
