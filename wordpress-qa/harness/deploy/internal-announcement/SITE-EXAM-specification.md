@@ -111,7 +111,7 @@ SITE EXAMは、依頼されたWordPressサイトに不具合やセキュリテ�
 - `writes`：検証環境でのテストデータ作成・変更・削除に関する登録条件。
 - `submit`：指定フォームの送信に関する登録条件。
 - `bankOrder`：銀行振込注文の確定・取消に関する登録条件。
-- `sensitivePaths`：機密ファイル露出の確認（`.git/HEAD`・`.env`・`wp-config.php`の控え・`debug.log`等の存在確認）の許可。登録画面の表示名は「機密ファイル露出の確認（存在確認のみ。顧客の監視に検知される場合があります）」。設定ファイルでは`allowSensitivePaths`（トップレベルの真偽値、省略時`false`）として保存される。他の許可と違い、本番でも選択できる。初期値は本番が未選択、検証・ローカルが選択済みで、環境を変えると初期値を取り直す。値を持たない既存サイトは無効として扱う。AI補完・自動準備はこの許可を有効化しない。許可がない場合、`auto-security-exposure`は実行せず「設定が必要」とし、「問題なし」にしない。
+- `sensitivePaths`：機密ファイル露出の確認（`.git/HEAD`・`.env`・`wp-config.php`の控え・`debug.log`等の存在確認）の許可。登録画面の表示名は「機密ファイル露出の確認（存在確認のみ。顧客の監視に検知される場合があります）」。設定ファイルでは`allowSensitivePaths`（トップレベルの真偽値、省略時`false`）として保存される。他の許可と違い、本番でも選択できる。初期値は本番が未選択、検証・ローカルが選択済みで、環境を変えると初期値を取り直す。値を持たない既存サイトは無効として扱う。AI補完・自動準備はこの許可を有効化しない。許可がない場合、`auto-security-exposure`は実行せず「設定が必要」とし、「問題なし」にしない。本番へ変える保存と本番の新規保存（「コピー」を含む）では、その保存で明示的に選択しない限り無効にする。明示的な指定として扱うのは、操作テストありの保存の`profile.sensitivePaths`と、設定画面が保存のたびに送るチェックボックスの値（保存APIのトップレベルの真偽値`sensitivePaths`）だけで、設定本文に残っている`allowSensitivePaths`は持ち越さない。設定画面のチェックボックスは操作テストの有無に関係なく操作でき、保存済みの値を表示する。
 - 設定内部には`allowTestWrites`や`allowProductionJourneys`等の制限もある。AI補完がこれらを勝手に有効化しない。
 - 本番では標準のテスト投稿を作成しない。「検証環境」を選んだだけで、送信先・決済・通知が安全になるわけではない。
 
@@ -124,7 +124,7 @@ SITE EXAMは、依頼されたWordPressサイトに不具合やセキュリテ�
 1. 共有版に利用者アカウントでアクセスする。
 2. 登録済みサイトを選ぶか、「サイトを登録」で追加する。
 3. 公開情報・管理画面の取得情報から検査ケースを準備し、必要な条件・許可だけ確認する。
-4. 検査範囲を選び「検査を実行」。例：すべての検査、共通自動検査（送信なし）、サイト固有条件、管理設定、URL、操作・メール、表示。
+4. 検査範囲を選び「検査を実行」。例：すべての検査、共通自動検査（送信なし。セキュリティ基礎診断5件を含む）、サイト固有条件、管理設定、URL、操作・メール、表示。
 5. 実行前に不足条件の共通補完を行う。処理中は競合する設定保存・別実行を制限する。
 6. 結果は分類単位で表示。開くとURL・条件ごとの子項目、選択すると詳細・証拠・不足条件を表示する。
 7. 必要なら「設定」を修正し、「この項目を再検査」または範囲を選んで再実行する。
@@ -179,7 +179,7 @@ Anthropic Claude APIを使用する。モデルはUIから設定でき、現行�
 | 対象外 | 当該サイトで適用しない | 理由を保存 |
 | 実行中 | 検査処理中 | 完了を待つ |
 
-「注意」は新しいステータスではなく、内部の`status`は`fail`のまま、行に`level:'caution'`が付く。`summary.fail`には注意の件数を含み、`summary.caution`が別に加わる。画面・報告書の「不合格」件数は`fail`から`caution`を引いた値で、他の`required:false`検査（AI補完等）の表示は変わらない。`releaseGate`は注意の行では未達にならないが、本番で許可がなく`auto-security-exposure`が「設定が必要」の場合は必須条件が未達のままになる（確認しない場合は担当者が理由付きで「対象外」にする）。
+「注意」は新しいステータスではなく、内部の`status`は`fail`のまま、行に`level:'caution'`が付く。`summary.fail`には注意の件数を含み、`summary.caution`が別に加わる。画面・報告書の「不合格」件数は`fail`から`caution`を引いた値で、他の`required:false`検査（AI補完等）の表示は変わらない。基礎診断は兆候が1件でもあれば`required`に関係なく不合格（`fail`）になり、`required`は「注意」と「不合格」のどちらで表示するかと必須条件だけを決める（必須に変えたヘッダー・情報露出の検査は「不合格」と表示される）。兆候を見つけた後に認証要求・ログイン画面への転送等で確認を止めた場合も兆候を優先して不合格にし、止めた以降の項目は証拠の未確認に記録する。兆候がない場合は「実行不能」になる。`releaseGate`は注意の行では未達にならないが、本番で許可がなく`auto-security-exposure`が「設定が必要」の場合は必須条件が未達のままになる（確認しない場合は担当者が理由付きで「対象外」にする）。
 
 内部では`pass/fail/blocked/not_run/not_applicable/review`等を使い、`preparationRequired`で「設定が必要」を区別する。旧名称「準備待ち」「確認待ち」はそれぞれ「設定が必要」「直接確認」に変更済み。古い保存済みHTMLは自動的に書き換わるとは限らない。
 
@@ -393,10 +393,10 @@ Linux共有版はブラウザーから利用する。接続URL、ネットワー
 | coverage-membership | membership | 会員・データ分離 | 適用要否、会員操作と他者データの拒否を設定する。 |
 | coverage-multilingual | multilingual | 多言語 | 適用要否、切替・翻訳・lang/hreflangを設定する。 |
 | auto-security-exposure | authz | 機密ファイル・一覧表示の露出 | .git・.env・debug.log・wp-config.phpの控え・アップロード一覧を、内容の特徴が一致した場合だけ露出と判定する（200だけでは判定しない）。必須。許可が必要。 |
-| auto-security-transport | authz | HTTPS転送・証明書 | http://からhttps://への転送、サイトのhttp運用、証明書の期限切れ・14日未満・信頼できない・ホスト名不一致を確認する。必須。 |
+| auto-security-transport | authz | HTTPS転送・証明書 | http://からhttps://への転送、サイトのhttp運用、証明書の期限切れ・14日未満・信頼できない・ホスト名不一致を確認する。http://への応答が4xx（HTTPS専用のCDN・ロードバランサー等で内容を配信しない）の場合は兆候にせず、証拠の観測に記録する。必須。 |
 | auto-security-active-mixed | authz | 能動的な混在コンテンツ | HTTPSページで、http:のscript・iframe・form action・stylesheetを検出する。必須。standard-publicのintegrationsにあった`insecure script URL`の報告はこちらに移した。 |
 | auto-security-headers | authz | セキュリティヘッダー・Cookie属性 | HSTS・CSP・nosniff・フレーム制限・Referrer-Policy、Cookieの Secure/HttpOnly/SameSite、受動的な混在コンテンツを確認する。必須ではなく、不合格は「注意」と表示する。 |
-| auto-security-disclosure | authz | バージョン・ユーザー名・xmlrpc等の情報露出 | WordPress・サーバー・PHPの版番号、REST APIと?author=のユーザー名、xmlrpc.phpの受け付け状態を確認する。必須ではなく、不合格は「注意」と表示する。 |
+| auto-security-disclosure | authz | バージョン・ユーザー名・xmlrpc等の情報露出 | WordPress・サーバー・PHPの版番号、REST APIと?author=のユーザー名、xmlrpc.phpの受け付け状態を確認する。REST APIのユーザー一覧には登録済みのAuthorizationを送らず、Basic認証を要求されたときだけ付けて取り直す（外部JSONの管理用アプリケーションパスワードで誤検出しないため）。必須ではなく、不合格は「注意」と表示する。 |
 
 ## 付録B. 採点基準の正式定義
 
@@ -435,31 +435,31 @@ SITE EXAM独自の対応優先度（CVSSではありません）。影響度×�
 
 | ファイル | 確認対象 | SHA-256 |
 |---|---|---|
-| ui/server.mjs | UI/API、実行前補完、認証境界、ファイル配信 | 91289b03a663c5daddb0a54cb975a272fda699e9df3150e14e8c55f996887522 |
+| ui/server.mjs | UI/API、実行前補完、認証境界、ファイル配信 | 87435823f82e60da5ed415c321cfc22a905f3bf201884c3309277ded930e44a6 |
 | ui/registration.mjs | 登録条件検証・WordPress情報取得 | 847c2de461d9cc28135fb1fbb3b1620e4f151ff0dc5fc2f352a0b67b158f5ac0 |
-| ui/automatic-preparation.mjs | 共通補完・既存検査への紐付け・許可維持 | 45966a142c0cee32ef4d10b4163b5688fba5040be571839425e9b11886af8072 |
+| ui/automatic-preparation.mjs | 共通補完・既存検査への紐付け・許可維持 | 2babbefa0071936c480593fc521a32cac01c83a3b5fb0707cbddb0a0a334b45f |
 | ui/automation-discovery.mjs | 観測情報の取得 | 957191388f4b3b7adf9f148e42f31a6470403ce73e0e00ac119f03738c35ad22 |
 | ui/automation-plan.mjs | 実行可能な検査条件の生成 | 83c5a2f9c5efda7117363907ff4ee6a8e239211f0a344dda3aaa1aaddec06bba |
 | ui/evidence-preparation.mjs | AIへ渡す構造化根拠・参照検証 | b8c523d348e59fc13a33d9ba21f0a0d24c8ea8e686a9f36007fd8d566f71e728 |
 | ui/ai-assistant.mjs | Claude呼出し・構造化出力・説明支援 | a77b00463f76c49a7451495690ba4b36ef93c4c802e7f51a6e9c20d84ca541ac |
 | ui/system-settings.mjs | APIキー・モデル・回数・接続先管理 | 1f61c178280ce21c20abf1e908ba5ae39dcb5784612ed9cc5849a6ea0cd4a999 |
-| ui/project-store.mjs | 登録サイト・認証の保存 | ef0d4d87b7db477582d80cf14505567e53666cd3fe8e15b685029cd408c1c67a |
+| ui/project-store.mjs | 登録サイト・認証の保存 | 6adf011b29590b7a4e73cd5b8d7f3c21befd11e03c99f56b3998d98f7fb20dd5 |
 | ui/secret-codec.mjs | Linux用の暗号化 | 10740ec2e822ec31939d87016a57ec6cad5ee7c72338538b9197835a6ede3622 |
 | ui/shared-access.mjs | 共有版利用者認証・負荷制限 | 3fd4e01cba6765b52442dd59f01f3dff2ba6cb67946cd9769a644c5bb8c1c033 |
 | ui/remote-login.mjs | 共有版の画面内ログイン | 9fcc849a8251576cb53b0c3bb359f4e8cd7ef5b696ad8db1bc1e0fdbe1b2fa19 |
-| ui/public/app.js | 分類・詳細・ステータス・表示操作 | dc7ca2f050dfb5a7206ff494c64df1aa6e7163b29b250ca39cf2334551d89a2d |
+| ui/public/app.js | 分類・詳細・ステータス・表示操作 | c9626467e38f5c4bbdc6f194f0723830692c6f04739ed9e3ef9e87fbca7141b6 |
 | ui/public/case-generator.js | 観点一覧・重要表示の定義 | 8727eeb0be233645e01465f9c8f02bd718e2426a621473d6db3db534724b9d0a |
 | ui/public/interaction-profile.js | 固有操作の条件・許可・入力項目 | 20bd170f960b37e8828f497d69693e987e5e960ea63a04b316ea70b290753fc2 |
 | ui/public/risk-rubric.js | 採点軸・固定マトリクス | 542960913cbdfa8baf340eabe82b7060576f6c45c04c7ff3c579c8a50a63279c |
 | lib/checks/index.mjs | 検査ハンドラーの登録・設定不足判定 | a3a8fa309552d778f1848871715981e41a8bbddd593ba14e4268f7979004ed6b |
-| lib/checks/security-baseline.mjs | セキュリティ基礎診断の検査（露出・転送・混在・ヘッダー・情報露出） | 22917f1adf8c35d877f3c0324339a910c3280b28651d68283db17237ce7c267e |
+| lib/checks/security-baseline.mjs | セキュリティ基礎診断の検査（露出・転送・混在・ヘッダー・情報露出） | 653c00ff2c6b2334f00810ddbed009d47218b452ec85eb6235cd30dbeedf0fa5 |
 | lib/security-baseline-rules.mjs | 基礎診断のルール・顧客向け説明・直し方 | 4fe10d1a0fc0b2d0ab241d8b1e2c63bef9f38e94ead07c347ebd94b0fa3d996e |
 | lib/tls-certificate.mjs | SSL証明書の期限・信頼性・ホスト名の確認 | 87aaee9d2a0f5c934f575352489ca9adec062ec78aabbcf8c0cb053a477bfc35 |
 | lib/results.mjs | 合否・必須条件の判定 | fb9dcaf31ea1b4bb2c8e03cba4e9424dcdf5193f08bbd6231c3ae48b01a8b510 |
-| lib/site-exam.mjs | 確定評価の条件・顧客向けHTML | 16e1937e7fc6c2b2eef6ade2c88dac28f0d36c281578af8d42e26a8ca5c0762a |
+| lib/site-exam.mjs | 確定評価の条件・顧客向けHTML | fe1586a79bb1f5c300b5e63b153fe4f30c229d97c252e5de6353fa43aa9b96c3 |
 | lib/exam-evidence.mjs | 評価証拠の照合 | d192c450f381ae71619dee8f649496ff52a84dbc4f1f22940cb6891222663894 |
-| lib/issue-report.mjs | 不具合報告書 | a87569360607810eea981f219a26a21f26bef290f859cdecbbb20fe3b5a5a7de |
-| lib/designer-report.mjs | デザイナー向けHTML | 8ed0ed5087e3933ee5a242a1c615cf6e338d8042d4a433cf4d09c289d11ea492 |
+| lib/issue-report.mjs | 不具合報告書 | 5ecf59f841a67b9b0f47d13a5b98c2bf10213b7ef0fa2c03a3bdaffae6b0a428 |
+| lib/designer-report.mjs | デザイナー向けHTML | c984345a095f46bc5b72855f5415741e165679ca42d8536a7fca6a87e408a6f2 |
 | lib/egress-policy.mjs | 許可origin・IPの検証 | 153e8fbe1d93af0dff087c40767d2bc87adaea17424d1c2aa116ba23de70af83 |
 | lib/network-policy.mjs | 別originへの資格情報分離 | c04ae4442f163a7cff6a5b2f3663b6a6ee84890777c40a990cf9ffd54c6aecac |
 | lib/recovery.mjs | テストデータ回収 | fccd61f8131591f39bc5a7c64eb498ef542ebcd4891a3d9a1497a602a74a9f08 |
