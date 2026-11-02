@@ -275,5 +275,7 @@ export function preparationImportance(row){
 
 export function addSecurityChecks(c,adminPath='/wp-admin/'){
  c.checks??=[];for(const [component,title] of [['core','WordPress本体の既知脆弱性'],['theme','テーマの既知脆弱性'],['plugin','プラグインの既知脆弱性'],['php','PHPバージョン・公式サポート期限']]){const id='security-'+component;if(!c.checks.some(x=>x.id===id))c.checks.push({id,title,suite:'authz',kind:'software-security',required:true,timeoutMs:900000,options:{component,adminPath}});}
+ const pg=c.pages??[],home=pg.find(p=>p.id==='home'),paths=[...(home?[home]:[]),...pg.filter(p=>p!==home)].slice(0,5).map(p=>p.path),wpPath=adminPath.replace(/wp-admin\/$/,'');
+ for(const [slug,area,title,required] of [['exposure','exposure','機密パスの外部公開',true],['transport','transport','HTTPS転送と証明書',true],['active-mixed','mixed','能動的な混在コンテンツ',true],['headers','headers','セキュリティヘッダー',false],['disclosure','disclosure','情報露出',false]]){const id='auto-security-'+slug;if(!c.checks.some(x=>x.id===id))c.checks.push({id,title,suite:'authz',kind:'security-baseline',required,timeoutMs:120000,options:{area,paths:paths.length?paths:['/'],wpPath}});}
  return c;
 }

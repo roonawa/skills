@@ -9,7 +9,7 @@ const base={name:'New site',baseURL:'https://example.test',environment:'staging'
 test('first registration preserves every undefined obligation without dispatching it as a broken test',()=>{
  const config=validateConfig(generateCases(base));const rows=catalog(config);
  const pending=rows.filter(r=>r.preparationRequired);
- assert.equal(pending.length,config.checks.filter(c=>c.kind==='unconfigured').length);
+ const pc=config.checks.filter(c=>c.kind==='unconfigured').length;assert.equal(pending.length,pc+1);assert.deepEqual(pending.filter(r=>r.kind!=='unconfigured').map(r=>r.id),['check.auto-security-exposure']);
  assert(pending.length>20);assert(pending.every(r=>r.status==='not_run'&&!r.selected&&r.required&&r.reason.startsWith('設定が必要: ')));
  assert(rows.some(r=>r.selected&&r.kind==='standard-public'));
  assert.equal(releaseGate(rows.map(r=>r.preparationRequired?r:{...r,status:'pass'})),false);

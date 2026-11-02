@@ -2,6 +2,7 @@ import {optionsForm} from './options-form.js';
 export const extendedSuites={publishing:'投稿・公開',authz:'権限・脆弱性',cache:'キャッシュ',operations:'更新・復元',scheduled:'予約・定期処理',delivery:'フォーム・配送',performance:'性能',compatibility:'ブラウザー互換性',seo:'SEO・移行',accessibility:'キーボード・手動評価',commerce:'EC・決済',membership:'会員・データ分離',multilingual:'多言語'};
 export const templates={
  'software-security':{component:'core',adminPath:'/wp-admin/'},
+ 'security-baseline':{area:'headers',paths:['/'],wpPath:'/'},
  'discovered-public':{area:'navigation',path:'/'},
  'site-interaction':{operation:'all-links',settings:{sitePath:'/',paths:['/']}},
  'standard-public':{area:'metadata',paths:['/']},
@@ -11,7 +12,7 @@ export const templates={
  'performance-navigation':{path:'/',samples:3,cache:'cold',budgets:{durationMs:3000,resourceCount:100,transferBytes:3000000}},'compatibility-screen':{path:'/',engine:'chromium',viewport:{width:1280,height:800},visible:['h1'],noOverflow:true},'keyboard-sequence':{path:'/',steps:[{key:'Tab',focus:'a'}]},
  'browser-flow':{sandbox:true,steps:[{action:'goto',url:'/'},{action:'assertVisible',selector:'h1'}]},'mail-delivery':{source:{url:'http://127.0.0.1:8025'},expected:{to:'test@example.jp',subject:'{{token}}',count:1}},'operation-drill':{adapter:'restore',operation:'restore',before:{url:'/',status:200,bodyIncludes:'before'},after:{url:'/',status:200,bodyIncludes:'{{token}}'}}
 };
-const defaultSuite={'software-security':'authz','site-interaction':'delivery','standard-public':'seo','wp-lifecycle':'publishing','wp-scheduled':'scheduled','wp-authz':'authz','wp-cache':'cache',redirect:'seo','seo-page':'seo','seo-robots':'seo','seo-sitemap':'seo','performance-navigation':'performance','compatibility-screen':'compatibility','keyboard-sequence':'accessibility','browser-flow':'delivery','mail-delivery':'delivery','operation-drill':'operations'};
+const defaultSuite={'security-baseline':'authz','software-security':'authz','site-interaction':'delivery','standard-public':'seo','wp-lifecycle':'publishing','wp-scheduled':'scheduled','wp-authz':'authz','wp-cache':'cache',redirect:'seo','seo-page':'seo','seo-robots':'seo','seo-sitemap':'seo','performance-navigation':'performance','compatibility-screen':'compatibility','keyboard-sequence':'accessibility','browser-flow':'delivery','mail-delivery':'delivery','operation-drill':'operations'};
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export function initCoverage(container){
  container.innerHTML='<div class="editor-section-title"><h3>機能・運用の検査</h3><div><button type="button" data-add-check>検査を追加</button> <button type="button" data-add-plan>全観点の台帳を追加</button></div></div><p>未設定の観点は設定が必要として残ります。各検査に対象と期待値を設定し、実機・読み上げなどは人手確認にします。</p><label class="check-line"><input type="checkbox" data-writes>検証環境でテストデータの作成・変更を許可する</label><div data-checks></div>';

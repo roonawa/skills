@@ -8,6 +8,7 @@ const step={action:f('操作','select',{choices:['goto','fill','click','check','
 const wp={postType:f('投稿RESTコレクション（posts / pages等）'),headersEnv:f('管理者REST認証名'),storageStateEnv:f('管理者ブラウザー認証名'),maxWaitMs:f('最大待機 ms','number'),pollIntervalMs:f('確認間隔 ms','number')};
 const schemas={
  'discovered-public':{area:f('自動取得した検査範囲','select',{choices:['navigation','contact-errors','contact-retry','crawl']}),path},
+ 'security-baseline':{area:f('検査範囲','select',{choices:['exposure','transport','mixed','headers','disclosure']}),paths:strings('代表ページ（最大5件・先頭がホーム・1行1パス）'),wpPath:f('WordPressのパス（/で始まり/で終わる）')},
  'site-interaction':{operation:f('共通操作','select',{choices:['all-links','search-product','search-empty','search-special','menu','menu-navigation','contact-validation','server-validation','network-failure','keyboard','firefox','performance','public-discovery','cart-limit','customer-empty']})},
  'standard-public':{area:f('検査範囲','select',{choices:['metadata','navigation','forms','keyboard','integrations','multilingual','performance','crawl']}),paths:strings('代表ページ（最大5件・1行1パス）')},
  'unconfigured':{instructions},'human-review':{instructions},
