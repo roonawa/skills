@@ -33,7 +33,7 @@ try{
  await panel.locator('[data-apply-ai]').click();await expect(panel.locator('[data-summary]')).toContainText('35 / 100');await expect(panel.locator('[data-field=reviewed]')).not.toBeChecked();
  await panel.locator('[data-save]').click();await expect(panel.locator('[data-message]')).toContainText('保存しました');
  assert.equal((await post(base+'/exam',{fingerprint:beforeAI.fingerprint,version:beforeAI.version,items:[]})).status(),409);
- await panel.locator('[data-preview]').click();await expect(panel.frameLocator('iframe').locator('h1')).toContainText('SITE EXAM_');await expect(panel.frameLocator('iframe').locator('main')).toContainText('下書き');
+ await panel.locator('[data-preview]').click();await expect(panel.frameLocator('iframe').locator('h1')).toContainText('サイト診断報告書');await expect(panel.frameLocator('iframe').locator('main')).toContainText('下書き');
  const download=page.waitForEvent('download');await panel.locator('[data-download]').click();const artifact=await download;await artifact.saveAs(path.join(dir,'customer.html'));assert(fs.readFileSync(path.join(dir,'customer.html'),'utf8').includes('35 / 100'));
  assert.equal(fs.readFileSync(resultsFile,'utf8'),original);
  await page.reload();await expect(panel.locator('[data-summary]')).toContainText('35 / 100');await page.screenshot({path:path.join(dir,'desktop.png'),fullPage:true});
