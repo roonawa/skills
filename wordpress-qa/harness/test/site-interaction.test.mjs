@@ -156,7 +156,8 @@ test('gate Cookie preserves rotated cart sessions across fulfilled responses and
     const context=await browser.newContext(options),close=context.close.bind(context);
     context.close=async()=>{sessions.push(await context.cookies(baseURL));await close();};return context;
    }};
-   const result=await run({check:check('customer-empty'),config:{...config,baseURL,timeoutMs:15000,headersEnv:'WPQA_CART_COOKIE_FIXTURE'},browser:wrappedBrowser});
+   // 30s: under full-suite parallel load a localhost navigation once stalled past 15s (not reproducible in isolation).
+   const result=await run({check:check('customer-empty'),config:{...config,baseURL,timeoutMs:30000,headersEnv:'WPQA_CART_COOKIE_FIXTURE'},browser:wrappedBrowser});
    assert.equal(result.outcome,'passed');
    assert.deepEqual(result.network.forwardedCartStages,['add','customer','delivery']);
    assert.equal(result.network.blockedWrites,4,'both competing POSTs are intercepted at each customer/delivery stage before navigation');
