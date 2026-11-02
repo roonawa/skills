@@ -26,8 +26,7 @@ export function inspectDocument(area,html,url){
  }
  if(area==='integrations'){
   const scripts=$('script[src]').map((_,e)=>$(e).attr('src')).get();actual.detected={analytics:scripts.some(s=>/googletagmanager|google-analytics/.test(s)),recaptcha:scripts.some(s=>/recaptcha/.test(s))};actual.inlineScriptCount=$('script:not([src])').length;
-  for(const s of scripts)if(new URL(url).protocol==='https:'&&/^http:/.test(s))errors.push('insecure script URL');
-  actual.scope='tag discovery and mixed-content script URLs only; event delivery, consent and bot discrimination are not asserted';
+  actual.scope='tag discovery only; event delivery, consent and bot discrimination are not asserted; 混在コンテンツは auto-security-active-mixed で確認';
  }
  if(area==='multilingual'){
   const languages=[];$('link[rel="alternate"][hreflang]').each((_,e)=>{const lang=$(e).attr('hreflang'),href=$(e).attr('href');languages.push(lang);if(!/^(?:x-default|[a-z]{2,3}(?:-[a-z0-9]{2,8})*)$/i.test(lang))errors.push('invalid hreflang');try{const u=new URL(href,url);if(!href||!['https:','http:'].includes(u.protocol))throw Error();}catch{errors.push('invalid alternate URL');}});

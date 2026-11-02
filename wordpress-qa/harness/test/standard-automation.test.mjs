@@ -18,3 +18,6 @@ test('all future site registrations receive repeatable read-only automation with
  assert(result.checks.filter(c=>c.kind==='standard-public').length>=7);assert.deepEqual(generateCases(result),result);
  const custom={id:'auto-metadata',kind:'human-review',suite:'seo',options:{instructions:'Custom'}};assert.deepEqual(generateCases({...input,checks:[custom]}).checks.find(c=>c.id===custom.id),custom);
 });
+test('standard integrations no longer reports insecure script URL',()=>{
+ const r=inspectDocument('integrations','<html><script src="http://cdn.test/a.js"></script></html>','https://example.test/');assert.deepEqual(r.errors,[]);assert.match(r.actual.scope,/auto-security-active-mixed/);
+});
