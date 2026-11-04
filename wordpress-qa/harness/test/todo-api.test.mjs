@@ -105,3 +105,14 @@ test('settings saves keep the stored plugin inventory and overrides and ignore a
  const created=await post('',{config:{...v.config,name:'Forged'},profile:{...v.profile,automation:{useObservedBaselines:true,additionalChecks:[],pluginInventory:{observed:true,slugs:[]}}}});assert.equal(created.status,201,await created.clone().text());
  const other=store.record((await created.json()).id);assert.equal(other.profile.automation?.pluginInventory,undefined);assert.equal(other.config.autoNotApplicable,undefined);
 });
+test('site without a registration profile: todo offers no profile items and saving the sensitive-file permission works',async t=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'qa-todo-api-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
+ const store=new ProjectStore(path.join(dir,'projects')),{revision,journeys,allowTestWrites,headersEnv,...base}=registrationConfig({name:'NoProfile',baseURL:'https://example.test',environment:'staging',profile,discovery:{pages:[{path:'/'}],warnings:[]}});
+ const id=store.save({config:{...base,allowSensitivePaths:false}});assert.equal(store.record(id).profile??null,null);
+ const app=await startUI({port:0,storeDir:path.join(dir,'projects'),publicDiscovery:stub});t.after(()=>app.close());
+ const todo=await(await fetch(`${app.url}/api/projects/${id}/todo`)).json();
+ assert.deepEqual(todo.todo.map(x=>x.key).filter(k=>k!=='sensitivePaths'),[]);
+ const saved=await(await fetch(`${app.url}/api/projects/${id}/settings`)).json(),{headersEnv:h,mailpit,...config}=saved.config;
+ const boot=await(await fetch(app.url+'/api/bootstrap')).json(),r=await fetch(`${app.url}/api/projects/${id}/settings`,{method:'POST',headers:{Origin:app.url,'X-QA-Token':boot.token,'Content-Type':'application/json'},body:JSON.stringify({version:saved.version,config,sensitivePaths:true})});
+ assert.equal(r.status,200,await r.clone().text());assert.equal(store.record(id).config.allowSensitivePaths,true);assert.equal(store.record(id).profile??null,null);
+});

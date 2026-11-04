@@ -29,6 +29,8 @@ const store=new ProjectStore(path.join(scratch,'projects'),{codec:v=>v});
 // テスト投稿・フォーム送信の項目は管理画面のログインが保存済みのときだけ出る。HTTPのループバックで認証を保存できるのはローカル環境だけ。
 const config={...registrationConfig({name:'初回画面テスト',baseURL,environment:'local',profile,discovery:{pages:[{path:'/'},{path:'/about/'},{path:'/contact/'}],warnings:[]}}),baseURL,admin:[]};
 const id=store.save({config,profile,auth:{browser:{cookies:[{name:'wordpress_logged_in_qa',value:'qa',domain:'127.0.0.1',path:'/'}],origins:[]}}});
+// 標準操作テスト未登録（profile なし）のサイト。
+const {revision:_r,journeys:_j,allowTestWrites:_w,headersEnv:_h,...bare}=config,plain=store.save({config:{...bare,name:'条件なしサイト'},sensitivePaths:false});
 const app=await startUI({port:0,storeDir:path.join(scratch,'projects'),credentialCodec:v=>v,publicDiscovery:async()=>({public:{},admin:{}})});
 const boot=await(await fetch(app.url+'/api/bootstrap')).json();
 const call=async(route,body)=>{const r=await fetch(`${app.url}/api/projects/${id}${route}`,body?{method:'POST',headers:{Origin:app.url,'X-QA-Token':boot.token,'Content-Type':'application/json'},body:JSON.stringify(body)}:{});const data=await r.json();if(!r.ok)throw new Error(route+' '+r.status+' '+JSON.stringify(data));return data;};
@@ -44,6 +46,7 @@ try{
   browser=await chromium.launch();
   const page=await browser.newPage({viewport:{width:1440,height:1000}}),errors=[];page.on('pageerror',e=>errors.push(e.message));
   await page.goto(app.url);
+  if(await page.locator('#project-select').inputValue()!==id)await page.locator('#project-select').selectOption(id);
   const todo=page.locator('#todo-panel');
   await expect(todo.locator('[data-todo]')).toHaveCount(3);
   await expect(page.locator('#todo-summary')).toHaveText('あと3つ設定すると、さらに5件を検査できます');
@@ -130,6 +133,14 @@ try{
   await expect(submit.locator('input[type=email]')).toHaveValue('qa-other@example.test');
   assert.equal(store.record(id).version,before);
   const after=await page.locator('body').innerText();for(const word of forbidden)assert.ok(!after.includes(word),'forbidden word on screen: '+word);
+  // 標準操作テスト未登録（profile なし）のサイト：投稿・表示上限は出さず、機密ファイルの確認の許可だけを保存できる。
+  await page.locator('#project-select').selectOption(plain);
+  await expect(todo.locator('[data-todo]')).toHaveCount(1);await expect(todo.locator('[data-todo="sensitivePaths"]')).toHaveCount(1);
+  await todo.locator('[data-todo="sensitivePaths"] input[type=checkbox]').check();await saveOnly.click();
+  await expect(page.locator('#todo-status')).toHaveText('保存しました。');
+  assert.equal(store.record(plain).config.allowSensitivePaths,true);assert.equal(store.record(plain).profile??null,null);
+  if(await unconfirmed.getAttribute('open')===null)await unconfirmed.locator('summary').click();
+  await expect(unconfirmed.locator('[data-bucket="technical"] [data-check="coverage-publishing"]')).toContainText('標準操作テストが未登録');
   await page.setViewportSize({width:390,height:844});
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'no horizontal overflow on mobile');
   await page.screenshot({path:path.join(scratch,'first-screen-mobile.png'),fullPage:true});

@@ -104,3 +104,12 @@ test('triage can use the stored exclusions so the panel matches the list',()=>{
  const r=triage(site(),profile(),{...admin,notApplicable:{}});assert.deepEqual(r.notRelevant,[]);for(const id of orders)assert(r.technical.some(x=>x.id===id),id);
  const s=triage(site(),profile(),{...admin,notApplicable:{'coverage-order':'保存済みの理由'}});assert.deepEqual(s.notRelevant.map(x=>[x.id,x.reason]),[['coverage-order','保存済みの理由']]);
 });
+test('site without a registration profile only offers items that do not need one',()=>{
+ for(const p of [null,undefined]){
+  const r=triage(site(),p,admin);
+  assert.deepEqual(r.todo.map(x=>x.key),[],'profile '+p);
+  const msg=r.technical.find(x=>x.id==='coverage-publishing')?.message;
+  assert.match(msg,/標準操作テスト/);for(const id of [...ITEM_CHECKS.writes,...ITEM_CHECKS.submit,...ITEM_CHECKS.performance])assert.equal(r.technical.find(x=>x.id===id)?.message,msg,id);
+ }
+ const s=triage(site('staging',false),null,admin);assert.deepEqual(s.todo.map(x=>x.key),['sensitivePaths']);
+});

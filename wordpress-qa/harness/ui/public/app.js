@@ -295,10 +295,12 @@ async function todoSave(run,revert){
   const projectId=state.projectId,base=projectAPI(),version=todoUI.data.version,before=todoPending(todoUI.data);
   ++refreshTicket;todoUI.saving=true;state.requesting=true;render();showError('');todoStatus('保存しています…');
   try{
-    const saved=await api(base+'/settings'),{headersEnv,mailpit,...config}=saved.config,profile={...saved.profile,...patch};
-    if(profile.submit&&!profile.writes&&patch.submit){todoStatus('フォームの送信を許可するには、「テスト投稿の作成・公開・削除を許可する」も必要です。設定画面で許可してから保存してください。',true);return;}
-    if(revert)profile.automation={...profile.automation,relevantOverrides:[...new Set([...(profile.automation?.relevantOverrides??[]),revert])]};
-    await api(base+'/settings',{method:'POST',body:JSON.stringify({version,config,profile,...(sensitive?{sensitivePaths:true}:{})})});
+    const saved=await api(base+'/settings'),{headersEnv,mailpit,...config}=saved.config,profile=saved.profile?{...saved.profile,...patch}:undefined;
+    // 標準操作テスト未登録のサイトは profile を送らない（機密ファイルの確認の許可だけを保存する）。
+    if(!profile&&Object.keys(patch).length){todoStatus('このサイトは標準操作テストが未登録です。設定画面で登録してから保存してください。',true);return;}
+    if(profile?.submit&&!profile.writes&&patch.submit){todoStatus('フォームの送信を許可するには、「テスト投稿の作成・公開・削除を許可する」も必要です。設定画面で許可してから保存してください。',true);return;}
+    if(revert&&profile)profile.automation={...profile.automation,relevantOverrides:[...new Set([...(profile.automation?.relevantOverrides??[]),revert])]};
+    await api(base+'/settings',{method:'POST',body:JSON.stringify({version,config,...(profile?{profile}:{}),...(sensitive?{sensitivePaths:true}:{})})});
     const next=await api(base+'/todo');if(projectId!==state.projectId)return;
     Object.assign(todoUI,{data:next,project:projectId,key:''});renderTodo();
     const ids=run?await todoRunIds(base,items,before,next):[];

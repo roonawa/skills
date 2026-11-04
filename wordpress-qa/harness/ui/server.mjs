@@ -418,8 +418,8 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
         }
         if(segments[3]==='todo'&&segments.length===4&&req.method==='GET'){
           if(!p.managed)return json(200,{managed:false});
-          const record=store.record(p.id),profile=record.profile??{};
-          return json(200,{managed:true,environment:record.config.environment,version:record.version,...triage(addSecurityChecks(structuredClone(record.config),profile.adminPath??'/wp-admin/'),profile,{adminLogin:record.credentials?.browser===true,notApplicable:storedNotApplicable(record.config)})});
+          const record=store.record(p.id);
+          return json(200,{managed:true,environment:record.config.environment,version:record.version,...triage(addSecurityChecks(structuredClone(record.config),record.profile?.adminPath??'/wp-admin/'),record.profile??null,{adminLogin:record.credentials?.browser===true,notApplicable:storedNotApplicable(record.config)})});
         }
         if(segments[3]==='rediscover'&&segments.length===4&&req.method==='POST'){
           if(!p.managed)reject(403,'外部設定のサイトは再取得できません');

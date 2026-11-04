@@ -17,7 +17,8 @@ const MESSAGES={
  implementation:'この検査を自動で動かすための対応が必要です（技術担当が対応）。',
  mixed:'一部は動かせますが、残りは対象と成功の条件を決める必要があります（技術担当と相談）。',
  notRelevant:'このサイトでは確認しなくてよいと判断しました。判断の根拠を確かめてください。',
- adminLogin:'管理画面のログインを保存すると検査できます（技術担当が準備）。'
+ adminLogin:'管理画面のログインを保存すると検査できます（技術担当が準備）。',
+ noProfile:'このサイトは標準操作テストが未登録です。設定画面で「WordPressの標準操作テストを登録する」を有効にし、タイムゾーン・言語などを入れると準備できます（技術担当が準備）。'
 };
 // 保存時の validateProfile が送信の許可に求める項目。ひとつでも欠ければ保存が失敗する。
 const SUBMIT_FIELDS=['contactFormId','contactPath','contactNameField','contactEmailField','contactMessageField'];
@@ -54,17 +55,19 @@ export function notApplicableChecks(config,profile){
  return out;
 }
 // adminLogin：管理画面のログインが保存済みか（投稿・送信の検査に必要）。notApplicable：保存済みの自動の対象外（一覧と同じ値を使うとき）。
-export function triage(config,profile,{adminLogin=false,notApplicable}={}){
+// profile が無い（標準操作テスト未登録の）サイトでは、投稿・送信・表示上限はタイムゾーン等の登録が先に要るため「次にやること」に出さない。
+export function triage(config,stored,{adminLogin=false,notApplicable}={}){
+ const registered=!!stored,profile=stored??{},needsProfile=new Set([...ITEM_CHECKS.writes,...ITEM_CHECKS.submit,...ITEM_CHECKS.performance]);
  const prep=unresolvedPreparation(config,profile),na=notApplicable??notApplicableChecks(config,profile),required=new Set(prep.map(x=>x.id)),prod=config.environment==='production',form=SUBMIT_FIELDS.every(k=>profile[k]);
  const items=[
-  {key:'writes',show:!prod&&adminLogin&&profile.writes!==true,label:'テスト投稿の作成・公開・削除を許可する',effect:'「QA」で始まるテスト投稿を作り、確認したあとに削除します。サイトの監視や通知の設定によっては、投稿の公開が知らされる場合があります。',input:{type:'checkbox',current:false}},
-  {key:'submit',show:!prod&&adminLogin&&form&&!(profile.submit===true&&profile.testEmail),label:'問い合わせフォームの実際の送信を許可し、テスト用のメールアドレスを入れる',effect:'問い合わせフォームから実際に送信します。サイトの通知先にもメールが届きます。顧客の監視に検知される場合があります。',input:{type:'email+checkbox',current:{submit:profile.submit===true,testEmail:profile.testEmail??''}}},
-  {key:'performance',show:!profile.performanceMs,label:'トップページの表示にかかる時間の上限（秒）',effect:'顧客と合意した秒数を入れてください。表示にこの秒数より長くかかると不合格になります。',input:{type:'seconds'}},
+  {key:'writes',show:registered&&!prod&&adminLogin&&profile.writes!==true,label:'テスト投稿の作成・公開・削除を許可する',effect:'「QA」で始まるテスト投稿を作り、確認したあとに削除します。サイトの監視や通知の設定によっては、投稿の公開が知らされる場合があります。',input:{type:'checkbox',current:false}},
+  {key:'submit',show:registered&&!prod&&adminLogin&&form&&!(profile.submit===true&&profile.testEmail),label:'問い合わせフォームの実際の送信を許可し、テスト用のメールアドレスを入れる',effect:'問い合わせフォームから実際に送信します。サイトの通知先にもメールが届きます。顧客の監視に検知される場合があります。',input:{type:'email+checkbox',current:{submit:profile.submit===true,testEmail:profile.testEmail??''}}},
+  {key:'performance',show:registered&&!profile.performanceMs,label:'トップページの表示にかかる時間の上限（秒）',effect:'顧客と合意した秒数を入れてください。表示にこの秒数より長くかかると不合格になります。',input:{type:'seconds'}},
   {key:'sensitivePaths',show:config.allowSensitivePaths!==true,label:'機密ファイルが外から見えないかの確認を許可する',effect:'設定ファイルやバックアップなど、公開されてはいけないファイルのURLを読み取りだけで確認します。顧客の監視に検知される場合があります。',input:{type:'checkbox',current:false}}
  ];
  const todo=items.filter(x=>x.show).map(({show,...x})=>({...x,checkIds:ITEM_CHECKS[x.key],count:ITEM_CHECKS[x.key].filter(id=>required.has(id)&&!na[id]).length})).filter(x=>x.count>0);
  const inTodo=new Set(todo.flatMap(x=>x.checkIds)),toolGap=[],technical=[];
- const message=x=>ITEM_CHECKS.submit.includes(x.id)&&!form?plainMessage(x.id,'input'):!prod&&!adminLogin&&[...ITEM_CHECKS.writes,...ITEM_CHECKS.submit].includes(x.id)?MESSAGES.adminLogin:plainMessage(x.id,x.category);
+ const message=x=>!registered&&needsProfile.has(x.id)?MESSAGES.noProfile:ITEM_CHECKS.submit.includes(x.id)&&!form?plainMessage(x.id,'input'):!prod&&!adminLogin&&[...ITEM_CHECKS.writes,...ITEM_CHECKS.submit].includes(x.id)?MESSAGES.adminLogin:plainMessage(x.id,x.category);
  for(const x of prep)if(!inTodo.has(x.id)&&!na[x.id])(x.category==='discovery'?toolGap:technical).push({id:x.id,title:x.title,message:message(x)});
  const notRelevant=config.checks.filter(c=>na[c.id]).map(c=>({id:c.id,title:c.title,message:plainMessage(c.id,'notRelevant'),reason:na[c.id],revertible:!(prod&&PRODUCTION_CHECKS.includes(c.id))}));
  return {todo,toolGap,technical,notRelevant};
