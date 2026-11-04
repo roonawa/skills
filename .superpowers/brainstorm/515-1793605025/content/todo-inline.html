@@ -1,0 +1,35 @@
+<h2>「次にやること」をその場で済ませる形（案）</h2>
+<p class="subtitle">検証環境のサイトの例。本番環境のときの見え方は下の注記を参照</p>
+
+<div class="mockup">
+  <div class="mockup-header">結果画面の「次にやること」</div>
+  <div class="mockup-body" style="font-size:14px;border:2px solid #2563eb;padding:12px">
+    <div style="margin-bottom:10px"><b>次にやること</b>　あと3つ設定すると、さらに5件を検査できます</div>
+
+    <div style="border-top:1px solid #ddd;padding:8px 0">
+      <label><input type="checkbox"> <b>テスト投稿の作成・公開・削除を許可する</b></label><br>
+      <small>この検証環境に、ツールが「QA」で始まるテスト投稿を作り、確認後に削除します。→ 投稿・キャッシュ・予約公開の3件が動きます</small>
+    </div>
+
+    <div style="border-top:1px solid #ddd;padding:8px 0">
+      <b>テスト用メールアドレス</b><br>
+      <input class="mock-input" style="width:60%" placeholder="qa-test@example.co.jp">
+      <label style="margin-left:8px"><input type="checkbox"> このフォームに実際に送信してよい</label><br>
+      <small>お問い合わせフォームから1通送信します。サイトの通知先にもメールが届きます。→ フォーム送信の1件が動きます</small>
+    </div>
+
+    <div style="border-top:1px solid #ddd;padding:8px 0">
+      <b>トップページの表示上限</b><br>
+      <input class="mock-input" style="width:80px" placeholder="3.0"> 秒以内<br>
+      <small>今回の実測は 1.8 秒でした（参考値。上限は顧客と合意した値を入れてください）。→ 表示速度の1件が合否で判定されます</small>
+    </div>
+
+    <div style="border-top:1px solid #ddd;padding-top:10px;display:flex;gap:8px;align-items:center">
+      <button class="mock-button">保存して、増えた5件だけ実行</button>
+      <button class="mock-button" style="background:#fff;color:#2563eb;border:1px solid #2563eb">保存だけする</button>
+      <small style="color:#666">入力したものだけ保存されます。空欄の項目は「やること」に残ります</small>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:14px">本番環境では：テスト投稿・フォーム送信は表示しません（本番では実行できないため「このサイトに関係しない」側へ）。代わりに「機密ファイル露出の確認を許可する（顧客の監視に検知される場合があります）」が「次にやること」に出ます。</p>

@@ -12,6 +12,7 @@ EXCLUDE_KUBUN = {"失注", "保留"}
 EXCLUDE_SECTION = {"失注", "保留中"}
 SECTION_CANCELLED = "中止"  # 全ボード共通で除外
 STATUS_ON_HOLD = "保留"  # 全ボード共通で除外
+SECTION_QUOTED = "見積提出済み"  # 「見積提出済み（※受注したら、製造セクションへ移動）」。出力せず、件数にも数えない
 
 KINDS = ["overdue", "stuck", "stale", "gate", "missing"]
 KIND_LABEL = {"overdue": "期限切れ", "stuck": "詰まり", "stale": "動きなし",
@@ -280,6 +281,8 @@ def aggregate(raw, today, stale_days=14):
     for p in raw["projects"]:
         for t in p["tasks"]:
             n = _normalize(p["name"], p.get("sections") or {}, t)
+            if n["section"].startswith(SECTION_QUOTED):
+                continue
             if not n["section_known"]:
                 unknown_sections += 1
             tasks.append(n)

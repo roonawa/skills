@@ -1,0 +1,81 @@
+<h2>実行直後の結果画面：どの見せ方がよいですか？</h2>
+<p class="subtitle">例：テスト用サイトを登録して最初の実行を終えた直後（設定が必要22件の内訳を振り分けた後）</p>
+
+<div class="cards">
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">A：左右に分ける</div>
+        <div class="mockup-body" style="display:flex;gap:10px;font-size:13px">
+          <div style="flex:1;border:1px solid #ccc;padding:8px">
+            <b>すぐ分かったこと</b>
+            <div style="margin:6px 0;color:#b21f2d">不合格 3件</div>
+            <div>・HTTPSへ転送されない</div>
+            <div>・内部リンク切れ（2ページ）</div>
+            <div>・title が空のページ</div>
+            <div style="margin:6px 0;color:#a15c00">注意 4件</div>
+            <div>・セキュリティヘッダーなし ほか</div>
+            <div style="margin-top:6px;color:#17633b">合格 58件</div>
+          </div>
+          <div style="flex:1;border:2px solid #2563eb;padding:8px">
+            <b>あなたがやること（3件）</b>
+            <div style="margin:6px 0">□ テスト投稿を許可する<br><small>→ 投稿・キャッシュ・予約の3検査が動きます</small></div>
+            <div style="margin:6px 0">□ テスト用メールアドレスを入れる<br><small>→ フォーム送信の検査が動きます</small></div>
+            <div style="margin:6px 0">□ トップページの表示上限（秒）<br><small>→ 表示速度を合否で判定します</small></div>
+            <details style="margin-top:8px"><summary>あなたの作業ではない未確認（19件）</summary>
+              <div>ツールが取得できなかった 6 ／ 技術担当の準備 7 ／ このサイトに関係なし 6</div>
+            </details>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body"><h3>A：結果と「やること」を並べる</h3><p>左で分かったこと、右で次の作業が同時に見える</p></div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">B：上から順に読む</div>
+        <div class="mockup-body" style="font-size:13px">
+          <div style="display:flex;gap:6px;margin-bottom:8px">
+            <div style="flex:1;border:1px solid #ccc;padding:6px;text-align:center;color:#b21f2d">不合格<br><b>3</b></div>
+            <div style="flex:1;border:1px solid #ccc;padding:6px;text-align:center;color:#a15c00">注意<br><b>4</b></div>
+            <div style="flex:1;border:1px solid #ccc;padding:6px;text-align:center;color:#17633b">合格<br><b>58</b></div>
+            <div style="flex:1;border:2px solid #2563eb;padding:6px;text-align:center">やること<br><b>3</b></div>
+          </div>
+          <div style="border:2px solid #2563eb;padding:8px;margin-bottom:8px">
+            <b>次にやること</b>　あと3つ設定すると、さらに5件を検査できます
+            <div>□ テスト投稿を許可 □ テスト用メール □ 表示上限（秒）</div>
+          </div>
+          <b>分かったこと</b>
+          <div>不合格：HTTPSへ転送されない ／ リンク切れ ／ title が空</div>
+          <div>注意：セキュリティヘッダーなし ほか</div>
+          <details style="margin-top:8px"><summary>まだ確認していないもの（19件・あなたの作業ではありません）</summary><div>…</div></details>
+        </div>
+      </div>
+    </div>
+    <div class="card-body"><h3>B：数字 → やること → 分かったこと</h3><p>上から順に読めば迷わない。今の画面の延長で作りやすい</p></div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">C：タブで分ける</div>
+        <div class="mockup-body" style="font-size:13px">
+          <div style="display:flex;gap:4px;margin-bottom:8px">
+            <div style="border:2px solid #2563eb;border-bottom:none;padding:4px 8px"><b>分かったこと 7</b></div>
+            <div style="border:1px solid #ccc;padding:4px 8px">やること 3</div>
+            <div style="border:1px solid #ccc;padding:4px 8px;color:#777">未確認 19</div>
+            <div style="border:1px solid #ccc;padding:4px 8px;color:#777">合格 58</div>
+          </div>
+          <div>不合格：HTTPSへ転送されない</div>
+          <div>不合格：内部リンク切れ（2ページ）</div>
+          <div>不合格：title が空のページ</div>
+          <div>注意：セキュリティヘッダーなし</div>
+          <div>…</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body"><h3>C：タブで切り替える</h3><p>画面はすっきり。ただし「やること」に気付かれにくい</p></div>
+  </div>
+</div>

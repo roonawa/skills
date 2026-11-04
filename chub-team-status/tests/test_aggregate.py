@@ -77,9 +77,18 @@ class JudgementTest(unittest.TestCase):
         self.assertEqual(ids(a, "gate"), ["bad"])
 
     def test_gate_stage_matches_prefix_section(self):
-        s = {"1": "見積提出済み（※受注したら、製造セクションへ移動）"}
+        s = {"1": "見積中（※補足）"}
         a = aggregate(raw(main=[T("a")], sections=s), TODAY)
         self.assertEqual(ids(a, "gate"), ["a"])
+
+    def test_quoted_section_tasks_are_not_output(self):
+        s = {"1": "見積提出済み（※受注したら、製造セクションへ移動）", "2": "製造"}
+        late = T("q", due_date="2026-01-01", assignee="")
+        a = aggregate(raw(main=[late, T("m", section_id=2)], sections=s), TODAY)
+        self.assertEqual(ids(a, "gate"), ["m"])
+        self.assertEqual(ids(a, "overdue"), [])
+        self.assertEqual(ids(a, "missing"), [])
+        self.assertEqual(a["excluded_count"], 0)
 
     def test_lost_and_hold_excluded_and_counted(self):
         s = {"1": "製造", "3": "保留中"}
@@ -192,7 +201,7 @@ class DealsTest(unittest.TestCase):
         d = aggregate(raw(main=ts, sections=s), TODAY)["deals"]
         counts = {x["stage"]: x["count"] for x in d["stages"]}
         self.assertEqual(counts["製造"], 1)
-        self.assertEqual(counts["見積提出済み"], 1)
+        self.assertEqual(counts["見積提出済み"], 0)
         self.assertEqual(counts["（段階なし・その他）"], 1)
         self.assertEqual(d["excluded_count"], 2)
         self.assertEqual([x["stage"] for x in d["stages"]][-1], "（段階なし・その他）")
