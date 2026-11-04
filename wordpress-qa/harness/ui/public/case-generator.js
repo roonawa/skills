@@ -210,17 +210,22 @@ export function generateCases(input){
  return c;
 }
 
+// 登録時の観点が、操作テスト・登録した検査に置き換わる対応（観点の検査ID → 置き換え後の行ID）。
+export const COVERAGE_REPLACEMENTS={'coverage-publishing':['journey.profile-post-lifecycle'],'coverage-scheduled':['journey.profile-scheduled'],'coverage-contact-success':['journey.profile-contact-submit'],'coverage-order':['journey.profile-bank-order'],'coverage-order-record':['journey.profile-bank-order'],'coverage-order-cleanup':['journey.profile-bank-order'],'coverage-performance':['check.registration-performance']};
+// 合意した表示上限の合否検査。上限が消えたら検査も外す。
+export function syncPerformanceBudget(input,profile={}){
+ const c=structuredClone(input),checks=(c.checks??[]).filter(x=>x.id!=='registration-performance');
+ if(profile.performanceMs)checks.push({id:'registration-performance',title:'登録した性能予算',suite:'performance',kind:'performance-navigation',options:{path:profile.sitePath||'/',samples:3,cache:'cold',budgets:{durationMs:profile.performanceMs}}});
+ c.checks=checks;return c;
+}
 // Generated registration obligations only: never overwrite explicit custom checks.
 export function linkRegistrationCoverage(input,profile={}){
  const c=structuredClone(input),covered=new Set();
- const journeys=new Set((c.journeys??[]).map(j=>j.id)),admin=new Set((c.admin??[]).map(a=>a.id));
- if(journeys.has('profile-inventory'))covered.add('inventory');
+ const rows=new Set([...(c.journeys??[]).map(j=>'journey.'+j.id),...(c.checks??[]).map(x=>'check.'+x.id)]),admin=new Set((c.admin??[]).map(a=>a.id));
+ if(rows.has('journey.profile-inventory'))covered.add('inventory');
  if(['siteurl','home','timezone','language'].every(id=>admin.has(id)))covered.add('admin-general');
  if(admin.has('permalinks'))covered.add('admin-permalink');
- if(journeys.has('profile-post-lifecycle'))covered.add('publishing');
- if(journeys.has('profile-scheduled'))covered.add('scheduled');
- if(journeys.has('profile-contact-submit'))covered.add('contact-success');
- if(journeys.has('profile-bank-order'))for(const id of ['order','order-record','order-cleanup'])covered.add(id);
+ for(const [id,replacements] of Object.entries(COVERAGE_REPLACEMENTS))if(id!=='coverage-performance'&&replacements.every(r=>rows.has(r)))covered.add(id.slice(9));
  if(profile.performanceMs)covered.add('performance');
  const residual={
   metadata:'自動検査はtitle/langと構造化データ構文を確認します。文章・SEO効果・OGP内容の妥当性は担当者が確認してください。',

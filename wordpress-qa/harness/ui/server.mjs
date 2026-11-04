@@ -25,7 +25,7 @@ import {checkStorage,auditAppend} from './resource-guard.mjs';
 import {ProjectStore} from './project-store.mjs';
 import {ExternalAuth} from './external-auth.mjs';
 import {discoverRegistration,registrationConfig,validateProfile,builtinModules,profileJourneys} from './registration.mjs';
-import {generateCases,linkRegistrationCoverage,addSecurityChecks} from './public/case-generator.js';
+import {generateCases,linkRegistrationCoverage,addSecurityChecks,syncPerformanceBudget} from './public/case-generator.js';
 import { loadConfig,catalog } from '../lib/config.mjs';
 import {writeReport} from '../lib/results.mjs';
 import {enrichFailures} from '../lib/failure-explanations.mjs';
@@ -48,7 +48,7 @@ import {handoffDir,newHandoffId,isHandoffId,saveHandoff,latestHandoff,readHandof
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const publicDir=path.join(root,'ui','public');
-class HttpError extends Error {constructor(status,message){super(message);this.status=status;}}
+class HttpError extends Error {constructor(status,message,extra){super(message);this.status=status;Object.assign(this,extra);}}
 const reject=(status,message)=>{throw new HttpError(status,message);};
 const readJSON=file=>JSON.parse(fs.readFileSync(file,'utf8'));
 function boundedPath(directory,relative) {
@@ -223,6 +223,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
   function saveSettings(data,projectId=null,{compileAutomation=true,owner}={}){
     admission();allowTarget(data.config.baseURL);
     if(active||closing)reject(409,'実行完了後に保存してください');
+    if(projectId&&data.version!==store.record(projectId).version)throw new HttpError(409,'別の画面で設定が更新されました。閉じてから再度開いてください',{conflict:true});
     const auth=data.auth??{},loginId=auth.browserLoginId;
     if(shared&&loginId)logins.assertOwner(loginId,owner);
     if(logins.busy&&!loginId)reject(409,'進行中のログインを確認・保存するか、キャンセルしてください');
@@ -241,7 +242,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
       let config=data.config;
       if(profile&&compileAutomation){
         const validated=validateProfile(profile,config.environment);
-        config=applyAutomationPlan(linkRegistrationCoverage({checks:[],manual:[],admin:[],...config,journeys:profileJourneys(validated)},validated),validated,{});
+        config=syncPerformanceBudget(applyAutomationPlan(linkRegistrationCoverage({checks:[],manual:[],admin:[],...config,journeys:profileJourneys(validated)},validated),validated,{}),validated);
         // Saving can regenerate coverage placeholders without doing discovery.
         // Stored browser baselines still provide the executable admin coverage.
         const observedGroups=['reading','discussion','permalink','plugins'].filter(group=>(config.admin??[]).some(row=>row.id.startsWith('observed-'+group+'-')&&row.source==='browser'&&Object.hasOwn(row,'expected')));
@@ -737,7 +738,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
       const name=helpName??files[target.pathname];if(!name)reject(404,'ページが見つかりません');
       res.setHeader('Cache-Control','no-store');res.setHeader('Content-Type',name.endsWith('.js')?'text/javascript; charset=utf-8':name.endsWith('.css')?'text/css; charset=utf-8':'text/html; charset=utf-8');
       res.end(fs.readFileSync(path.join(helpName?path.join(root,'deploy'):publicDir,name)));
-    }catch(e){if(e.status===401)res.setHeader('WWW-Authenticate','Basic realm="WordPress QA Pilot", charset="UTF-8"');if(!res.headersSent)json(e.status??500,{error:e.status?e.message:'処理に失敗しました。設定と保存先を確認してください。',...(e.diagnosticId?{diagnosticId:e.diagnosticId,stage:e.stage,code:e.code}:{})});else res.end();}
+    }catch(e){if(e.status===401)res.setHeader('WWW-Authenticate','Basic realm="WordPress QA Pilot", charset="UTF-8"');if(!res.headersSent)json(e.status??500,{error:e.status?e.message:'処理に失敗しました。設定と保存先を確認してください。',...(e.diagnosticId?{diagnosticId:e.diagnosticId,stage:e.stage,code:e.code}:{}),...(e.conflict?{conflict:true}:{})});else res.end();}
   });
   await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(port,host,resolve);});
   url=`http://127.0.0.1:${server.address().port}`;

@@ -77,6 +77,19 @@ try{
   await expect(notRelevant).toContainText('有効なプラグインに通販機能が見つからないため');
   await expect(notRelevant.getByRole('button',{name:'関係ありに戻す'})).toHaveCount(5);
   const text=await page.locator('body').innerText();for(const word of forbidden)assert.ok(!text.includes(word),'forbidden word on screen: '+word);
+  // フォーム送信は投稿の許可と正しいメールアドレスがそろうまで保存できない（投稿の許可は勝手に入れない）。
+  const submit=todo.locator('[data-todo="submit"]'),hint=page.locator('#todo-hint'),saveOnly=page.getByRole('button',{name:'保存だけする'});
+  await expect(submit).toContainText('「テスト投稿の作成・公開・削除」の許可も必要です');
+  await submit.locator('input[type=checkbox]').check();
+  await expect(hint).toHaveText('フォームの送信を許可するには、テスト用メールアドレスを入れてください。');await expect(saveOnly).toBeDisabled();
+  await submit.locator('input[type=email]').fill('qa-test');
+  await expect(hint).toContainText('テスト用メールアドレスの形を確かめてください');await expect(saveOnly).toBeDisabled();
+  await submit.locator('input[type=email]').fill('qa-test@example.test');
+  await expect(hint).toContainText('「テスト投稿の作成・公開・削除を許可する」にもチェックを入れてください');await expect(saveOnly).toBeDisabled();
+  await expect(page.getByRole('button',{name:/保存して、増えた\d+件だけ実行/})).toBeDisabled();
+  await expect(todo.locator('[data-todo="writes"] input[type=checkbox]')).not.toBeChecked();
+  await submit.locator('input[type=checkbox]').uncheck();await submit.locator('input[type=email]').fill('');
+  await expect(hint).toBeHidden();await expect(saveOnly).toBeEnabled();
   // 投稿の許可だけを入れて保存・実行すると、投稿関連の3件だけが選ばれる。
   await todo.locator('[data-todo="writes"] input[type=checkbox]').check();
   const saveRun=page.getByRole('button',{name:'保存して、増えた3件だけ実行'});
@@ -95,13 +108,23 @@ try{
   await expect(unconfirmed.locator('[data-bucket="technical"] [data-check="coverage-membership"]')).toHaveCount(1);
   await expect(notRelevant.locator('[data-check="coverage-membership"]')).toHaveCount(0);
   assert.deepEqual(store.record(id).profile.automation.relevantOverrides,['coverage-membership']);
-  // 別の画面で保存したあとに保存すると、再読み込みを促し、入力は残す。
+  // 表示上限を保存して実行すると、合否を判定する検査が作られて実行される。
   await todo.locator('[data-todo="performance"] input').fill('3');
+  await page.getByRole('button',{name:'保存して、増えた1件だけ実行'}).click();
+  await expect(todo.locator('input').first()).toBeDisabled();
+  await expect(todo.locator('[data-todo="performance"]')).toHaveCount(0,{timeout:180000});
+  const third=await latest();
+  assert.deepEqual(third.rows.filter(r=>r.selected).map(r=>r.id),['check.registration-performance']);
+  assert.equal(third.rows.find(r=>r.id==='check.registration-performance').status,'pass');
+  assert.equal(store.record(id).config.checks.find(c=>c.id==='registration-performance').options.budgets.durationMs,3000);
+  await expect(todo.locator('input').first()).toBeEnabled();
+  // 別の画面で保存したあとに保存すると、再読み込みを促し、入力は残す。
+  await submit.locator('input[type=email]').fill('qa-other@example.test');
   const other=await call('/settings');await call('/settings',{version:other.version,config:other.config,profile:{...other.profile,language:'ja'}});
   const before=store.record(id).version;
-  await page.getByRole('button',{name:'保存だけする'}).click();
+  await saveOnly.click();
   await expect(page.getByText('別の画面で設定が更新されました。再読み込みしてください')).toBeVisible();
-  await expect(todo.locator('[data-todo="performance"] input')).toHaveValue('3');
+  await expect(submit.locator('input[type=email]')).toHaveValue('qa-other@example.test');
   assert.equal(store.record(id).version,before);
   const after=await page.locator('body').innerText();for(const word of forbidden)assert.ok(!after.includes(word),'forbidden word on screen: '+word);
   await page.setViewportSize({width:390,height:844});

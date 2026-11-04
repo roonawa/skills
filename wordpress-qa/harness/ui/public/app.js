@@ -5,6 +5,7 @@ import {initExternalAuth} from './external-auth.js';
 import {initRegistration} from './registration.js';
 import {initDesignerReport} from './designer-report.js';
 import {extendedSuites} from './coverage-editor.js';
+import {COVERAGE_REPLACEMENTS} from './case-generator.js';
 const $=selector=>document.querySelector(selector);
 const state={token:'',projects:[],projectId:'',project:null,runId:null,report:null,detail:null,filter:'all',search:'',busy:false,active:null,follow:true,lastActive:false,notice:'',detailKey:'',rowsKey:'',historyKey:'',requesting:false};
 let refreshTicket=0;
@@ -129,7 +130,7 @@ function notify(message){state.notice=message;$('#toast').textContent=message;$(
 function showError(message){$('#error').textContent=message;$('#error').hidden=!message;}
 async function api(url,options={}){
   const response=await fetch(url,{...options,headers:{...(options.body?{'Content-Type':'application/json','X-QA-Token':state.token}:{}),...options.headers}});
-  const data=await response.json();if(!response.ok)throw Object.assign(new Error(data.error??data.message??'処理に失敗しました'),{status:response.status});return data;
+  const data=await response.json();if(!response.ok)throw Object.assign(new Error(data.error??data.message??'処理に失敗しました'),{status:response.status,conflict:data.conflict===true});return data;
 }
 const needsPreparation=row=>row.preparationRequired===true;
 $('#todo-summary').insertAdjacentHTML('afterend','<p class="quiet todo-motion">黄色の点滅：次にやること（不具合確定ではありません） <button type="button" id="preparation-motion" aria-pressed="false">重要項目の点滅を停止</button></p>');
@@ -214,10 +215,8 @@ function renderFindings(){
   $('#findings-body').innerHTML=(section('fail','不合格')+section('caution','注意')||'<p>この実行では不合格・注意はありませんでした。</p>')+`<details class="findings-pass"><summary>合格 ${passed.length}件</summary>${passed.length?`<ul>${passed.map(r=>`<li>${findingButton(r)}</li>`).join('')}</ul>`:'<p class="quiet">ありません。</p>'}</details>`;
 }
 $('#findings-body').addEventListener('click',e=>{const button=e.target.closest('[data-row]');if(!button)return;state.detail=button.dataset.row;renderRows();renderDetail();$('.detail-panel').scrollIntoView({block:'nearest'});});
-const todoUI={data:null,project:'',key:'',dirty:false,saving:false,ticket:0};
+const todoUI={data:null,project:'',key:'',saving:false,ticket:0};
 const todoNames={writes:'投稿・キャッシュ・予約公開',submit:'フォーム送信',performance:'表示速度',sensitivePaths:'機密ファイル露出'};
-// 保存すると検査の行が操作テストに置き換わるもの（linkRegistrationCoverage）。
-const todoReplaced={'coverage-publishing':['journey.profile-post-lifecycle'],'coverage-scheduled':['journey.profile-scheduled'],'coverage-contact-success':['journey.profile-contact-submit'],'coverage-performance':['check.registration-performance']};
 const todoBuckets=[['toolGap','ツールが取得できなかったもの','ツールが自動で取得できなかった項目です。担当者の入力は要りません。'],['technical','技術担当の準備が要るもの','技術担当が準備してから検査します。'],['notRelevant','このサイトに関係しないもの','登録時に取得した情報から、このサイトに関係しないと判断しました。根拠を確かめ、関係がある場合は戻してください。']];
 const todoPending=d=>new Set([...d.todo.flatMap(x=>x.checkIds),...d.toolGap.map(x=>x.id),...d.technical.map(x=>x.id),...d.notRelevant.map(x=>x.id)]);
 function todoMeasured(){
@@ -227,7 +226,7 @@ function todoMeasured(){
 }
 function todoItemHTML(x){
   const effect=`${escape(x.effect)} → ${escape(todoNames[x.key]??x.label)}の${x.count}件が${x.key==='performance'?'合否で判定されます':'動きます'}`,head=`<div class="todo-item preparation-priority" data-todo="${escape(x.key)}"><span class="preparation-priority-label">重要</span>`;
-  if(x.key==='submit')return `${head}<strong>${escape(x.label)}</strong><label class="todo-field">テスト用メールアドレス<input type="email" data-input="testEmail" value="${escape(x.input?.current?.testEmail??'')}" placeholder="qa-test@example.co.jp" autocomplete="off"></label><label><input type="checkbox" data-input="submit" ${x.input?.current?.submit?'checked':''}><span class="checkbox-copy"><strong>このフォームに実際に送信してよい</strong><small>${effect}</small></span></label></div>`;
+  if(x.key==='submit')return `${head}<strong>${escape(x.label)}</strong><label class="todo-field">テスト用メールアドレス<input type="email" data-input="testEmail" value="${escape(x.input?.current?.testEmail??'')}" placeholder="qa-test@example.co.jp" autocomplete="off"></label><label><input type="checkbox" data-input="submit" ${x.input?.current?.submit?'checked':''}><span class="checkbox-copy"><strong>このフォームに実際に送信してよい</strong><small>${effect} 送信には「テスト投稿の作成・公開・削除」の許可も必要です。</small></span></label></div>`;
   if(x.key==='performance')return `${head}<strong>${escape(x.label)}</strong><label class="todo-field"><input type="number" data-input="performance" min="0.1" max="120" step="0.1" placeholder="3.0" inputmode="decimal" aria-label="${escape(x.label)}"> 秒以内</label><small><span data-measured></span>${effect}</small></div>`;
   return `${head}<label><input type="checkbox" data-input="${escape(x.key)}"><span class="checkbox-copy"><strong>${escape(x.label)}</strong><small>${effect}</small></span></label></div>`;
 }
@@ -248,31 +247,43 @@ function todoEntered(){
   const box=$('#todo-items'),value=k=>box.querySelector(`[data-input="${k}"]`);
   return (todoUI.data?.todo??[]).filter(x=>x.key==='performance'?!!value('performance')?.value.trim():!!value(x.key)?.checked);
 }
+// 入力欄が表示時の値から変わっていれば入力中とみなす。消して元に戻せば、また取り直す。
+const todoDirty=()=>[...$('#todo-items').querySelectorAll('[data-input]')].some(el=>el.type==='checkbox'?el.checked!==el.defaultChecked:el.value.trim()!==el.defaultValue.trim());
+// 保存できない組み合わせを、押す前に平易な言葉で知らせる。
+function todoBlocker(){
+  const box=$('#todo-items'),value=k=>box.querySelector(`[data-input="${k}"]`),email=value('testEmail')?.value.trim()??'';
+  if(email&&!/^\S+@\S+\.\S+$/.test(email))return 'テスト用メールアドレスの形を確かめてください（例：qa-test@example.co.jp）。';
+  if(value('submit')?.checked&&!email)return 'フォームの送信を許可するには、テスト用メールアドレスを入れてください。';
+  if(value('submit')?.checked&&value('writes')&&!value('writes').checked)return 'フォームの送信を許可するには、「テスト投稿の作成・公開・削除を許可する」にもチェックを入れてください。';
+  return '';
+}
 function renderTodoState(){
   if(!todoUI.data?.managed)return;
-  const off=state.busy||state.requesting||todoUI.saving,count=todoEntered().reduce((n,x)=>n+x.count,0),measured=todoMeasured();
+  const blocker=todoBlocker(),off=state.busy||state.requesting||todoUI.saving,count=todoEntered().reduce((n,x)=>n+x.count,0),measured=todoMeasured();
   for(const el of document.querySelectorAll('#todo-items input,#todo-actions button,#unconfirmed-body button'))el.disabled=off;
-  $('#todo-save-run').textContent=`保存して、増えた${count}件だけ実行`;if(!off)$('#todo-save-run').disabled=!count;
+  $('#todo-save-run').textContent=`保存して、増えた${count}件だけ実行`;if(!off){$('#todo-save-run').disabled=!count||!!blocker;$('#todo-save').disabled=!!blocker;}
+  $('#todo-hint').textContent=blocker;$('#todo-hint').hidden=!blocker;
   const note=$('#todo-items [data-measured]');if(note)note.textContent=(measured===null?'今回の実行では表示時間を測っていません':`今回の実測は ${(measured/1000).toFixed(measured<1000?2:1)} 秒でした`)+'（参考値。上限は顧客と合意した値を入れてください）。';
 }
 function todoStatus(message,error=false){$('#todo-status').textContent=message;$('#todo-status').classList.toggle('error',error);}
 async function refreshTodo(data){
   const key=JSON.stringify([state.projectId,data.project.configHash,data.busy,data.runs[0]?.runId,data.runs[0]?.runStatus]);
   // 入力中は取り直さない。古い版のまま保存すると、別の画面の更新として知らせる。
-  if(key===todoUI.key||todoUI.saving||(todoUI.dirty&&todoUI.project===state.projectId))return;
+  if(key===todoUI.key||todoUI.saving||(todoDirty()&&todoUI.project===state.projectId))return;
   todoUI.key=key;const ticket=++todoUI.ticket,projectId=state.projectId;
-  try{const d=await api(projectAPI()+'/todo');if(ticket===todoUI.ticket&&projectId===state.projectId&&!todoUI.saving){Object.assign(todoUI,{data:d,project:projectId,dirty:false});renderTodo();}}
+  try{const d=await api(projectAPI()+'/todo');if(ticket===todoUI.ticket&&projectId===state.projectId&&!todoUI.saving){Object.assign(todoUI,{data:d,project:projectId});renderTodo();}}
   catch{if(ticket===todoUI.ticket)todoUI.key='';}
 }
 async function todoRunIds(base,items,before,after){
   const pending=todoPending(after),freed=items.flatMap(x=>x.checkIds).filter(id=>before.has(id)&&!pending.has(id));if(!freed.length)return [];
   const {config:c}=await api(base+'/settings'),rows=new Set([...(c.checks??[]).map(x=>'check.'+x.id),...(c.journeys??[]).filter(j=>!j.explicitOnly).map(j=>'journey.'+j.id)]);
-  return [...new Set(freed.flatMap(id=>rows.has('check.'+id)||/^auto-security-/.test(id)?['check.'+id]:(todoReplaced[id]??[]).filter(r=>rows.has(r))))];
+  return [...new Set(freed.flatMap(id=>rows.has('check.'+id)||/^auto-security-/.test(id)?['check.'+id]:(COVERAGE_REPLACEMENTS[id]??[]).filter(r=>rows.has(r))))];
 }
 async function todoSave(run,revert){
   if(todoUI.saving||state.busy||state.requesting||!todoUI.data?.managed)return;
   const box=$('#todo-items'),value=k=>box.querySelector(`[data-input="${k}"]`),patch={},items=revert?[]:todoEntered();let sensitive=false;
   if(!revert){
+    const blocker=todoBlocker();if(blocker){todoStatus(blocker,true);return;}
     const email=value('testEmail')?.value.trim();if(email)patch.testEmail=email;
     for(const x of items){
       if(x.key==='writes'||x.key==='submit')patch[x.key]=true;
@@ -285,17 +296,18 @@ async function todoSave(run,revert){
   ++refreshTicket;todoUI.saving=true;state.requesting=true;render();showError('');todoStatus('保存しています…');
   try{
     const saved=await api(base+'/settings'),{headersEnv,mailpit,...config}=saved.config,profile={...saved.profile,...patch};
+    if(profile.submit&&!profile.writes&&patch.submit){todoStatus('フォームの送信を許可するには、「テスト投稿の作成・公開・削除を許可する」も必要です。設定画面で許可してから保存してください。',true);return;}
     if(revert)profile.automation={...profile.automation,relevantOverrides:[...new Set([...(profile.automation?.relevantOverrides??[]),revert])]};
     await api(base+'/settings',{method:'POST',body:JSON.stringify({version,config,profile,...(sensitive?{sensitivePaths:true}:{})})});
     const next=await api(base+'/todo');if(projectId!==state.projectId)return;
-    Object.assign(todoUI,{data:next,project:projectId,dirty:false,key:''});renderTodo();
+    Object.assign(todoUI,{data:next,project:projectId,key:''});renderTodo();
     const ids=run?await todoRunIds(base,items,before,next):[];
     if(ids.length){await api(base+'/runs',{method:'POST',body:JSON.stringify({suite:'all',ids})});state.follow=true;state.runId=null;state.report=null;state.detail=null;state.lastActive=true;todoStatus(`保存しました。増えた${ids.length}件の検査を実行しています。`);}
     else todoStatus(revert?'関係ありに戻しました。次の実行から検査の対象に戻ります。':run?'保存しました。新しく実行できる検査はありません。':'保存しました。');
-  }catch(error){if(projectId===state.projectId)todoStatus(error.status===409||/別の画面で設定が更新/.test(error.message)?'別の画面で設定が更新されました。再読み込みしてください':error.message,true);}
+  }catch(error){if(projectId===state.projectId)todoStatus(error.status===409&&error.conflict?'別の画面で設定が更新されました。再読み込みしてください':error.message,true);}
   finally{todoUI.saving=false;state.requesting=false;render();await refresh();}
 }
-$('#todo-items').addEventListener('input',()=>{todoUI.dirty=true;renderTodoState();});
+$('#todo-items').addEventListener('input',renderTodoState);
 $('#todo-save-run').onclick=()=>todoSave(true);$('#todo-save').onclick=()=>todoSave(false);
 $('#unconfirmed-body').addEventListener('click',e=>{const button=e.target.closest('[data-revert]');if(button)todoSave(false,button.dataset.revert);});
 function failureHTML(f){return `<dl><dt>不合格の理由・取得結果</dt><dd>${escape(f.actual)}</dd><dt>利用者への影響</dt><dd>${escape(f.impact)}</dd><dt>管理画面での対応・確認方法</dt><dd>${escape(f.admin)}</dd><dt>設定で直らない場合</dt><dd>${escape(f.code)}</dd><dt>修正後の確認</dt><dd>${escape(f.verify)}</dd></dl>`;}
@@ -425,7 +437,7 @@ async function refresh(){
     }
   }catch(e){if(current())showError('状態を取得できませんでした：'+e.message);}
 }
-$('#project-select').addEventListener('change',async e=>{++refreshTicket;state.projectId=e.target.value;state.project=null;localStorage.setItem('wpqa-project',state.projectId);state.runId=null;state.report=null;state.detail=null;state.follow=true;state.lastActive=false;state.rowsKey='';state.historyKey='';Object.assign(todoUI,{data:null,key:'',dirty:false});renderTodo();notify('');showError('');render();await refresh();});
+$('#project-select').addEventListener('change',async e=>{++refreshTicket;state.projectId=e.target.value;state.project=null;localStorage.setItem('wpqa-project',state.projectId);state.runId=null;state.report=null;state.detail=null;state.follow=true;state.lastActive=false;state.rowsKey='';state.historyKey='';Object.assign(todoUI,{data:null,key:''});renderTodo();notify('');showError('');render();await refresh();});
 $('#run-button').addEventListener('click',async()=>{
   const verdict=document.querySelector('#cinema-verdict');if(verdict)verdict.hidden=true;
   if(state.busy||state.requesting||!state.project)return;++refreshTicket;state.requesting=true;render();showError('');notify('');

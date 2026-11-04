@@ -212,3 +212,4 @@ body.preparation-motion-off .preparation-priority{animation:none}
 #unconfirmed-body section{margin:0 0 16px}#unconfirmed-body h3{margin:12px 0 4px;font-size:14px}
 #unconfirmed-body li{margin:10px 0;line-height:1.7}#unconfirmed-body li small{display:block}#unconfirmed-body li button{margin-top:6px}
 @media(max-width:720px){.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}#todo-items,#findings-body,#unconfirmed-body{margin:0 12px}}
+#todo-hint{margin:8px 20px 0;color:#ffd38a;font-weight:700;overflow-wrap:anywhere}#todo-hint[hidden]{display:none}

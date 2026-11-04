@@ -55,3 +55,18 @@ test('runs with ids executes only those rows',async t=>{
   assert.deepEqual(result.rows.filter(r=>r.selected).map(r=>r.id),[pages[0],pages[1]]);for(const p of pages.slice(0,2))assert.notEqual(result.rows.find(r=>r.id===p).status,'not_run',p);assert.equal(result.rows.find(r=>r.id===pages[2]).status,'not_run');
  }finally{await app.close();}
 });
+test('settings save keeps a pass/fail check for the agreed display limit and refuses stale versions with 409',async t=>{
+ const {dir,store,id,codec}=await fixture(t),app=await startUI({port:0,storeDir:path.join(dir,'projects'),credentialCodec:codec,publicDiscovery:stub});t.after(()=>app.close());
+ const boot=await(await fetch(app.url+'/api/bootstrap')).json(),post=v=>fetch(`${app.url}/api/projects/${id}/settings`,{method:'POST',headers:{Origin:app.url,'X-QA-Token':boot.token,'Content-Type':'application/json'},body:JSON.stringify(v)});
+ const save=async patch=>{const s=store.view(id),r=await post({version:s.version,config:s.config,profile:{...s.profile,...patch}});assert.equal(r.status,200,await r.clone().text());return store.context(id).config;};
+ const budget=c=>c.checks.find(x=>x.id==='registration-performance')?.options.budgets.durationMs;
+ let config=await save({performanceMs:3000});assert.equal(budget(config),3000);
+ const row=catalog(config).find(r=>r.id==='check.registration-performance');assert(row&&!row.preparationRequired&&!row.autoNotApplicable);
+ assert(!config.checks.some(x=>x.id==='coverage-performance'));
+ assert(!(await(await fetch(`${app.url}/api/projects/${id}/todo`)).json()).todo.some(x=>x.key==='performance'));
+ config=await save({performanceMs:2500});assert.equal(budget(config),2500);assert.equal(config.checks.filter(x=>x.id==='registration-performance').length,1);
+ const {performanceMs,...cleared}=store.view(id).profile;const s=store.view(id);
+ assert.equal((await post({version:s.version,config:s.config,profile:cleared})).status,200);assert.equal(budget(store.context(id).config),undefined);
+ const before=store.record(id).version,stale=await post({version:'stale-version',config:s.config,profile:cleared});
+ assert.equal(stale.status,409);const body=await stale.json();assert.equal(body.conflict,true);assert.match(body.error,/別の画面で設定が更新されました/);assert.equal(store.record(id).version,before);
+});

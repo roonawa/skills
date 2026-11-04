@@ -1,7 +1,7 @@
 import {registrationTrace} from './registration-diagnostics.mjs';
 import {validateInteractionSettings,validateInteractionPermissions,generateInteractionChecks} from './public/interaction-profile.js';
 import {chromium} from '@playwright/test';
-import {generateCases,linkRegistrationCoverage} from './public/case-generator.js';
+import {generateCases,linkRegistrationCoverage,syncPerformanceBudget} from './public/case-generator.js';
 import {fileURLToPath} from 'node:url';
 import {preparePublicGate} from '../lib/registration-gate.mjs';
 import {parseSettings,validateContactExpectedFields} from '../builtin/wordpress-profile/helpers.mjs';
@@ -81,7 +81,7 @@ export function registrationConfig({name,baseURL,environment,profile,discovery})
  setting('indexing','検索公開方針','options-reading.php','#blog_public','checked',!p.indexable);
  if(p.permalink)setting('permalinks','記事URL構造','options-permalink.php','#permalink_structure','value',p.permalink);
  c.journeys=profileJourneys(p);
- if(p.performanceMs)c.checks.push({id:'registration-performance',title:'登録した性能予算',suite:'performance',kind:'performance-navigation',options:{path:p.sitePath||'/',samples:3,cache:'cold',budgets:{durationMs:p.performanceMs}}});
+ c.checks=syncPerformanceBudget(c,p).checks;
  // Representative views, not hundreds of duplicate screenshots.
  const generated=generateCases({...c,pages:c.pages.slice(0,5)});generated.pages=c.pages;
  // Keep missing prerequisites distinct from actual human judgment.
