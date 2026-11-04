@@ -1,1 +1,1 @@
-export const releaseVersion='2026-11-04-handoff-first-screen';
+export const releaseVersion='2026-11-04-todo-unregistered-fix';
