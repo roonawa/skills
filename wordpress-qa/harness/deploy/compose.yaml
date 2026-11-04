@@ -96,6 +96,7 @@ volumes:
   policy_data:
 networks:
   backend:
+    name: deploy_backend_v2
     internal: true
   control:
     internal: true
