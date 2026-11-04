@@ -84,3 +84,19 @@ test('store.save ignores a stale or malformed autoNotApplicable sent by the clie
  const bare=new ProjectStore(path.join(path.dirname(store.directory),'bare')),plain=bare.save({config:{name:'Plain',baseURL:'https://plain.test',environment:'staging',autoNotApplicable:{'coverage-order':'x'},pages:[{id:'home',path:'/',canonical:'https://plain.test/',indexable:false}]}});
  assert(!('autoNotApplicable' in bare.record(plain).config));
 });
+test('configured membership and order checks from additionalChecks stay runnable and keep the gate',t=>{
+ const steps=[{action:'goto',url:'/account/'},{action:'assertText',selector:'h1',value:'Account'}],additionalChecks=[{id:'coverage-membership',suite:'membership',kind:'browser-flow',options:{steps}},{id:'coverage-order',suite:'commerce',kind:'browser-flow',options:{sandbox:true,steps}}];
+ const {config}=saved(t,profile({pluginInventory:{observed:true,slugs:['contact-form-7']},additionalChecks}));
+ for(const id of ['coverage-membership','coverage-order']){assert.equal(config.checks.find(c=>c.id===id).kind,'browser-flow',id);assert(!config.autoNotApplicable[id],id);}
+ assert(config.autoNotApplicable['coverage-order-record']);
+ const rows=catalog(config);for(const id of ['coverage-membership','coverage-order']){const row=rows.find(r=>r.id==='check.'+id);assert(!row.autoNotApplicable,id);assert.equal(row.status,'not_run',id);assert(!row.preparationRequired,id);}
+ assert.equal(releaseGate(passAllBut(rows,r=>r.autoNotApplicable||r.id==='check.coverage-membership')),false);
+ // 更新前に記録された自動の対象外があっても、設定済みの検査は対象外にしない。
+ const stale=catalog({...config,autoNotApplicable:{...config.autoNotApplicable,'coverage-membership':why}});assert(!stale.find(r=>r.id==='check.coverage-membership').autoNotApplicable);
+ assert.doesNotThrow(()=>selectSingleTest(catalog(config),'check.coverage-membership'));
+});
+test('the auto reason carries the discovery date and re-saving without discovery keeps the hash',t=>{
+ const {store,id,config}=saved(t,profile({pluginInventory:{observed:true,slugs:[],observedAt:'2026-11-02T01:00:00.000Z'}}));
+ assert.equal(config.autoNotApplicable['coverage-order'],'有効なプラグインに通販機能が見つからないため対象外（登録時の取得：2026-11-02）');
+ const hash=store.context(id).configHash,v=store.view(id);store.save({id,version:v.version,config:v.config,profile:v.profile});assert.equal(store.context(id).configHash,hash);
+});

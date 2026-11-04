@@ -213,7 +213,7 @@ test('multisite Password Protected gate is retained while admin cookies and test
 
 test('plugin inventory observed only when plugins page read',async t=>{
   const ok=await run(t);
-  assert.deepEqual(ok.result.pluginInventory,{observed:true,slugs:['contact-form-7']});
+  assert.deepEqual(ok.result.pluginInventory,{observed:true,slugs:['contact-form-7'],observedAt:ok.result.observedAt});assert(!Number.isNaN(Date.parse(ok.result.pluginInventory.observedAt)));
   const ng=await run(t,{page:{url:()=>baseURL+'/wp-admin/',locator:()=>({count:async()=>0})}});
   assert.deepEqual(ng.result.pluginInventory,{observed:false,slugs:[]});
   const forbidden=await run(t,{adminFixture:{...fixture,'/wp-admin/plugins.php':''}});
@@ -221,7 +221,7 @@ test('plugin inventory observed only when plugins page read',async t=>{
   const unreadable=await run(t,{adminFixture:{...fixture,'/wp-admin/plugins.php':auth+'<table><tr class="active" data-plugin="bad name.php"><td class="plugin-title"><strong>Bad</strong></td></tr></table>'}});
   assert.equal(unreadable.result.pluginInventory.observed,false);
   const empty=await run(t,{adminFixture:{...fixture,'/wp-admin/plugins.php':auth+'<table class="plugins"></table>'}});
-  assert.deepEqual(empty.result.pluginInventory,{observed:true,slugs:[]});
+  assert.deepEqual(empty.result.pluginInventory,{observed:true,slugs:[],observedAt:empty.result.observedAt});
 });
 
 test('paginated plugin list not fully read is not observed',async t=>{
@@ -229,7 +229,7 @@ test('paginated plugin list not fully read is not observed',async t=>{
   const {result}=await run(t,{adminFixture:{...fixture,'/wp-admin/plugins.php':auth+'<div class="tablenav-pages"><span class="total-pages">3</span><a class="next-page" href="?paged=2">next</a></div><table class="plugins">'+row+'</table>'}});
   assert.deepEqual(result.pluginInventory,{observed:false,slugs:[]});
   const single=await run(t,{adminFixture:{...fixture,'/wp-admin/plugins.php':auth+'<div class="tablenav-pages one-page"><span class="total-pages">1</span></div><table class="plugins">'+row+'</table>'}});
-  assert.deepEqual(single.result.pluginInventory,{observed:true,slugs:['a']});
+  assert.deepEqual(single.result.pluginInventory,{observed:true,slugs:['a'],observedAt:single.result.observedAt});
 });
 
 test('plugin inventory is not observed on multisite or when the plugin table is missing',async t=>{

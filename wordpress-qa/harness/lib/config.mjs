@@ -1,5 +1,5 @@
 import {validateChecks,preparationReason,suites as extendedSuites} from './checks/index.mjs';
-import {autoNotApplicableAllowed} from './auto-not-applicable.mjs';
+import {autoNotApplicableAllowed,storedNotApplicable} from './auto-not-applicable.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
@@ -118,8 +118,9 @@ export function catalog(c, suite='all') {
   for(const check of c.checks??[]) {add('check.'+check.id,check.suite,check.title,check.required);Object.assign(rows.at(-1),{kind:check.kind,...(check.kind==='security-baseline'&&!check.required?{level:'caution'}:{}),manualReview:check.kind==='human-review',instructions:check.options.instructions});}
   if(suite==='standard')for(const row of rows)row.selected=row.kind==='standard-public'||row.kind==='security-baseline';
   if(suite==='interaction')for(const row of rows)row.selected=row.kind==='site-interaction';
+  const na=storedNotApplicable(c);
   for(const check of c.checks??[]){
-    const reason=preparationReason(check,c),auto=autoNotApplicableAllowed(check.id,c.environment)&&c.autoNotApplicable?.[check.id];
+    const reason=preparationReason(check,c),auto=na[check.id];
     if(auto)Object.assign(rows.find(r=>r.id==='check.'+check.id),{status:'not_applicable',autoNotApplicable:true,selected:false,reason:auto});
     else if(reason)Object.assign(rows.find(r=>r.id==='check.'+check.id),{selected:false,preparationRequired:true,reason:'設定が必要: '+reason});
   }

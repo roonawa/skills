@@ -1,5 +1,5 @@
 // Run from any directory: node test/first-screen-browser.mjs
-// 検証環境・フォームあり・通販プラグインなしのテスト用サイトで、結果画面のB案（件数→次にやること→分かったこと→未確認）を確かめる。
+// ローカル環境（管理画面のログイン保存済み）・フォームあり・通販プラグインなしのテスト用サイトで、結果画面のB案（件数→次にやること→分かったこと→未確認）を確かめる。
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -26,8 +26,9 @@ const baseURL=`http://127.0.0.1:${site.address().port}`;
 const profile={timezone:'Asia/Tokyo',language:'ja',indexable:false,writes:false,contactPath:'/contact/',contactFormId:1,contactNameField:'your-name',contactEmailField:'your-email',contactMessageField:'your-message',automation:{pluginInventory:{observed:true,slugs:['contact-form-7']}}};
 const store=new ProjectStore(path.join(scratch,'projects'),{codec:v=>v});
 // 管理画面の照合は HTTPS が必要なため、ループバックのテスト用サイトでは外す。
-const config={...registrationConfig({name:'初回画面テスト',baseURL,environment:'staging',profile,discovery:{pages:[{path:'/'},{path:'/about/'},{path:'/contact/'}],warnings:[]}}),baseURL,admin:[]};
-const id=store.save({config,profile});
+// テスト投稿・フォーム送信の項目は管理画面のログインが保存済みのときだけ出る。HTTPのループバックで認証を保存できるのはローカル環境だけ。
+const config={...registrationConfig({name:'初回画面テスト',baseURL,environment:'local',profile,discovery:{pages:[{path:'/'},{path:'/about/'},{path:'/contact/'}],warnings:[]}}),baseURL,admin:[]};
+const id=store.save({config,profile,auth:{browser:{cookies:[{name:'wordpress_logged_in_qa',value:'qa',domain:'127.0.0.1',path:'/'}],origins:[]}}});
 const app=await startUI({port:0,storeDir:path.join(scratch,'projects'),credentialCodec:v=>v,publicDiscovery:async()=>({public:{},admin:{}})});
 const boot=await(await fetch(app.url+'/api/bootstrap')).json();
 const call=async(route,body)=>{const r=await fetch(`${app.url}/api/projects/${id}${route}`,body?{method:'POST',headers:{Origin:app.url,'X-QA-Token':boot.token,'Content-Type':'application/json'},body:JSON.stringify(body)}:{});const data=await r.json();if(!r.ok)throw new Error(route+' '+r.status+' '+JSON.stringify(data));return data;};

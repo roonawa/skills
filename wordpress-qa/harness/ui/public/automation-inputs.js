@@ -15,7 +15,8 @@ export function validateAutomationInput(value){
  requireValue(typeof useObservedBaselines==='boolean','useObservedBaselines は真偽値で指定してください');
  requireValue(Array.isArray(additionalChecks),'additionalChecks は配列で指定してください');
  if(pluginInventory!==undefined){
-  requireValue(object(pluginInventory)&&Object.keys(pluginInventory).every(k=>['observed','slugs'].includes(k)),'pluginInventory は observed と slugs だけのオブジェクトで指定してください');
+  requireValue(object(pluginInventory)&&Object.keys(pluginInventory).every(k=>['observed','slugs','observedAt'].includes(k)),'pluginInventory は observed・slugs・observedAt だけのオブジェクトで指定してください');
+  requireValue(pluginInventory.observedAt===undefined||typeof pluginInventory.observedAt==='string'&&pluginInventory.observedAt.length<=40&&/^\d{4}-\d{2}-\d{2}T/.test(pluginInventory.observedAt)&&!Number.isNaN(Date.parse(pluginInventory.observedAt)),'pluginInventory.observedAt は取得日時（ISO形式）で指定してください');
   requireValue(typeof pluginInventory.observed==='boolean','pluginInventory.observed は真偽値で指定してください');
   requireValue(Array.isArray(pluginInventory.slugs)&&pluginInventory.slugs.length<=200&&pluginInventory.slugs.every(s=>typeof s==='string'&&/^[\w-]{1,100}$/.test(s)),'pluginInventory.slugs は200件以内の文字列配列で指定してください');
  }

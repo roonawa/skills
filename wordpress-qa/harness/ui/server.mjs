@@ -36,6 +36,7 @@ import {preflight} from '../lib/preflight.mjs';
 import {guidance} from '../lib/guidance.mjs';
 import {confirmationPlan,validateConfirmation,selectSingleTest,selectTests} from '../lib/confirmation.mjs';
 import {triage} from './todo-triage.mjs';
+import {storedNotApplicable} from '../lib/auto-not-applicable.mjs';
 import {operationRequest} from '../lib/operations.mjs';
 import {buildIssueReport} from '../lib/issue-report.mjs';
 import {buildDesignerReport} from '../lib/designer-report.mjs';
@@ -220,6 +221,14 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
       fs.mkdirSync(path.join(storeDir,p.id),{recursive:true});fs.writeFileSync(path.join(storeDir,p.id,'preparation-summary.json'),JSON.stringify(result.summary),{mode:0o600});return result.summary;
     }finally{preparing=null;}
   }
+  // 画面から届いた profile：プラグイン一覧は保存済み（登録・再取得で取得したもの）だけを使い、関係ありに戻す選択は送られたときだけ置き換える。
+  function clientProfile(profile,stored){
+    if(!profile||typeof profile!=='object'||Array.isArray(profile))return profile;
+    const a=profile.automation&&typeof profile.automation==='object'&&!Array.isArray(profile.automation)?profile.automation:undefined,keep=stored?.automation??{};
+    if(a===undefined&&profile.automation!==undefined)return profile;
+    const {pluginInventory,...rest}=a??{},next={...rest,...(keep.pluginInventory?{pluginInventory:keep.pluginInventory}:{}),...(a&&Object.hasOwn(a,'relevantOverrides')||!keep.relevantOverrides?{}:{relevantOverrides:keep.relevantOverrides})};
+    return a===undefined&&!Object.keys(next).length?profile:{...profile,automation:next};
+  }
   function saveSettings(data,projectId=null,{compileAutomation=true,owner}={}){
     admission();allowTarget(data.config.baseURL);
     if(active||closing)reject(409,'実行完了後に保存してください');
@@ -298,7 +307,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
       if(target.pathname==='/api/registration'&&req.method==='POST'){
         if(!store||active||closing)reject(409,'実行完了後に登録してください');
         const trace=registrationTrace(event=>fs.appendFileSync(path.join(storeDir,'registration-events.jsonl'),JSON.stringify(event)+'\n',{mode:0o600}));
-        const data=await trace.step('input',()=>body(req));let profile=await trace.step('input',()=>validateProfile(data.profile,data.environment,{discoveryPending:true}));
+        const data=await trace.step('input',()=>body(req));let profile=await trace.step('input',()=>validateProfile(clientProfile(data.profile),data.environment,{discoveryPending:true}));
         const session=await trace.step('authentication',()=>logins.get(data.loginId));
         if(session.phase!=='verified'||session.projectId||session.role||session.baseURL!==data.baseURL||session.environment!==data.environment)reject(400,'このサイトの管理者ログインを確認してください');
         const discovery=await trace.step('discovery',()=>registrationDiscovery({baseURL:data.baseURL,profile,state:session.state,publicPassword:data.publicPassword??'',trace}));
@@ -347,7 +356,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
         if(segments.length===2&&req.method==='POST') {
           if(!store)reject(503,'この起動ではサイト登録が無効です');if(active)reject(409,'実行完了後に登録してください');
           const data=await body(req);let id;
-          id=saveSettings(data,null,{owner:actor?.name});
+          id=saveSettings({...data,profile:clientProfile(data.profile)},null,{owner:actor?.name});
           registerManaged(id);return json(201,{id});
         }
         const p=getProject(segments[2]);
@@ -410,7 +419,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
         if(segments[3]==='todo'&&segments.length===4&&req.method==='GET'){
           if(!p.managed)return json(200,{managed:false});
           const record=store.record(p.id),profile=record.profile??{};
-          return json(200,{managed:true,environment:record.config.environment,version:record.version,...triage(addSecurityChecks(structuredClone(record.config),profile.adminPath??'/wp-admin/'),profile)});
+          return json(200,{managed:true,environment:record.config.environment,version:record.version,...triage(addSecurityChecks(structuredClone(record.config),profile.adminPath??'/wp-admin/'),profile,{adminLogin:record.credentials?.browser===true,notApplicable:storedNotApplicable(record.config)})});
         }
         if(segments[3]==='rediscover'&&segments.length===4&&req.method==='POST'){
           if(!p.managed)reject(403,'外部設定のサイトは再取得できません');
@@ -461,7 +470,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
           if(!p.managed)reject(403,'起動時に指定した設定はファイルで管理されています。新しいサイトとして登録してください');
           if(active)reject(409,'実行完了後に設定を変更してください');
           const data=await body(req);
-          saveSettings(data,p.id,{owner:actor?.name});
+          saveSettings(data?.profile===undefined?data:{...data,profile:clientProfile(data.profile,store.record(p.id).profile)},p.id,{owner:actor?.name});
           registerManaged(p.id);return json(200,{id:p.id});
         }
         if(segments.length===3&&req.method==='GET') {
