@@ -20,7 +20,9 @@ export function explainFailure(row, evidence=[]) {
     for(const o of impactAssessments(data).filter(o=>o.title))add(o.key,o.title,o.observation,'対象ページの編集画面でタイトル・リンク先IDを確認します。言語指定は「設定 → 一般 → サイトの言語」とテーマの出力を確認してください。',o.scope);
     for(const o of blockedRetryObservations(data))add(o.key,'通信失敗後にフォームを再送信できません',o.label,'フォームのプラグイン更新・メッセージ設定を確認してください。通信失敗時の状態解除処理は技術担当者が検証環境で確認・修正してください。','通信失敗後に再操作しても送信処理が始まらず、問い合わせを完了できない可能性があります。');
     for(const o of contactImpactObservations(data))add(o.key,'通信失敗時にフォームの通知が表示されません',o.label,'お問い合わせフォームのメッセージ設定を確認してください。通知領域のCSS・通信失敗時のJavaScript処理は技術担当者が修正します。','通信失敗に気付けず再送信や離脱につながる可能性があります。入力保持と再操作可能は検査で確認しました。');
-    if(data.schema==='software-security-v1'){
+    if(data.schema==='software-security-v1'&&data.component==='compatibility'){
+      for(const f of data.findings??[])add('compatibility:'+(f.asset?.type??'')+':'+(f.asset?.slug??'')+':'+f.title,f.title,(f.asset?.name??'')+' '+(f.asset?.version??'不明')+' / 移行先：PHP '+(data.target?.php??'不明')+'・WordPress '+(data.target?.wordpress??'不明')+' / 現在：PHP '+(data.current?.php??'不明')+'・WordPress '+(data.current?.wordpress??'不明')+' / 出典: '+(f.sources??[]).map(x=>x.url).join(' / '),f.fix,'PHP・WordPress本体を上げたあと、この機能が動かない・画面が崩れる・管理画面に入れなくなる可能性があります。今のサイトの動作には影響していません。','配布元が公開している動作要件との照合です。独自改変や有料版の対応状況は技術担当者が確認し、検証環境で本体・PHPを上げて動作を確かめてください。');
+    }else if(data.schema==='software-security-v1'){
       for(const f of data.findings??[])add('security:'+data.component+':'+(f.asset?.slug??'')+':'+(f.cves?.join(',')||f.title),f.title,(f.asset?.name??'')+' '+(f.asset?.version??'不明')+' / '+(f.cves??[]).join(', ')+' / 出典: '+(f.sources??[]).map(x=>x.url).join(' / ')+(f.range?' / 影響条件: '+JSON.stringify(f.range):'')+(data.unknown?.length?' / 未確認: '+data.unknown.join(' / '):''),f.fix,'既知情報との照合結果です。攻撃の成立・侵害の発生は未実証です。稼働条件と修正適用状況を確認してください。','独自改変や配布元の修正適用がある場合は技術担当者が確認してください。');
     }
     if(data.schema==='security-baseline-v1')for(const f of data.findings??[]){const r=RULES[f.rule];if(r)add('baseline:'+f.rule+':'+f.path,r.title,f.observation,r.admin,r.impact,r.code,r.verify);}

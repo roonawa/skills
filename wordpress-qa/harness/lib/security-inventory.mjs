@@ -23,10 +23,15 @@ export function parseInventory(health,plugins,themes){
  if(!result.plugin.length)result.unknown.push('プラグイン一覧を取得できません。権限・管理画面形式を確認してください。');
  return result;
 }
-export function phpLifecycle(version,html,now=new Date()){
- if(!numeric(version))throw Error('PHPの正確なバージョンを取得できません');const $=load(html),rows=[];
+// php.net のサポート期限表から、系列ごとの積極サポート・セキュリティサポートの期限を読む。
+export function phpSupportRows(html){
+ const $=load(html),rows=[];
  $('table tr').each((_,e)=>{const cells=$(e).find('td');const branch=cells.eq(0).text().trim();if(!/^\d+\.\d+$/.test(branch))return;const dates=cells.slice(1).map((_,td)=>$(td).text().match(/\d{1,2} [A-Za-z]{3} \d{4}/)?.[0]).get().filter(Boolean);if(dates.length>=3)rows.push({branch,active:dates[1],security:dates[2]});});
- if(!rows.length)throw Error('PHP公式のサポート期限表を取得・解釈できません');const branch=version.split('.').slice(0,2).join('.'),row=rows.find(r=>r.branch===branch);
+ if(!rows.length)throw Error('PHP公式のサポート期限表を取得・解釈できません');
+ return rows;
+}
+export function phpLifecycle(version,html,now=new Date()){
+ if(!numeric(version))throw Error('PHPの正確なバージョンを取得できません');const rows=phpSupportRows(html);const branch=version.split('.').slice(0,2).join('.'),row=rows.find(r=>r.branch===branch);
  if(!row){if(rows.every(r=>compareVersions(branch,r.branch)<0))return {state:'eol',branch,security:null,source:PHP_SOURCE,note:'現在の公式サポート対象より古い系列です。配布元の延長サポート・バックポート適用は別途確認が必要です。'};throw Error('PHP系列のサポート期限を確認できません');}
  const end=date=>Date.parse(date+' 23:59:59 GMT');if(!Number.isFinite(end(row.security)))throw Error('サポート期限形式が不正です');return {...row,state:now.getTime()>end(row.security)?'eol':now.getTime()>end(row.active)?'security-only':'active',source:PHP_SOURCE,note:'PHP本体の公式サポート期限。個別CVE修正・最新パッチ・配布元の延長サポートを保証しません。'};
 }

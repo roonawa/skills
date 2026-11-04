@@ -8,8 +8,8 @@ test('registration generates explicit tests and preserves unresolved obligations
  assert.deepEqual(generateCases(result),result);
  const config=validateConfig(result);const rows=catalog(config);
  assert.ok(rows.some(x=>x.id==='page.home'));assert.ok(rows.some(x=>x.id==='links.home'));
- assert.equal(config.visuals.length,2);assert.equal(config.checks.length,48);
- assert.ok(config.checks.every(x=>(x.required||['auto-security-headers','auto-security-disclosure'].includes(x.id))&&['unconfigured','standard-public','software-security','security-baseline'].includes(x.kind)));
+ assert.equal(config.visuals.length,2);assert.equal(config.checks.length,49);
+ assert.ok(config.checks.every(x=>(x.required||['auto-security-headers','auto-security-disclosure','security-compatibility'].includes(x.id))&&['unconfigured','standard-public','software-security','security-baseline'].includes(x.kind)));
  for(const id of ['notification','order-record','order-notification','order-cleanup','admin-general','contact-errors'])assert.ok(config.checks.some(x=>x.id==='coverage-'+id));
  assert.equal(config.allowTestWrites,false);
 });
@@ -31,5 +31,5 @@ test('generated baseline checks pass validateConfig',()=>{
 });
 test('existing custom auto-security check is not overwritten',()=>{
  const mine={id:'auto-security-headers',title:'独自',suite:'authz',kind:'security-baseline',required:true,timeoutMs:1000,options:{area:'headers',paths:['/x']}};const c={checks:[mine]};addSecurityChecks(c);
- assert.equal(c.checks[0],mine);assert.deepEqual(mine.options.paths,['/x']);assert.equal(c.checks.filter(x=>x.id==='auto-security-headers').length,1);assert.equal(c.checks.length,4+5);
+ assert.equal(c.checks[0],mine);assert.deepEqual(mine.options.paths,['/x']);assert.equal(c.checks.filter(x=>x.id==='auto-security-headers').length,1);assert.equal(c.checks.length,5+5);
 });

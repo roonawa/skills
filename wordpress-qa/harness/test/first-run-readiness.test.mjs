@@ -14,7 +14,7 @@ test('first registration preserves every undefined obligation without dispatchin
  assert(rows.some(r=>r.selected&&r.kind==='standard-public'));
  assert.equal(releaseGate(rows.map(r=>r.preparationRequired?r:{...r,status:'pass'})),false);
  assert.throws(()=>selectSingleTest(rows,pending[0].id),/設定が必要/);
- const p=preflight(config,{});assert.equal(p.ready,false);assert.equal(p.issues.length,4);assert(p.issues.every(i=>i.id.startsWith("security-")));assert.equal(preflight(config,{WPQA_UI_ADMIN_STATE:"configured"}).ready,true);assert.equal(p.preparations.length,pending.length);
+ const p=preflight(config,{});assert.equal(p.ready,false);assert.equal(p.issues.length,5);assert(p.issues.every(i=>i.id.startsWith("security-")));assert.equal(preflight(config,{WPQA_UI_ADMIN_STATE:"configured"}).ready,true);assert.equal(p.preparations.length,pending.length);
 });
 test('selected common operation waits for concrete conditions and becomes executable when configured',()=>{
  const config=validateConfig({...base,checks:[{id:'inspect',kind:'site-interaction',suite:'seo',options:{operation:'public-discovery',settings:{paths:[]}}}]});

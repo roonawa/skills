@@ -5,8 +5,9 @@ import assert from 'node:assert/strict';
 import {load} from 'cheerio';
 import {phpAdvisory} from '../php-advisories.mjs';
 import {parseInventory,publicData,evaluateFeed,phpLifecycle,PROVIDER,PHP_SOURCE} from '../security-inventory.mjs';
+import {WP_RELEASES,SCOPE as COMPATIBILITY_SCOPE,latestWordPress,phpTargetBranch,infoURL,evaluateCompatibility} from '../compatibility.mjs';
 export const kinds=['software-security'];
-export function validate(check){assert.equal(check.suite,'authz');assert(['core','plugin','theme','php'].includes(check.options.component));assert(Object.keys(check.options).every(k=>['component','adminPath'].includes(k)));if(check.options.adminPath)assert(/^\/(?:[\w-]+\/)*wp-admin\/$/.test(check.options.adminPath));}
+export function validate(check){assert.equal(check.suite,'authz');assert(['core','plugin','theme','php','compatibility'].includes(check.options.component));assert(Object.keys(check.options).every(k=>['component','adminPath','targetPhp','targetWordPress'].includes(k)));for(const k of ['targetPhp','targetWordPress'])if(check.options[k]!==undefined)assert(check.options.component==='compatibility'&&/^\d+\.\d+(?:\.\d+)?$/.test(check.options[k]),k+' は 8.4 のような版番号で指定してください');if(check.options.adminPath)assert(/^\/(?:[\w-]+\/)*wp-admin\/$/.test(check.options.adminPath));}
 export async function run({check,config,requestFactory,attach=async()=>{},signal}){
  validate(check);const component=check.options.component;const evidence={schema:'software-security-v1',component,checkedAt:new Date().toISOString(),assets:[],findings:[],unknown:[],scope:'既知情報とのバージョン照合。攻撃による実証・全脆弱性の網羅診断ではありません。'};let context;
  try{
@@ -14,13 +15,25 @@ export async function run({check,config,requestFactory,attach=async()=>{},signal
   const base=new URL(config.baseURL);if(!Array.isArray(state.cookies)||!Array.isArray(state.origins)||state.cookies.some(c=>typeof c.domain!=='string'||c.domain.replace(/^\./,'')!==base.hostname)||state.origins.some(o=>o.origin!==base.origin))throw Error('管理認証の対象ホストが一致しません');
   const session=wordpressSessionStatus(state,check.options.adminPath??'/wp-admin/');if(session.expired)throw Error('保存済みWordPress認証の内部期限が切れています（'+session.expiresAt+'）。管理画面の認証からログインを確認して保存してください');context=await requestFactory.newContext({storageState:state,timeout:20000});const admin=check.options.adminPath??'/wp-admin/';
   async function get(file){if(signal?.aborted)throw Error('検査が中断されました');const url=new URL(admin+file,base);const r=await context.get(url.href,{maxRedirects:0});try{if(r.status()!==200)throw Error('管理画面に接続できません（HTTP '+r.status()+'）。認証・権限・管理パスを確認してください');const text=await r.text();if(text.length>6*1024*1024||!text.includes('id="wpadminbar"'))throw Error('認証済み管理画面を確認できません');return text;}finally{await r.dispose();}}
-  const health=await get('site-health.php?tab=debug');let plugins=component==='plugin'?await get('plugins.php?plugin_status=all'):'';
+  const health=await get('site-health.php?tab=debug');let plugins=['plugin','compatibility'].includes(component)?await get('plugins.php?plugin_status=all'):'';
   if(plugins){const $=load(plugins);const pages=Number($('.total-pages').first().text().trim()||1);if(!Number.isInteger(pages)||pages<1||pages>20)throw Error('プラグイン一覧のページ数を確認できないか、取得上限を超えました');for(let page=2;page<=pages;page++)plugins+=await get('plugins.php?plugin_status=all&paged='+page);}
-  const inventory=parseInventory(health,plugins,component==='theme'?await get('themes.php'):'');
-  evidence.assets=inventory[component];evidence.scope+=' '+inventory.scope;
+  const inventory=parseInventory(health,plugins,['theme','compatibility'].includes(component)?await get('themes.php'):'');
+  evidence.assets=component==='compatibility'?[...inventory.plugin.map(a=>({...a,type:'plugin'})),...inventory.theme.map(a=>({...a,type:'theme'}))]:inventory[component];evidence.scope+=' '+inventory.scope;
+  if(component==='compatibility'){evidence.scope=COMPATIBILITY_SCOPE+' '+inventory.scope;evidence.current={wordpress:inventory.core[0]?.version??null,php:inventory.php[0]?.version??null};}
   if(!evidence.assets.length)throw Error('対象のバージョン一覧を取得できません');
-  if(new Set(evidence.assets.map(a=>a.slug)).size!==evidence.assets.length)throw Error('構成一覧に識別子の重複があります。ページ送り・一覧の取得範囲を確認してください');
-  if(component==='php'){
+  if(new Set(evidence.assets.map(a=>(a.type??'')+':'+a.slug)).size!==evidence.assets.length)throw Error('構成一覧に識別子の重複があります。ページ送り・一覧の取得範囲を確認してください');
+  if(component==='compatibility'){
+   if(evidence.assets.length>100)throw Error('構成要素が100件を超えました。検査範囲を分けてください');
+   const target={wordpress:check.options.targetWordPress??latestWordPress(JSON.parse(await publicData(WP_RELEASES,{signal}))),php:check.options.targetPhp??phpTargetBranch(await publicData(PHP_SOURCE,{signal}))};
+   evidence.target={...target,source:{wordpress:check.options.targetWordPress?'検査設定':WP_RELEASES,php:check.options.targetPhp?'検査設定':PHP_SOURCE}};evidence.results=[];
+   for(const asset of evidence.assets){
+    if(!asset.slug||!/^[a-z0-9_-]+$/.test(asset.slug)){evidence.unknown.push(asset.name+'：識別子を取得できません');continue;}
+    let info;try{info=JSON.parse(await publicData(infoURL(asset.type,asset.slug),{signal}));}catch(e){
+     // WordPress.org は未掲載のとき 404 と {"error":...} を返す。
+     if(/HTTP応答: 404/.test(e.message))info={error:'not found'};else{evidence.unknown.push(asset.name+'：動作要件を取得できません（'+e.message+'）');continue;}}
+    const result=evaluateCompatibility(asset,info,target);evidence.results.push(result);evidence.findings.push(...result.findings);
+   }
+  }else if(component==='php'){
    const asset=evidence.assets[0],advisory=phpAdvisory(asset.version);evidence.phpAdvisory=advisory;
    evidence.scope+=' '+advisory.message+' 判定情報確認日：'+advisory.reviewedAt+'。'+advisory.note;
    if(['affected-range','legacy-risk'].includes(advisory.status))evidence.findings.push({...advisory,asset});
@@ -37,7 +50,8 @@ export async function run({check,config,requestFactory,attach=async()=>{},signal
    }
   }
  }catch(error){evidence.unknown.push(error.message);}finally{await context?.dispose();await attach('security',evidence);}
+ if(component==='compatibility'&&evidence.findings.length)throw Error('COMPATIBILITY_FINDINGS: '+evidence.findings.length+'件の確認事項があります（移行先 PHP '+evidence.target.php+'・WordPress '+evidence.target.wordpress+'）。security.jsonの証拠を確認してください。'+(evidence.unknown.length?' 未確認事項もあります。':''));
  if(evidence.findings.length)throw Error('SECURITY_FINDINGS: '+evidence.findings.length+'件の要対応項目があります。security.jsonの証拠を確認してください。'+(evidence.unknown.length?' 未確認事項もあります。':''));
  if(evidence.unknown.length)throw Error('BLOCKED: '+evidence.unknown.join('／'));
- return {...evidence,result:'取得できた範囲で該当なし。安全性の保証ではありません。'};
+ return {...evidence,result:component==='compatibility'?'宣言された動作要件の範囲では問題ありません。実際の動作は検証環境で確認してください。':'取得できた範囲で該当なし。安全性の保証ではありません。'};
 }
