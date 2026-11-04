@@ -390,8 +390,11 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
             const data=await body(req);if(Object.keys(data).some(k=>!['loginId','role','version'].includes(k))||typeof data.loginId!=='string')reject(400,'確認済みログインを指定してください');
             const record=store.record(p.id);if(data.version!==record.version)reject(409,'設定が更新されています。再読み込み後に保存してください');
             if(access)logins.assertOwner(data.loginId,actor.name);
-            await logins.verify(data.loginId);
-            logins.save(data.loginId,{baseURL:record.config.baseURL,projectId:p.id,role:data.role},state=>store.save({id:p.id,version:record.version,config:record.config,profile:record.profile,auth:data.role?{roleCredentials:[{name:data.role,browser:state}]}:{browser:state}}));
+            // ログインの確認・保存で失敗した理由は利用者向けの文言なので、汎用の失敗に置き換えずに返す。
+            try{
+              await logins.verify(data.loginId);
+              logins.save(data.loginId,{baseURL:record.config.baseURL,projectId:p.id,role:data.role},state=>store.save({id:p.id,version:record.version,config:record.config,profile:record.profile,auth:data.role?{roleCredentials:[{name:data.role,browser:state}]}:{browser:state}}));
+            }catch(e){reject(e.status??400,e.message);}
             registerManaged(p.id);return json(200,{ok:true,version:store.record(p.id).version});
           }
           if(!externalAuth)reject(400,'認証の保存先がありません');
@@ -400,7 +403,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
           if(active||closing||projectIsAlive(p.outputDir))reject(409,'実行完了後に認証を保存してください');
           const data=await body(req);if(Object.keys(data).some(k=>k!=='loginId')||typeof data.loginId!=='string')reject(400,'確認済みログインを指定してください');
           if(access)logins.assertOwner(data.loginId,actor.name);
-          logins.save(data.loginId,{baseURL:c.baseURL,projectId:p.id},state=>externalAuth.save(p.id,c,state));
+          try{logins.save(data.loginId,{baseURL:c.baseURL,projectId:p.id},state=>externalAuth.save(p.id,c,state));}catch(e){reject(e.status??400,e.message);}
           return json(200,{ok:true,...externalAuth.status(p.id,c)});
         }
         if(segments[3]==='preflight'&&segments.length===4&&req.method==='GET'){
