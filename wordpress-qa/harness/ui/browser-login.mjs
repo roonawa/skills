@@ -1,4 +1,4 @@
-import {wordpressSessionStatus} from '../lib/wordpress-session.mjs';
+import {wordpressSessionStatus,isLoggedInCookie} from '../lib/wordpress-session.mjs';
 import {randomUUID} from 'node:crypto';
 import {chromium} from '@playwright/test';
 
@@ -22,7 +22,7 @@ export class BrowserLogin {
       const target=loginTarget(resume);
       if(resume.phase!=='verified'||!resume.id||resume.projectId||resume.role)throw Error('確認済みの新規登録セッションだけを復元できます');
       const state=scopeState(resume.state,target.baseURL);
-      if(!state.cookies.some(c=>c.name.startsWith('wordpress_logged_in_')&&c.value))throw Error('復元する認証情報がありません');
+      if(!state.cookies.some(isLoggedInCookie))throw Error('復元する認証情報がありません');
       const s={...target,id:resume.id,environment:resume.environment,projectId:null,role:null,phase:'verified',state};this.session=s;
       s.timer=setTimeout(()=>{void this.cancel(s.id);},ttlMs);s.timer.unref();
     }
@@ -61,7 +61,7 @@ export class BrowserLogin {
     if(s.phase!=='waiting')throw new Error('ログイン確認中です');s.phase='checking';let probe;
     try{
       const state=scopeState(await s.context.storageState(),s.baseURL);
-      if(!state.cookies.some(c=>c.name.startsWith('wordpress_logged_in_')&&c.value))throw new Error('not signed in');
+      if(!state.cookies.some(isLoggedInCookie))throw new Error('not signed in');
       // Verify that the captured session, rather than the displayed login tab, works.
       probe=await s.browser.newContext({storageState:state,javaScriptEnabled:false,serviceWorkers:'block'});
       await probe.route('**/*',route=>{

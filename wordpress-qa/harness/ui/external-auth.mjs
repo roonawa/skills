@@ -1,3 +1,4 @@
+import {isLoggedInCookie} from '../lib/wordpress-session.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import {protect} from './project-store.mjs';
@@ -10,7 +11,7 @@ export class ExternalAuth {
  save(id,config,state){
   const host=new URL(config.baseURL).hostname;
   if(!state||!Array.isArray(state.cookies)||!Array.isArray(state.origins)||state.cookies.some(c=>c.domain.replace(/^\./,'')!==host)||state.origins.some(o=>o.origin!==config.baseURL))throw Error('認証状態が対象サイトと一致しません');
-  if(!state.cookies.some(c=>c.name.startsWith('wordpress_logged_in_')&&c.value))throw Error('WordPressの認証情報がありません');
+  if(!state.cookies.some(isLoggedInCookie))throw Error('WordPressの認証情報がありません');
   const value={baseURL:config.baseURL,savedAt:new Date().toISOString(),sealed:this.codec(JSON.stringify(state)),...(this.read(id,config)?.profile?{profile:this.read(id,config).profile}:{})};fs.mkdirSync(this.directory,{recursive:true});const f=this.file(id);fs.writeFileSync(f+'.tmp',JSON.stringify(value),{mode:0o600});fs.renameSync(f+'.tmp',f);
  }
  prepare(id,config){

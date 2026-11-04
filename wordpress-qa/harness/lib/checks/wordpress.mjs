@@ -1,3 +1,4 @@
+import {isLoggedInCookie} from '../wordpress-session.mjs';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { journalIntent,journalUpdate } from '../recovery.mjs';
@@ -38,7 +39,7 @@ function browserState(name,base){
   if(!state||!Array.isArray(state.cookies)||!Array.isArray(state.origins)||
     state.cookies.some(c=>!c||typeof c.domain!=='string'||c.domain.replace(/^\./,'')!==base.hostname||typeof c.name!=='string'||typeof c.value!=='string'||typeof c.path!=='string')||
     state.origins.some(o=>!o||o.origin!==base.origin||!Array.isArray(o.localStorage))||
-    !state.cookies.some(c=>c.name.startsWith('wordpress_logged_in_')&&c.value))throw new Error(`BLOCKED: browser state must be authenticated and scoped to target origin: ${name}`);
+    !state.cookies.some(isLoggedInCookie))throw new Error(`BLOCKED: browser state must be authenticated and scoped to target origin: ${name}`);
   return state;
 }
 export async function run({check,config,requestFactory,runDir,signal,record=()=>{}}) {
