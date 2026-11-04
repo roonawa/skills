@@ -112,7 +112,9 @@ try{
   await todo.locator('[data-todo="performance"] input').fill('3');
   await page.getByRole('button',{name:'保存して、増えた1件だけ実行'}).click();
   await expect(todo.locator('input').first()).toBeDisabled();
-  await expect(todo.locator('[data-todo="performance"]')).toHaveCount(0,{timeout:180000});
+  // 保存後の取り直しで項目は先に消えるため、実行の開始を待ってから結果を読む。
+  await expect(page.locator('#todo-status')).toHaveText('保存しました。増えた1件の検査を実行しています。',{timeout:60000});
+  await expect(todo.locator('[data-todo="performance"]')).toHaveCount(0);
   const third=await latest();
   assert.deepEqual(third.rows.filter(r=>r.selected).map(r=>r.id),['check.registration-performance']);
   assert.equal(third.rows.find(r=>r.id==='check.registration-performance').status,'pass');

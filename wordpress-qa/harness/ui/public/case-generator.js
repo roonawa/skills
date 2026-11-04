@@ -200,7 +200,7 @@ export function generateCases(input){
   }
  }
  const ids=new Set(c.checks.map(x=>x.id));
- for(const [suite,key,title,instructions] of viewpoints){const id='coverage-'+key;if(!ids.has(id))c.checks.push({id,title,suite,kind:'unconfigured',required:true,options:{instructions:instructions+' 対象・期待値が未確定のため実行前に設定してください。非該当は根拠と証拠を残し、手動判定で適用外にしてください。'}});}
+ for(const entry of viewpoints)if(!ids.has('coverage-'+entry[1]))c.checks.push(viewpointCheck(entry));
  if(!c.manual.some(x=>x.id==='coverage-design'))c.manual.push({id:'coverage-design',title:'デザイン・文章・使いやすさ',required:true,reason:'担当者・対象・日時・操作・証拠を記録する。'});
  const paths=(c.pages??[]).slice(0,5).map(p=>p.path).filter(p=>typeof p==='string');
  if(c.baseURL&&paths.length){
@@ -212,9 +212,12 @@ export function generateCases(input){
 
 // 登録時の観点が、操作テスト・登録した検査に置き換わる対応（観点の検査ID → 置き換え後の行ID）。
 export const COVERAGE_REPLACEMENTS={'coverage-publishing':['journey.profile-post-lifecycle'],'coverage-scheduled':['journey.profile-scheduled'],'coverage-contact-success':['journey.profile-contact-submit'],'coverage-order':['journey.profile-bank-order'],'coverage-order-record':['journey.profile-bank-order'],'coverage-order-cleanup':['journey.profile-bank-order'],'coverage-performance':['check.registration-performance']};
-// 合意した表示上限の合否検査。上限が消えたら検査も外す。
+// 登録時の観点（未設定の検査）。
+function viewpointCheck([suite,key,title,instructions]){return {id:'coverage-'+key,title,suite,kind:'unconfigured',required:true,options:{instructions:instructions+' 対象・期待値が未確定のため実行前に設定してください。非該当は根拠と証拠を残し、手動判定で適用外にしてください。'}};}
+// 合意した表示上限の合否検査。上限が消えたら検査を外し、設定が必要な観点に戻す。
 export function syncPerformanceBudget(input,profile={}){
  const c=structuredClone(input),checks=(c.checks??[]).filter(x=>x.id!=='registration-performance');
+ if(!profile.performanceMs&&!checks.some(x=>x.id==='coverage-performance'))checks.push(viewpointCheck(viewpoints.find(v=>v[1]==='performance')));
  if(profile.performanceMs)checks.push({id:'registration-performance',title:'登録した性能予算',suite:'performance',kind:'performance-navigation',options:{path:profile.sitePath||'/',samples:3,cache:'cold',budgets:{durationMs:profile.performanceMs}}});
  c.checks=checks;return c;
 }

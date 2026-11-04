@@ -66,7 +66,9 @@ test('settings save keeps a pass/fail check for the agreed display limit and ref
  assert(!(await(await fetch(`${app.url}/api/projects/${id}/todo`)).json()).todo.some(x=>x.key==='performance'));
  config=await save({performanceMs:2500});assert.equal(budget(config),2500);assert.equal(config.checks.filter(x=>x.id==='registration-performance').length,1);
  const {performanceMs,...cleared}=store.view(id).profile;const s=store.view(id);
- assert.equal((await post({version:s.version,config:s.config,profile:cleared})).status,200);assert.equal(budget(store.context(id).config),undefined);
+ assert.equal((await post({version:s.version,config:s.config,profile:cleared})).status,200);config=store.context(id).config;assert.equal(budget(config),undefined);
+ assert.equal(catalog(config).find(r=>r.id==='check.coverage-performance')?.preparationRequired,true);
+ assert((await(await fetch(`${app.url}/api/projects/${id}/todo`)).json()).todo.some(x=>x.key==='performance'&&x.count===1));
  const before=store.record(id).version,stale=await post({version:'stale-version',config:s.config,profile:cleared});
  assert.equal(stale.status,409);const body=await stale.json();assert.equal(body.conflict,true);assert.match(body.error,/別の画面で設定が更新されました/);assert.equal(store.record(id).version,before);
 });
