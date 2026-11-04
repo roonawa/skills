@@ -1,1 +1,1 @@
-export const releaseVersion='2026-10-30-simple-customer-report-1';
+export const releaseVersion='2026-11-04-handoff-first-screen';
