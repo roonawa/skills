@@ -5,6 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import {startUI} from '../ui/server.mjs';
 import {ProjectStore} from '../ui/project-store.mjs';
+import {registrationConfig} from '../ui/registration.mjs';
+import {prepareSaved} from '../ui/automatic-preparation.mjs';
 
 const profile={timezone:'Asia/Tokyo',language:'ja',indexable:false,writes:false,sitePath:'/',adminPath:'/wp-admin/',maxPages:20};
 const state={cookies:[{name:'admin-session',value:'private-cookie',domain:'example.test',path:'/'}],origins:[]};
@@ -75,4 +77,20 @@ test('public rediscovery without a profile prepares executable cases and preserv
  const id=store.save({config:cfg,auth:{rest:{username:'admin',password:'private-rest'}}});const before=store.record(id);
  const app=await startUI({port:0,storeDir:dir,credentialCodec:codec,publicDiscovery:async()=>({public:{crawlProbes:[{path:'/robots.txt',type:'robots'}]}})});
  try{const b=await(await fetch(app.url+'/api/bootstrap')).json();const r=await fetch(app.url+'/api/projects/'+id+'/rediscover',{method:'POST',headers:{Origin:app.url,'X-QA-Token':b.token,'Content-Type':'application/json'},body:JSON.stringify({version:before.version})});const data=await r.json();assert.equal(r.status,200,JSON.stringify(data));const after=store.record(id);assert.equal(data.preparation.adopted,1);assert.equal(after.config.checks.find(x=>x.id==='coverage-crawl').kind,'discovered-public');assert.deepEqual(after.config.admin,before.config.admin);assert.equal(after.sealed,before.sealed);assert.equal(after.profile,undefined);assert.equal(after.config.allowTestWrites,false);assert(!JSON.stringify(data).includes('private-rest'));}finally{await app.close();fs.rmSync(dir,{recursive:true,force:true});}
+});
+test('rediscovery and pre-run preparation keep the inventory date, reason and config hash while the plugin list is unchanged',async t=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'qa-rediscovery-date-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
+ const codec=(value,decode)=>decode?Buffer.from(value,'base64').toString():Buffer.from(value).toString('base64'),store=new ProjectStore(dir,{codec});
+ const day=d=>`2026-11-0${d}T01:00:00.000Z`,p={...profile,automation:{pluginInventory:{observed:true,slugs:['contact-form-7','akismet'],observedAt:day(1)}}};
+ const id=store.save({config:registrationConfig({name:'Dated',baseURL:'https://example.test',environment:'staging',profile:p,discovery:{pages:[{path:'/'}],warnings:[]}}),profile:p,auth:{browser:state}});
+ let inventory;const app=await startUI({port:0,storeDir:dir,credentialCodec:codec,registrationDiscovery:async()=>({...structuredClone(discovery),pages:[{path:'/'}],automation:{observedAt:inventory.observedAt,admin:{},public:{},pluginInventory:structuredClone(inventory)}})});t.after(()=>app.close());
+ const boot=await(await fetch(app.url+'/api/bootstrap')).json(),rediscover=async(slugs,d)=>{inventory={observed:true,slugs,observedAt:day(d)};const r=await fetch(app.url+`/api/projects/${id}/rediscover`,{method:'POST',headers:{Origin:app.url,'X-QA-Token':boot.token,'Content-Type':'application/json'},body:JSON.stringify({version:store.record(id).version})});assert.equal(r.status,200,await r.clone().text());return store.record(id);};
+ const reason=d=>`有効なプラグインに通販機能が見つからないため対象外（登録時の取得：2026-11-0${d}）`;
+ let r=await rediscover(['contact-form-7','akismet'],2);assert.equal(r.profile.automation.pluginInventory.observedAt,day(1));assert.equal(r.config.autoNotApplicable['coverage-order'],reason(1));
+ const hash=store.context(id).configHash;
+ r=await rediscover(['akismet','contact-form-7'],3);assert.equal(r.profile.automation.pluginInventory.observedAt,day(1));assert.equal(r.config.autoNotApplicable['coverage-order'],reason(1));assert.equal(store.context(id).configHash,hash);
+ // 実行前の自動補完（autoPrepare）と同じ取得・保存。
+ inventory={observed:true,slugs:['akismet','contact-form-7'],observedAt:day(5)};const before=store.record(id),prepared=await prepareSaved(before,{secrets:{browser:state},registrationDiscovery:async()=>({...structuredClone(discovery),pages:[{path:'/'}],automation:{observedAt:day(5),admin:{},public:{},pluginInventory:structuredClone(inventory)}}),publicDiscovery:async()=>({})});
+ assert.equal(prepared.profile.automation.pluginInventory.observedAt,day(1));store.save({id,version:before.version,config:prepared.config,profile:prepared.profile});assert.equal(store.context(id).configHash,hash);
+ r=await rediscover(['contact-form-7'],4);assert.equal(r.profile.automation.pluginInventory.observedAt,day(4));assert.equal(r.config.autoNotApplicable['coverage-order'],reason(4));assert.notEqual(store.context(id).configHash,hash);
 });

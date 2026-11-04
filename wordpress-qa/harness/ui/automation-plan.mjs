@@ -15,7 +15,9 @@ export function resolveAutomationProfile(input, discovery={}) {
   }
   for(const [key,value] of Object.entries({contactFormId:f.formId,contactPath:f.path,contactNameField:unique('text')??(()=>{const names=f.fields.filter(x=>x.type==='text'&&/^(?:your[-_])?(?:full[-_])?name$/i.test(x.name));return names.length===1?names[0].name:undefined;})(),contactEmailField:unique('email'),contactMessageField:unique('textarea'),contactConsentField:unique('checkbox')}))if(p[key]===undefined&&value!==undefined)p[key]=value;
  }
- const inv=discovery.automation?.pluginInventory;
+ // 一覧が前回と同じ（観測の可否と有効プラグインの集合が一致）なら取得日も含めて前回のまま。変わったときだけ新しい取得日にする。
+ const found=discovery.automation?.pluginInventory,prev=p.automation?.pluginInventory,same=(a,b)=>a.observed===b.observed&&new Set(a.slugs).size===new Set(b.slugs).size&&a.slugs.every(x=>b.slugs.includes(x));
+ const inv=found&&prev&&same(found,prev)?prev:found;
  p.automation=validateAutomationInput(inv?{...p.automation,pluginInventory:inv}:p.automation);
  return p;
 }

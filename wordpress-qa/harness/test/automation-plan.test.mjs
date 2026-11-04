@@ -51,3 +51,12 @@ test('resolveAutomationProfile copies pluginInventory and keeps relevantOverride
  assert.deepEqual(p.automation.pluginInventory,inv);assert.deepEqual(p.automation.relevantOverrides,['coverage-order']);
  assert.equal(resolveAutomationProfile({},discovery).automation.pluginInventory,undefined);
 });
+test('an unchanged plugin inventory keeps its first observedAt; a changed one is stamped anew',()=>{
+ const day1={observed:true,slugs:['a','b'],observedAt:'2026-11-01T00:00:00.000Z'},later=(inv)=>resolveAutomationProfile({automation:{pluginInventory:day1}},{automation:{...discovery.automation,pluginInventory:inv}}).automation.pluginInventory;
+ assert.deepEqual(later({observed:true,slugs:['a','b'],observedAt:'2026-11-05T00:00:00.000Z'}),day1);
+ assert.deepEqual(later({observed:true,slugs:['b','a'],observedAt:'2026-11-05T00:00:00.000Z'}),day1);
+ assert.deepEqual(later({observed:true,slugs:['a','b','c'],observedAt:'2026-11-05T00:00:00.000Z'}),{observed:true,slugs:['a','b','c'],observedAt:'2026-11-05T00:00:00.000Z'});
+ assert.deepEqual(later({observed:true,slugs:['a'],observedAt:'2026-11-05T00:00:00.000Z'}).observedAt,'2026-11-05T00:00:00.000Z');
+ assert.deepEqual(later({observed:false,slugs:[]}),{observed:false,slugs:[]});
+ const first=resolveAutomationProfile({},{automation:{...discovery.automation,pluginInventory:{observed:true,slugs:['a'],observedAt:'2026-11-05T00:00:00.000Z'}}}).automation.pluginInventory;assert.equal(first.observedAt,'2026-11-05T00:00:00.000Z');
+});
