@@ -51,6 +51,8 @@ const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const publicDir=path.join(root,'ui','public');
 class HttpError extends Error {constructor(status,message,extra){super(message);this.status=status;Object.assign(this,extra);}}
 const reject=(status,message)=>{throw new HttpError(status,message);};
+// ログイン保存の失敗理由は利用者向けの日本語の文言だけを返す。システムの英語のエラー（パス等を含み得る）は汎用の失敗のまま隠す。
+const userFacing=e=>{if(e instanceof HttpError||/[぀-ヿ一-鿿]/.test(String(e?.message)))reject(e.status??400,e.message);throw e;};
 const readJSON=file=>JSON.parse(fs.readFileSync(file,'utf8'));
 function boundedPath(directory,relative) {
   const base=fs.realpathSync(directory),file=fs.realpathSync(path.resolve(directory,relative));
@@ -394,7 +396,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
             try{
               await logins.verify(data.loginId);
               logins.save(data.loginId,{baseURL:record.config.baseURL,projectId:p.id,role:data.role},state=>store.save({id:p.id,version:record.version,config:record.config,profile:record.profile,auth:data.role?{roleCredentials:[{name:data.role,browser:state}]}:{browser:state}}));
-            }catch(e){reject(e.status??400,e.message);}
+            }catch(e){userFacing(e);}
             registerManaged(p.id);return json(200,{ok:true,version:store.record(p.id).version});
           }
           if(!externalAuth)reject(400,'認証の保存先がありません');
@@ -403,7 +405,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
           if(active||closing||projectIsAlive(p.outputDir))reject(409,'実行完了後に認証を保存してください');
           const data=await body(req);if(Object.keys(data).some(k=>k!=='loginId')||typeof data.loginId!=='string')reject(400,'確認済みログインを指定してください');
           if(access)logins.assertOwner(data.loginId,actor.name);
-          try{logins.save(data.loginId,{baseURL:c.baseURL,projectId:p.id},state=>externalAuth.save(p.id,c,state));}catch(e){reject(e.status??400,e.message);}
+          try{logins.save(data.loginId,{baseURL:c.baseURL,projectId:p.id},state=>externalAuth.save(p.id,c,state));}catch(e){userFacing(e);}
           return json(200,{ok:true,...externalAuth.status(p.id,c)});
         }
         if(segments[3]==='preflight'&&segments.length===4&&req.method==='GET'){
