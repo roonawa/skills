@@ -2,7 +2,7 @@
 
 - 作成日：2026-11-02
 - 対象：SITE EXAM（wordpress-qa harness）の結果画面（`ui/public/app.js`）
-- 状態：レビュー済み・利用者の承認待ち
+- 状態：実装済み
 
 ## 1. 目的と背景
 
