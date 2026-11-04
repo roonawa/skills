@@ -26,6 +26,13 @@ wpqa_compose ps -a
 
 実測値に置き換えてから実行する。`compose config --quiet`で構成を検証する。展開済み設定の全文を表示しない。
 
+**注意：`umask 077` のまま展開・配置したプログラムはコンテナで読めなくなる。** `umask 077` は鍵・バックアップ・作業記録を守るためのもの。この状態で更新ZIPを展開・コピーすると、プログラムのファイルが root だけ読める（600）状態になる。Dockerfile は `package.json`・`package-lock.json` を root の持ち物のままイメージに入れるため、node ユーザーで動く検査（Playwright）が `EACCES: permission denied, open '/app/package.json'` で失敗する（2026-11-04 に発生）。
+
+- 展開直後に、展開先のプログラムだけ読めるようにする：`chmod -R u=rwX,go=rX <展開先>/wordpress-qa-linux`
+- 配置後に、配置先のプログラムだけ読めるようにする。`bin lib builtin tests ui` は `chmod -R u=rwX,go=rX`、`package.json package-lock.json playwright.config.mjs MANIFEST.json SHA256SUMS START-HERE.txt` と `deploy/*.html` は `chmod 644`。
+- `deploy/secrets`・`deploy/.env`・バックアップ・作業記録には適用しない。
+- 候補イメージと切替後のコンテナで、node ユーザーが読めないファイルが無いことを確認する：`find /app -path /app/node_modules -prune -o -type f ! -readable -print` の出力が空であること。
+
 現在のリポジトリでは次を使うが、実際の`.Mounts`を正とする：
 
 | 領域 | コンテナー内 | 保存対象 |
