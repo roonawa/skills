@@ -22,6 +22,9 @@ const strings=(v,out=[])=>{if(v==null)return out;if(typeof v==='object')for(cons
 const poolOf=group=>strings([group?.facts,group?.verification?.notes]).join('\n');
 const sentences=t=>t.split(/[。！？\n]/).map(s=>({raw:s.trim(),key:s.replace(/[\s、。・「」（）]/g,'')})).filter(s=>s.key.length>=6);
 
+// 書き直さない項目で使った文。書き直しで同じ文を書かないよう Claude に渡す。
+export const usedSentences=items=>[...new Set((Array.isArray(items)?items:[]).flatMap(texts).flatMap(sentences).map(s=>s.raw))];
+
 // 本文の URL・CVE・ドメイン名・版番号のうち、そのグループの facts と verification.notes にないものを返す。
 function unknownFacts(text,pool){
   const lower=pool.toLowerCase(),missing=[];

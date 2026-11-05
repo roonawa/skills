@@ -45,7 +45,7 @@ const item=(groupId,n,extra={})=>({groupId,title:`${n+1}番目の対応`,summary
 // Fake AI: one distinct, lint-clean item per group (or a script); records calls.
 function fakeAi(script){
   const ai={calls:[],async writeEditorItems(groups,opts={}){
-    ai.calls.push({ids:groups.map(g=>g.id),problems:opts.problems??[]});
+    ai.calls.push({ids:groups.map(g=>g.id),problems:opts.problems??[],avoid:opts.avoid});
     return script?script(groups,opts,ai.calls.length):groups.map((g,i)=>item(g.id,i));
   }};
   return ai;
@@ -167,4 +167,13 @@ test('the foreign-image item is readable',async()=>{
   const r=await buildEditorReport({...base,report,client:komoroClient,ai:fakeAi()});
   assert.match(r.basisHtml,/foreign-image/);
   assertReadable(r.html,r.warnings);
+});
+
+test('a duplicate sentence is rewritten with the other items sentences to avoid',async()=>{
+  const shared='この項目はサイトの内容の修正は不要です。';
+  const ai=fakeAi((groups,opts,n)=>groups.map((g,i)=>n===1?item(g.id,i,{note:shared}):item(g.id,i+50,{note:(opts.avoid??[]).includes(shared.replace('。',''))?'':shared})));
+  const r=await buildEditorReport({...base,client:komoroClient,ai});
+  assert.equal(ai.calls.length,2);
+  assert.ok(ai.calls[1].avoid.includes(shared.replace('。','')));
+  assert.equal(r.html.split(shared.replace('。','')).length-1,1);
 });

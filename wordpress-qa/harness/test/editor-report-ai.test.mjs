@@ -63,3 +63,13 @@ test('redacts bare cookie pairs with hashed and prefixed names',async()=>{
   await ai.writeEditorItems([group(0,{reasons:['sent wordpress_logged_in_5c8e1a2b3c4d=SECRET5; other','ENC_wordpress_logged_in_ab12=SECRET6','(wp-postpass_9f8e=SECRET7)','bid_1_password_protected_auth=SECRET8 end']})]);
   const raw=bodies[0].o.body;for(const n of ['SECRET5','SECRET6','SECRET7','SECRET8'])assert(!raw.includes(n),n);assert(raw.includes('other'));
 });
+test('rewrite passes sentences used elsewhere and the prompt forbids repeats',async()=>{
+  const bodies=[],ai=new AiAssistant(settingsFor(),{fetcher:echo(bodies)});
+  await ai.writeEditorItems([group(0),group(1)],{problems:[{groupId:'g1',problem:'duplicate',detail:'同じ文が重複しています：x'}],avoid:['ほかの項目で使った文です','wordpress_logged_in_abc=1']});
+  const b=bodies[0].b,sent=JSON.parse(b.messages[0].content);
+  assert.equal(sent.length,1);assert.equal(sent[0].avoid[0],'ほかの項目で使った文です');
+  assert(!/wordpress_logged_in_abc/.test(b.messages[0].content));
+  assert(b.system.includes('同じ文'));
+  const first=[];await new AiAssistant(settingsFor(),{fetcher:echo(first)}).writeEditorItems([group(0)]);
+  assert.equal(JSON.parse(first[0].b.messages[0].content)[0].avoid,undefined);
+});
