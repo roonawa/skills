@@ -20,7 +20,7 @@ import {createSharedAccess} from './shared-access.mjs';
 import {BrowserLogin} from './browser-login.mjs';
 import {RemoteLogin} from './remote-login.mjs';
 import {SystemSettings} from './system-settings.mjs';
-import {AiAssistant} from './ai-assistant.mjs';
+import {AiAssistant,estimateEditorCalls} from './ai-assistant.mjs';
 import {checkStorage,auditAppend} from './resource-guard.mjs';
 import {ProjectStore} from './project-store.mjs';
 import {ExternalAuth} from './external-auth.mjs';
@@ -40,6 +40,8 @@ import {storedNotApplicable} from '../lib/auto-not-applicable.mjs';
 import {operationRequest} from '../lib/operations.mjs';
 import {buildIssueReport} from '../lib/issue-report.mjs';
 import {buildDesignerReport} from '../lib/designer-report.mjs';
+import {buildEditorReport} from '../lib/editor-report/index.mjs';
+import {groupRows} from '../lib/editor-report/causes.mjs';
 import {autoReport} from '../lib/auto-report.mjs';
 import {projectIsAlive,runIsAlive} from '../lib/run-lock.mjs';
 import {redactor} from '../lib/evidence.mjs';
@@ -73,7 +75,7 @@ function projectInfo(project) {
   return {...ctx,outputDir,baselineDir:path.resolve(ctx.configDir,c.baselineDir??'baselines')};
 }
 
-export async function startUI({configPaths=[],port=4310,demo=false,storeDir,loginOptions,trustedAdapters={},shared,credentialCodec,host='127.0.0.1',auditFile,registrationDiscovery=discoverRegistration,publicDiscovery=discoverAutomation,systemOptions={},aiOptions}) {
+export async function startUI({configPaths=[],port=4310,demo=false,storeDir,loginOptions,trustedAdapters={},shared,credentialCodec,host='127.0.0.1',auditFile,registrationDiscovery=discoverRegistration,publicDiscovery=discoverAutomation,systemOptions={},aiOptions,editorRecheckClient}) {
   if(!shared&&host!=='127.0.0.1')throw Error('外部待受は共有モードのみです');
   if(shared&&(configPaths.length||typeof credentialCodec!=='function'))throw Error('共有版は暗号化キーとUI登録サイトのみ対応します。外部設定は移行が必要です');
   const access=shared?createSharedAccess(shared):null;
@@ -98,7 +100,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
   function registerManaged(id){const ctx=store.context(id);if(!hiddenIds.has(id))projects.set(id,{id,file:ctx.configPath,outputDir:ctx.outputDir,managed:true,store});}
   if(store)for(const id of store.ids())registerManaged(id);
   for(const id of hiddenIds)projects.delete(id);
-  let active=null,lastJob=null,closing=false,url,preparing=null;
+  let active=null,lastJob=null,closing=false,url,preparing=null,editorJob=null;
   const jobs=new Set();
   const getProject=id=>{const p=projects.get(id);if(!p)reject(404,'登録されていないサイトです');return p;};
   function profileScope(p,current=projectInfo(p)){
@@ -156,7 +158,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
   function jobState(job){return job?{projectId:job.projectId,kind:job.kind,runId:job.runId,state:job.state,exitCode:job.exitCode,log:job.log}:null;}
   function launch(p,args,kind,operationEnv={}) {
     admission();allowTarget(projectInfo(p).config.baseURL);
-    if(closing)reject(503,'終了処理中です');if(active)reject(409,'別の処理が実行中です。完了を待ってください');
+    if(closing)reject(503,'終了処理中です');if(active)reject(409,'別の処理が実行中です。完了を待ってください');if(editorJob)reject(409,'編集者向け報告書の作成が終わってから実行してください');
     if(['run','recover'].includes(kind)&&projectIsAlive(p.outputDir))reject(409,'以前の検査プロセスが生存している可能性があります。終了を待ってください。');
     if(logins.busy)reject(409,'ログインの保存またはキャンセル後に実行してください');
     const prepared=p.managed?store.prepare(p.id):externalAuth?.prepare(p.id,projectInfo(p).config)??{env:{}};
@@ -210,6 +212,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
   async function autoPrepare(p){
     if(!p.managed)return null;
     if(active||closing||logins.busy||preparing||projectIsAlive(p.outputDir))reject(409,'検査・ログイン・設定補完の完了後に実行してください');
+    if(editorJob)reject(409,'編集者向け報告書の作成が終わってから実行してください');
     const record=store.record(p.id);
     if(!unresolvedPreparation(record.config,record.profile??{}).length)return null;
     preparing={projectId:p.id,kind:'prepare',state:'preparing',log:'サイト情報を取得し、設定を自動補完しています。'};
@@ -295,10 +298,11 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
         if(req.method==='GET')return json(200,{...system.view(),canEdit:isAdmin(actor)});
         if(!isAdmin(actor))reject(403,'この設定は管理者のみ変更できます');
         if(active||logins.busy||ai.busy)reject(409,'検査・ログイン・AI処理の完了後に設定してください');
+        if(editorJob)reject(409,'編集者向け報告書の作成が終わってから実行してください');
         try{return json(200,system.save(await body(req)));}catch(e){reject(400,e.message);}
       }
       if(target.pathname==='/api/ai/propose'&&req.method==='POST'){
-        if(!ai)reject(503,'AI設定がありません');admission();const data=await body(req);
+        if(!ai)reject(503,'AI設定がありません');admission();if(editorJob)reject(409,'編集者向け報告書の作成が終わってから実行してください');const data=await body(req);
         try{return json(200,await ai.propose(data.config,data.answers??{},actor?.name??'local'));}catch(e){reject(400,e.message);}
       }
       if(target.pathname==='/api/ai/apply'&&req.method==='POST'){
@@ -341,6 +345,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
         if(!store)reject(503,'サイト登録が無効です');
         const data=await body(req);
         if(active||closing)reject(409,'実行完了後にログインしてください');
+        if(editorJob)reject(409,'編集者向け報告書の作成が終わってから実行してください');
         try{
           if(segments.length===2){
             admission();allowTarget(data.baseURL);
@@ -372,6 +377,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
           const data=await body(req);
           if(data.confirmed!==true||typeof data.configHash!=='string')reject(400,'対象サイトの削除を確認してください');
           if(active||preparing||closing||logins.busy||ai?.busy||projectIsAlive(p.outputDir))reject(409,'検査・ログイン・AI処理の完了後に削除してください');
+          if(editorJob)reject(409,'編集者向け報告書の作成が終わってから実行してください');
           if(data.configHash!==projectInfo(p).configHash)reject(409,'サイト設定が変更されました。画面を再読み込みしてください');
           if(data.mode!==undefined&&!['hide','delete'].includes(data.mode))reject(400,'削除方法が不正です');
           if(data.mode==='delete'){
@@ -515,6 +521,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
           // ids は指定した行だけを実行する。設定が必要・対象外・存在しない行が1つでもあれば実行しない。
           const pickIds=config=>{if(!ids)return;if(ids.some(id=>config.journeys.some(j=>j.explicitOnly&&id==='journey.'+j.id)))reject(400,'操作テストの画面で送信内容を確認して実行してください');try{selectTests(catalog(config,data.suite),ids);}catch(e){reject(400,e.message);}};
           if(ids){const before=projectInfo(p).config;pickIds(p.managed?addSecurityChecks(structuredClone(before),store.record(p.id).profile?.adminPath??'/wp-admin/'):before);}
+          if(editorJob)reject(409,'編集者向け報告書の作成が終わってから実行してください');
           if(p.managed&&!active&&!preparing&&!logins.busy){const saved=store.record(p.id),config=addSecurityChecks(structuredClone(saved.config),saved.profile?.adminPath??'/wp-admin/');if(config.checks.length!==(saved.config.checks??[]).length){store.save({id:p.id,version:saved.version,config,profile:saved.profile});registerManaged(p.id);}}const preparation=await autoPrepare(p);const current=projectInfo(p);pickIds(current.config);
           const operations=!ids&&!profileScope(p,current)&&['all','journey'].includes(data.suite)?current.config.journeys.filter(j=>j.runWithSuite&&j.explicitOnly):[];
           let env={};if(operations.length){
@@ -550,7 +557,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
               const updated=buildExam(enriched,record);return json(200,{...updated,presentationWarnings:customerImageWarnings(updated,bundle.image)});
             }
             if(['exam-evidence','exam-evidence-run'].includes(segments[5])&&req.method==='POST'){
-              admission();if(active||closing||preparing||logins.busy)reject(409,'処理の終了後に実行してください');
+              admission();if(active||closing||preparing||logins.busy)reject(409,'処理の終了後に実行してください');if(editorJob)reject(409,'編集者向け報告書の作成が終わってから実行してください');
               const data=await body(req);if(data.fingerprint!==exam.fingerprint||data.version!==exam.version)reject(409,'結果が更新されています。評価を再取得してください');
               if(segments[5]==='exam-evidence'){
                 try{return json(200,attachGapPlans(exam,await completeEvidence(p,directory,exam)));}catch(e){reject(400,e.message);}
@@ -565,7 +572,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
               const {job}=launch(p,['run','--config',p.file,'--suite',row.suite,'--id',row.id],'run');return json(202,jobState(job));
             }
             if(segments[5]==='exam-ai'&&req.method==='POST'){
-              admission();
+              admission();if(editorJob)reject(409,'編集者向け報告書の作成が終わってから実行してください');
               if(!ai)reject(503,'AI設定がありません');const data=await body(req);if(data.fingerprint!==exam.fingerprint||data.version!==exam.version)reject(409,'結果が更新されています。評価を再取得してください');
               try{return json(200,{fingerprint:exam.fingerprint,version:exam.version,suggestions:await ai.explain(exam.issues)});}catch(e){reject(400,e.message);}
             }
@@ -669,6 +676,56 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
             try{fs.writeFileSync(temporary,generated.html,{flag:'wx'});fs.renameSync(temporary,output);}finally{if(fs.existsSync(temporary))fs.unlinkSync(temporary);}
             return json(200,{file:outputName,issueCount:generated.issueCount,failedCases:generated.failedCases,warnings:generated.warnings});
           }
+          if(segments[5]==='editor-report'&&segments.length===6&&['GET','POST'].includes(req.method)){
+            // 編集者向け報告書：登録済みサイトの完了した実行だけ。AI の条件と残り回数を確かめてから、取得も Claude も始める。
+            const files={editor:'editor-report.html',basis:'editor-report-basis.html'},exists=name=>fs.existsSync(path.join(directory,name));
+            if(!p.managed){if(req.method==='GET')return json(200,{available:false,reason:'登録済みサイトのみ作成できます',groups:0,calls:0,remaining:0,files:{editor:exists(files.editor),basis:exists(files.basis)},stage:null});reject(403,'登録済みサイトのみ作成できます');}
+            const finished=report.runStatus==='finished'&&!!report.finishedAt&&!runIsAlive(directory);
+            const readContext=()=>{try{const file=boundedPath(directory,'context.json');if(fs.statSync(file).size>16*1024*1024)return null;const context=JSON.parse(fs.readFileSync(file,'utf8'));if(context.configHash!==report.configHash)return null;const {pages,visuals,policies}=context.config;return {pages,visuals,policies};}catch{return null;}};
+            const config=readContext(),view=system.view(),remaining=system.remaining();
+            const groups=groupRows(report,{environment:report.environment,config}).groups.filter(g=>['editor','admin','tech','not-site'].includes(g.category)).length,calls=estimateEditorCalls(groups+1);
+            const busy=!!editorJob||!!active||closing||!!preparing||logins.busy||ai.busy;
+            const reason=!finished?'完了した実行を選択してください':!(view.enabled&&view.approved&&view.evidenceApproved&&view.configured)?'AIの利用設定（有効化・承認・取得情報の送信許可）を確認してください':remaining<calls?`本日のAI利用の残り回数が足りません（必要 ${calls} 回・残り ${remaining} 回）`:busy?'ほかの処理が終わってから作成してください':null;
+            const stage=editorJob?.projectId===p.id&&editorJob.runId===id?editorJob.stage:null;
+            if(req.method==='GET')return json(200,{available:!reason,...(reason?{reason}:{}),groups,calls,remaining,files:{editor:exists(files.editor),basis:exists(files.basis)},stage});
+            if(reason)reject(409,reason);
+            const data=await body(req);if(!data||typeof data!=='object'||Array.isArray(data)||Object.keys(data).length)reject(400,'報告書の指定が不正です');
+            if(editorJob||active||closing||preparing||logins.busy||ai.busy)reject(409,'ほかの処理が終わってから作成してください');
+            for(const name of Object.values(files)){const output=path.join(directory,name);if(fs.existsSync(output)&&fs.lstatSync(output).isSymbolicLink())reject(403,'報告書の保存先を確認してください');}
+            const record=store.record(p.id),baseURL=report.baseURL??record.config.baseURL;
+            admission();allowTarget(baseURL);
+            editorJob={projectId:p.id,runId:id,stage:'facts'};
+            const stageNames={facts:'結果の整理',recheck:'サイトの再確認',writing:'文章の作成',checking:'文章の確認',rendering:'報告書の作成'};
+            try{
+              const secrets=record.sealed?JSON.parse(store.codec(record.sealed,true)):{};
+              const first=record.config.pages?.[0]?.path??'/',sitePath=record.profile?.sitePath??(first.endsWith('/')?first:first.slice(0,first.lastIndexOf('/')+1));
+              const allowedOrigins=systemOptions.enforceEgress?view.destinations.map(d=>d.origin):[new URL(baseURL).origin];
+              let bytesRead=0;
+              const readEvidence=file=>{
+                if(typeof file!=='string'||!file.endsWith('.json')||!report.rows.some(r=>(r.evidence??[]).includes(file)))throw new Error('Unregistered evidence');
+                const evidence=boundedPath(directory,file),stat=fs.statSync(evidence);
+                if(!stat.isFile()||stat.size>16*1024*1024||bytesRead+stat.size>64*1024*1024)throw new Error('Report evidence too large');
+                const buffer=fs.readFileSync(evidence);bytesRead+=buffer.length;
+                if(bytesRead>64*1024*1024)throw new Error('Report evidence too large');
+                return JSON.parse(buffer.toString('utf8'));
+              };
+              let generated;
+              try{
+                generated=await buildEditorReport({report,readEvidence,config,site:{name:record.config.name,baseURL,environment:report.environment??record.config.environment},sitePath,allowedOrigins,publicPassword:secrets.publicPassword??'',...(editorRecheckClient?{client:editorRecheckClient}:{}),ai,onStage:s=>{if(editorJob)editorJob.stage=s;}});
+              }catch(e){
+                const where=stageNames[editorJob?.stage]??'作成';
+                if(/^文章の確認に通りませんでした/.test(e?.message))reject(422,e.message);
+                if(/[぀-ヿ一-鿿]/.test(String(e?.message)))reject(422,`${where}の段階で止まりました：${e.message}`);
+                reject(500,`${where}の段階で編集者向け報告書を作成できませんでした。時間をおいて再試行してください`);
+              }
+              if(Buffer.byteLength(generated.html)+Buffer.byteLength(generated.basisHtml)>64*1024*1024)reject(413,'報告書が大きすぎます');
+              for(const [name,html] of [[files.editor,generated.html],[files.basis,generated.basisHtml]]){
+                const output=path.join(directory,name),temporary=output+'.'+randomUUID()+'.tmp';
+                try{fs.writeFileSync(temporary,html,{flag:'wx'});fs.renameSync(temporary,output);}finally{if(fs.existsSync(temporary))fs.unlinkSync(temporary);}
+              }
+              return json(200,{file:files.editor,basis:files.basis,counts:generated.counts,aiCalls:generated.aiCalls,warnings:generated.warnings});
+            }finally{editorJob=null;}
+          }
           if(segments.length===5&&req.method==='GET') {
             Object.assign(report,enrichFailures(report,evidenceJSON(directory)));
             let log='';try{log=fs.readFileSync(path.join(directory,'ui.log'),'utf8');}catch{}
@@ -726,7 +783,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
           }
           if(segments.length>=6&&req.method==='GET') {
             const relative=segments[5]==='files'&&segments.length===6?target.searchParams.get('path'):segments.slice(5).join('/');
-            const allowed=new Set(['report.html','issue-report.html','designer-report.html','results.json','ui.log',...report.rows.flatMap(r=>r.evidence??[])]);
+            const allowed=new Set(['report.html','issue-report.html','designer-report.html','editor-report.html','editor-report-basis.html','results.json','ui.log',...report.rows.flatMap(r=>r.evidence??[])]);
             for(const row of report.rows) if(/^snapshot\.[a-z][a-z0-9-]{0,63}$/.test(row.id))allowed.add(`candidates/${row.id}.png`);
             if(!allowed.has(relative))reject(403,'台帳に登録されていないファイルです');
             let file;try{file=boundedPath(directory,relative);}catch(e){if(e.status)throw e;reject(404,'証拠ファイルがありません');}

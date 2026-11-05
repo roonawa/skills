@@ -20,5 +20,6 @@ export class SystemSettings {
     return this.view();
   }
   key(){const s=this.read();if(!s.enabled||!s.approved||!s.sealed)throw Error('管理者のAI設定でAPIキーと外部送信の許可を登録してください');return this.codec(s.sealed,true);}
+  remaining(){const s=this.read(),day=new Date().toISOString().slice(0,10);return Math.max(0,s.dailyLimit-(s.day===day?(s.used??0):0));}
   reserve(){const s=this.read(),day=new Date().toISOString().slice(0,10);if(s.day!==day){s.day=day;s.used=0;}if((s.used??0)>=s.dailyLimit)throw Error('本日のAI利用上限に達しました（UTC日付で更新）');s.used=(s.used??0)+1;const tmp=this.file+'.tmp';fs.writeFileSync(tmp,JSON.stringify(s),{mode:0o600});fs.renameSync(tmp,this.file);}
 }

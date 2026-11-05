@@ -77,6 +77,37 @@ $('#issue-report-generate').onclick=async()=>{
   }catch(error){if(scope===`${state.projectId}/${state.runId}`){showError(error.message);$('#issue-report-status').textContent='生成できませんでした。';}}
   finally{state.requesting=false;render();}
 };
+$('#issue-report-panel').insertAdjacentHTML('afterend','<details id="editor-report-panel"><summary>編集者向け報告書を作成</summary><p>不合格・注意の項目を原因ごとにまとめ、公開ページを読み取りだけで再確認したうえで、Claudeが編集者向けの対応手順を書きます。分類と件数はプログラムが決め、根拠のページも一緒に作成します。</p><p id="editor-report-calls"></p><button id="editor-report-generate" type="button">編集者向け報告書を作成</button><a id="editor-report-open" target="_blank" rel="noopener" hidden>編集者向け報告書を開く ↗</a><a id="editor-report-basis" target="_blank" rel="noopener" hidden>根拠を開く ↗</a><p id="editor-report-status" role="status"></p></details>');
+const editorStages={facts:'結果を整理しています',recheck:'公開ページを再確認しています',writing:'Claudeが文章を書いています',checking:'文章を機械的に確認しています',rendering:'報告書をまとめています'};
+const editorReport={scope:'',info:null,creating:false,ticket:0,done:null};
+function editorReportShow(){
+  const info=editorReport.info,endpoint=runAPI();
+  $('#editor-report-calls').textContent=info?`必要なAIの回数：最大${info.calls}回（本日の残り${info.remaining}回）`:'';
+  $('#editor-report-generate').disabled=state.requesting||editorReport.creating||!info?.available;
+  for(const [id,key,file] of [['#editor-report-open','editor','editor-report.html'],['#editor-report-basis','basis','editor-report-basis.html']]){$(id).hidden=!info?.files?.[key];if(info?.files?.[key])$(id).href=`${endpoint}/files?path=${encodeURIComponent(file)}`;}
+  if(info?.stage)$('#editor-report-status').textContent=`作成中：${editorStages[info.stage]??info.stage}…`;
+  else if(editorReport.done)$('#editor-report-status').textContent=editorReport.done;
+  else if(!editorReport.creating&&info&&!info.available&&info.reason)$('#editor-report-status').textContent=info.reason;
+}
+async function editorReportLoad(){
+  const scope=`${state.projectId}/${state.runId}`,ticket=++editorReport.ticket;
+  try{const info=await api(`${runAPI()}/editor-report`);if(scope===`${state.projectId}/${state.runId}`&&ticket===editorReport.ticket){editorReport.info=info;editorReportShow();}}catch{}
+}
+$('#editor-report-generate').onclick=async()=>{
+  if(state.requesting||editorReport.creating||!state.runId||!editorReport.info?.available)return;
+  const scope=`${state.projectId}/${state.runId}`,endpoint=runAPI();
+  state.requesting=true;editorReport.creating=true;editorReport.done=null;render();showError('');
+  $('#editor-report-open').hidden=true;$('#editor-report-basis').hidden=true;$('#editor-report-status').textContent='作成を始めています…';
+  const timer=setInterval(editorReportLoad,1000);
+  try{
+    const data=await api(`${endpoint}/editor-report`,{method:'POST',body:'{}'});
+    if(scope!==`${state.projectId}/${state.runId}`)return;
+    const c=data.counts;
+    $('#editor-report-status').textContent=`作成しました。不合格${c.fail}件・注意${c.caution}件・未確認${c.unverified}件・対象外${c.notApplicable}件（AIの利用${data.aiCalls}回）。${data.warnings.join('。')}`;
+  }catch(error){if(scope===`${state.projectId}/${state.runId}`){showError(error.message);$('#editor-report-status').textContent=`作成できませんでした：${error.message}`;}}
+  finally{clearInterval(timer);editorReport.creating=false;state.requesting=false;editorReport.ticket++;const current=scope===`${state.projectId}/${state.runId}`,status=$('#editor-report-status').textContent;await editorReportLoad();if(current){editorReport.done=status;$('#editor-report-status').textContent=status;}render();}
+};
+$('#editor-report-panel').ontoggle=()=>{if($('#editor-report-panel').open&&state.runId)editorReportLoad();};
 $('#issue-report-panel').insertAdjacentHTML('afterend','<details id="handoff-panel"><summary>開発担当への引き継ぎ（C-HUB）</summary><p>不合格・注意の課題を、開発担当に渡す文面にまとめます。コピーした時点の内容が引き継ぎ記録として保存されます。</p><button id="handoff-make" type="button">文面を作成</button><div id="handoff-result" hidden><p>引き継ぐ課題（外すと文面から消えます）</p><div id="handoff-issues"></div><label for="handoff-subject">件名</label><input id="handoff-subject" readonly><label for="handoff-body">本文</label><textarea id="handoff-body" readonly rows="14"></textarea><button id="handoff-copy-subject" type="button">件名をコピー</button><button id="handoff-copy-body" type="button">本文をコピー</button></div><div id="handoff-compare" hidden><button id="handoff-compare-open" type="button" hidden>前回の引き継ぎと比較</button><div id="handoff-compare-result" hidden><p id="handoff-compare-counts"></p><p>新たに発生した課題（外すと比較文面から消えます）</p><div id="handoff-compare-added"></div><label for="handoff-compare-body">比較文面</label><textarea id="handoff-compare-body" readonly rows="12"></textarea><button id="handoff-compare-copy" type="button">比較結果をコピー</button></div></div><p id="handoff-status" role="status"></p></details>');
 const handoff={scope:'',id:'',cmpId:'',ticket:0};
 const handoffURL=kind=>`${runAPI()}/${kind}`,handoffKeys=box=>[...box.querySelectorAll('input:not(:checked)')].map(i=>i.dataset.key);
@@ -393,6 +424,9 @@ function render(){
   $('#issue-report-generate').disabled=state.requesting||report?.runStatus!=='finished';
   const reportScope=`${state.projectId}/${state.runId}`;
   if(issueReportScope!==reportScope){issueReportScope=reportScope;$('#issue-report-open').hidden=true;$('#issue-report-status').textContent='';$('#issue-report-notes').value='';}
+  $('#editor-report-panel').hidden=!report;
+  if(editorReport.scope!==reportScope+report?.runStatus){editorReport.scope=reportScope+report?.runStatus;editorReport.info=null;editorReport.done=null;editorReport.ticket++;$('#editor-report-status').textContent='';if(report&&!editorReport.creating)editorReportLoad();}
+  editorReportShow();
   $('#handoff-panel').hidden=!report;$('#handoff-make').disabled=state.requesting||report?.runStatus!=='finished';
   if(handoff.scope!==reportScope){handoff.scope=reportScope;handoff.id=handoff.cmpId='';$('#handoff-result').hidden=true;$('#handoff-compare-result').hidden=true;$('#handoff-status').textContent='';}
   const finished=report?.runStatus==='finished'&&report.runId===state.runId,probeKey=reportScope+finished;if(handoff.probeKey!==probeKey){handoff.probeKey=probeKey;handoffProbe(finished);}
