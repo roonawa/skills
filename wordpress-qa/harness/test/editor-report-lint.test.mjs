@@ -52,3 +52,11 @@ test('every group needs exactly one item',()=>{
   const a=[...ok(),item('g1',{title:'別',summary:'別の説明をここに書きます。',impact:'別の影響がでます。',steps:['別の手順をします。'],location:'別'}),item('gX')];
   assert.deepEqual(probs(a,'extra').map(x=>x.groupId).sort(),['g1','gX']);
 });
+
+test('internal ids are never allowed even if facts carry them, except pool domain names',()=>{
+  const gs=[{id:'g1',facts:{row:'check.links-x',host:'admin.example.co.jp'}}];
+  const lint=impact=>lintItems([item('g1',{impact})],{groups:gs}).filter(p=>p.problem==='code');
+  assert.equal(lint('check.links-x が原因です。').length,1);
+  assert.deepEqual(lint('admin.example.co.jp に接続します。'),[]);
+  assert.equal(lint('admin.other.co.jp に接続します。').length,1);
+});

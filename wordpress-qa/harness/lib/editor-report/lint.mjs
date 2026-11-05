@@ -58,7 +58,7 @@ export function lintItems(items,{groups=[]}={}){
     const groupId=String(it?.groupId),all=texts(it),pool=poolOf(byId.get(it?.groupId)),body=all.join('\n');
 
     for(const [re,label] of CODE)if(re.test(body))add(groupId,'code',`編集者向けの文章に出してはいけない文字列：${label}`);
-    for(const m of body.matchAll(INTERNAL_ID))if(!pool.includes(m[0]))add(groupId,'code',`内部の識別子：${m[0]}`);
+    for(const m of body.matchAll(INTERNAL_ID))if(!(/\.[A-Za-z]{2,}$/.test(m[0])&&pool.includes(m[0])))add(groupId,'code',`内部の識別子：${m[0]}`);
 
     // 同じ文は報告書全体で1回だけ。
     for(const s of all.flatMap(sentences)){
