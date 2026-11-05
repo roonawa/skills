@@ -115,7 +115,7 @@ export function catalog(c, suite='all') {
     add(`snapshot.${v.id}`,'visual',`${v.pageId}: ${v.width}px screenshot`,v.required);
     if(v.axe) add(`axe.${v.id}`,'visual',`${v.pageId}: ${v.width}px accessibility`,v.required);
   }
-  for(const check of c.checks??[]) {add('check.'+check.id,check.suite,check.title,check.required);Object.assign(rows.at(-1),{kind:check.kind,...(check.kind==='security-baseline'&&!check.required?{level:'caution'}:{}),manualReview:check.kind==='human-review',instructions:check.options.instructions});}
+  for(const check of c.checks??[]) {add('check.'+check.id,check.suite,check.title,check.required);Object.assign(rows.at(-1),{kind:check.kind,...(!check.required&&(check.kind==='security-baseline'||check.kind==='software-security'&&check.options?.component==='compatibility')?{level:'caution'}:{}),manualReview:check.kind==='human-review',instructions:check.options.instructions});}
   if(suite==='standard')for(const row of rows)row.selected=row.kind==='standard-public'||row.kind==='security-baseline';
   if(suite==='interaction')for(const row of rows)row.selected=row.kind==='site-interaction';
   const na=storedNotApplicable(c);

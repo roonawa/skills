@@ -83,3 +83,11 @@ test('compatibility check reads plugins and themes from the admin screens and re
   assert(!failures.some(f=>/攻撃|CVE/.test(JSON.stringify(f))),'compatibility findings are not described as vulnerabilities');
  }finally{globalThis.fetch=oldFetch;if(oldState===undefined)delete process.env.WPQA_UI_ADMIN_STATE;else process.env.WPQA_UI_ADMIN_STATE=oldState;}
 });
+
+import {catalog} from '../lib/config.mjs';
+test('compatibility findings are shown as caution (reference check), not as a failure',()=>{
+ const check=(id,component,required)=>({id,title:id,suite:'authz',kind:'software-security',required,options:{component}});
+ const rows=catalog({baseURL:'https://example.test',pages:[],policies:[],journeys:[],visuals:[],manual:[],checks:[check('compat','compatibility',false),check('plugin','plugin',true),check('compat-required','compatibility',true)]});
+ const by=Object.fromEntries(rows.map(r=>[r.id,r]));
+ assert.equal(by['check.compat'].level,'caution');assert.equal(by['check.plugin'].level,undefined);assert.equal(by['check.compat-required'].level,undefined);
+});
