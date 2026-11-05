@@ -62,7 +62,7 @@ test('settings resolve write revocation, representative scope and opt-in shared 
     if(options?.method==='POST'){window.saved=JSON.parse(options.body);return {id:'managed'};}
     return url==='/api/logins/current'?{login:null}:{config:c,profile:p,managed:true,version:'v1',credentials:{}};
    }});
-  },{c,p});await page.click('#edit-site');return page;
+  },{c,p});await page.click('#edit-site');await page.click('#settings-advanced-settings>summary');return page;
  }
  async function save(page){await page.click('#editor-save');await page.waitForFunction(()=>window.saved||document.querySelector('#editor-error').textContent);assert.equal(await page.locator('#editor-error').textContent(),'');return page.evaluate(()=>window.saved);}
  try{
@@ -230,13 +230,13 @@ test('browser registration restores interaction drafts and settings save works w
     return {};
    },onSaved:async()=>{}});
   });
-  await page.goto('http://interaction.test/');await setup();await page.click('#new-site');
+  await page.goto('http://interaction.test/');await setup();await page.click('#new-site');await page.click('#registration-advanced-settings>summary');
   assert.match(await page.locator('#registration-preparation').textContent(),/すべての観点が自動実行されるわけではありません/);
   assert.equal(await page.locator('#registration-preparation [data-preparation=automatic] [data-preparation-id^="interaction-"]').count(),4);
   await page.locator('[name=interaction-enabled-search-product]').check();
   assert.match(await page.locator('#registration-preparation [data-preparation-id="interaction-search-product"]').textContent(),/商品を検索する語句/);
   await page.locator('[name="interaction-mainSelector"]').fill('main');
-  await page.locator('details').filter({has:page.locator('[name="interaction-search.term"]')}).locator('summary').click();
+  await page.locator('#registration-advanced-settings details').filter({has:page.locator('[name="interaction-search.term"]')}).locator('summary').click();
   for(const [key,value] of Object.entries({openSelector:'#open',inputSelector:'#search',submitSelector:'#submit',resultHeadingSelector:'h1',term:'known',resultSelector:'.result'}))await page.locator(`[name="interaction-search.${key}"]`).fill(value);
   assert.equal(await page.locator('#registration-preparation [data-preparation=automatic] [data-preparation-id="interaction-search-product"]').count(),1);
   assert.equal(await page.locator('#registration-preparation [data-preparation=additional] [data-preparation-id="interaction-search-product"]').count(),0);
@@ -248,11 +248,11 @@ test('browser registration restores interaction drafts and settings save works w
   assert.equal(await page.locator('[name=writes]').isChecked(),false);
   assert.equal(await page.locator('[name=submitContact]').isChecked(),false);
   await page.locator('[name="interaction-mainSelector"]').fill('main');
-  await page.locator('details').filter({has:page.locator('[name="interaction-inventory.postTypes"]')}).locator('summary').click();
+  await page.locator('#registration-advanced-settings details').filter({has:page.locator('[name="interaction-inventory.postTypes"]')}).locator('summary').click();
   await page.locator('[name="interaction-inventory.postTypes"]').fill('posts\nproducts');
-  await page.locator('details').filter({has:page.locator('[name="interaction-admin"]')}).locator('summary').click();
+  await page.locator('#registration-advanced-settings details').filter({has:page.locator('[name="interaction-admin"]')}).locator('summary').click();
   await page.locator('[name="interaction-admin"]').fill('[{"id":"mail","title":"Mail","path":"options.php","selector":"#email","read":"value","expected":"qa@example.test"}]');
-  await page.reload();await setup();
+  await page.reload();await setup();await page.click('#registration-advanced-settings>summary');
   assert.equal(await page.locator('[name="interaction-mainSelector"]').inputValue(),'main');
   assert.equal(await page.locator('[name="interaction-inventory.postTypes"]').inputValue(),'posts\nproducts');
   assert.match(await page.locator('[name="interaction-admin"]').inputValue(),/qa@example.test/);
@@ -275,7 +275,7 @@ test('browser registration restores interaction drafts and settings save works w
     return {config:c,managed:true,version:'v1',credentials:{}};
    }});
   },{...config,name:'Config only',admin:[],journeys:[],visuals:[],manual:[],checks:[{id:'interaction-all-links',title:'Links',kind:'site-interaction',suite:'delivery',options:{operation:'all-links',settings:{enabled:['all-links'],sitePath:'/shop/',paths:['/shop/'],mainSelector:'#original'}}}]});
-  await page.click('#edit-site');
+  await page.click('#edit-site');await page.click('#settings-advanced-settings>summary');
   assert.equal(await page.locator('#interaction-profile-section').isVisible(),true);
   assert.equal(await page.locator('[name="interaction-mainSelector"]').inputValue(),'#original');
   await page.locator('[name="interaction-mainSelector"]').fill('#updated');
@@ -285,7 +285,8 @@ test('browser registration restores interaction drafts and settings save works w
   assert.equal(Object.hasOwn(saved,'profile'),false);
   assert.equal(saved.config.checks.find(c=>c.kind==='site-interaction').options.settings.mainSelector,'#updated');
   // A new advanced registration without a profile still gets the four defaults.
-  await page.click('#new-site');await page.locator('#site-fields [data-key=name]').fill('New');await page.locator('#site-fields [data-key=baseURL]').fill('https://example.test');
+  // 新規サイトは標準操作テストが既定で有効なので、詳細設定で外してから確かめる。
+  await page.click('#new-site');await page.click('#settings-advanced-settings>summary');await page.locator('#enable-operation-profile').uncheck();await page.locator('#site-fields [data-key=name]').fill('New');await page.locator('#site-fields [data-key=baseURL]').fill('https://example.test');
   await page.evaluate(()=>{window.saved=null;});assert.deepEqual(await page.locator('#site-editor :invalid').evaluateAll(es=>es.map(e=>({name:e.name,id:e.id,key:e.dataset.key,message:e.validationMessage,html:e.outerHTML}))),[]);await page.click('#editor-save');await page.waitForFunction(()=>window.saved||document.querySelector('#editor-error').textContent);assert.equal(await page.locator('#editor-error').textContent(),'');
   const created=await page.evaluate(()=>window.saved);
   assert.equal(Object.hasOwn(created,'profile'),false);

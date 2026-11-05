@@ -13,7 +13,9 @@ try{
  await dialog.locator('[name=name]').fill('Fixture');
  await expect(dialog.locator('[name=name]')).not.toHaveAttribute('aria-invalid','true');
  await dialog.locator('[name=baseURL]').fill('https://example.test');
+ await dialog.locator('#registration-advanced-settings>summary').click();
  await dialog.locator('[name=bankOrder]').check();
+ await dialog.getByText('自動取得したフォーム項目を確認・調整',{exact:true}).click();
  await dialog.locator('[name=contactFormId]').fill('12');
  await dialog.locator('#registration-save').click();
  for(const n of ['testEmail','productPath','expectedTotal'])await expect(dialog.locator(`[name=${n}]`)).toHaveAttribute('aria-invalid','true');
