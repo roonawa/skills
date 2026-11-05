@@ -70,8 +70,21 @@ function noindexOf(r){
 
 // 標準の XML の形（タグの対応・ルートが1つ）を確かめ、ルートが urlset／sitemapindex で loc が絶対 URL なら正しい形式とみなす。
 // 処理命令（xml-stylesheet）・コメント・CDATA（All in One SEO の loc）は形の確認から外す。
+// 処理命令・コメント・CDATA・DOCTYPE を取り除く。サイトから返る本文は信頼できないので、
+// 遅延一致の正規表現ではなく indexOf で前へ進むだけの走査にする（閉じていなければ不正な形式）。
+const SPECIAL=[['<?','?>'],['<!--','-->'],['<![cdata[',']]>'],['<!doctype','>']];
+function stripSpecial(text){
+  let out='',i=0;
+  for(;;){
+    const lt=text.indexOf('<',i);if(lt<0)return out+text.slice(i);
+    const head=text.slice(lt,lt+9).toLowerCase(),kind=SPECIAL.find(([open])=>head.startsWith(open));
+    if(!kind){out+=text.slice(i,lt+1);i=lt+1;continue;}
+    const end=text.indexOf(kind[1],lt+kind[0].length);if(end<0)return null;
+    out+=text.slice(i,lt);i=end+kind[1].length;
+  }
+}
 export function sitemapWellFormed(text){
-  const body=String(text??'').replace(/<\?[\s\S]*?\?>|<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>|<!DOCTYPE[^>]*>/gi,'');
+  const body=stripSpecial(String(text??''));if(body===null)return false;
   const stack=[];let roots=0;
   for(const part of body.split(/(<[^>]*>)/)){
     if(part.startsWith('<')){

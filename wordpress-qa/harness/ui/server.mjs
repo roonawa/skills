@@ -683,16 +683,18 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
             const finished=report.runStatus==='finished'&&!!report.finishedAt&&!runIsAlive(directory);
             const readContext=()=>{try{const file=boundedPath(directory,'context.json');if(fs.statSync(file).size>16*1024*1024)return null;const context=JSON.parse(fs.readFileSync(file,'utf8'));if(context.configHash!==report.configHash)return null;const {pages,visuals,policies}=context.config;return {pages,visuals,policies};}catch{return null;}};
             const config=readContext(),view=system.view(),remaining=system.remaining();
+            // 実行後に登録URLの接続先が変わっていたら作らない（保存済みの閲覧パスワードを別の接続先へ送らないため）。
+            const registered=store.record(p.id).config.baseURL,originOf=u=>{try{return new URL(u).origin;}catch{return null;}},sameSite=!report.baseURL||originOf(report.baseURL)===originOf(registered);
             const groups=groupRows(report,{environment:report.environment,config}).groups.filter(g=>['editor','admin','tech','not-site'].includes(g.category)).length,calls=estimateEditorCalls(groups+1);
             const busy=!!editorJob||!!active||closing||!!preparing||logins.busy||ai.busy;
-            const reason=!finished?'完了した実行を選択してください':!(view.enabled&&view.approved&&view.evidenceApproved&&view.configured)?'AIの利用設定（有効化・承認・取得情報の送信許可）を確認してください':remaining<calls?`本日のAI利用の残り回数が足りません（必要 ${calls} 回・残り ${remaining} 回）`:busy?'ほかの処理が終わってから作成してください':null;
+            const reason=!finished?'完了した実行を選択してください':!sameSite?'登録済みサイトのURLが実行時と異なります。新しく検査を実行してから作成してください':!(view.enabled&&view.approved&&view.evidenceApproved&&view.configured)?'AIの利用設定（有効化・承認・取得情報の送信許可）を確認してください':remaining<calls?`本日のAI利用の残り回数が足りません（必要 ${calls} 回・残り ${remaining} 回）`:busy?'ほかの処理が終わってから作成してください':null;
             const stage=editorJob?.projectId===p.id&&editorJob.runId===id?editorJob.stage:null;
             if(req.method==='GET')return json(200,{available:!reason,...(reason?{reason}:{}),groups,calls,remaining,files:{editor:exists(files.editor),basis:exists(files.basis)},stage});
             if(reason)reject(409,reason);
             const data=await body(req);if(!data||typeof data!=='object'||Array.isArray(data)||Object.keys(data).length)reject(400,'報告書の指定が不正です');
             if(editorJob||active||closing||preparing||logins.busy||ai.busy)reject(409,'ほかの処理が終わってから作成してください');
             for(const name of Object.values(files)){const output=path.join(directory,name);if(fs.existsSync(output)&&fs.lstatSync(output).isSymbolicLink())reject(403,'報告書の保存先を確認してください');}
-            const record=store.record(p.id),baseURL=report.baseURL??record.config.baseURL;
+            const record=store.record(p.id),baseURL=record.config.baseURL;
             admission();allowTarget(baseURL);
             editorJob={projectId:p.id,runId:id,stage:'facts'};
             const stageNames={facts:'結果の整理',recheck:'サイトの再確認',writing:'文章の作成',checking:'文章の確認',rendering:'報告書の作成'};

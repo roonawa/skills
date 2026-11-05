@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {recheck,defaultClient} from '../lib/editor-report/recheck.mjs';
+import {recheck,defaultClient,sitemapWellFormed} from '../lib/editor-report/recheck.mjs';
 
 const BASE='https://komoro.example';
 const page=(body='',status=200,headers={})=>({status,location:headers.location??null,headers,text:`<!doctype html><html><head>${body.head??''}</head><body>${body.body??body}</body></html>`});
@@ -223,4 +223,14 @@ test('default client sends no viewing Cookie to another allowed origin',async t=
   await c.get(`${other}/`);await c.head(`${site}/`);
   assert.deepEqual(otherSeen,[{method:'HEAD',cookie:null,auth:null},{method:'GET',cookie:null,auth:null}]);
   assert.deepEqual(siteSeen,[{method:'HEAD',cookie:'pp=1',auth:'Basic eDp5'}]);
+});
+
+// サイトから返る本文に閉じない <? <!-- <![CDATA[ が大量にあっても、判定は短時間で終わる。
+test('sitemap well-formedness check stays linear on hostile bodies',()=>{
+ for(const unit of ['<?','<!--','<![CDATA[','<!DOCTYPE']){
+  const body='<urlset>'+unit.repeat(150000);
+  const started=Date.now();assert.equal(sitemapWellFormed(body),false);
+  assert(Date.now()-started<1000,unit+' took '+(Date.now()-started)+'ms');
+ }
+ assert.equal(sitemapWellFormed('<?xml version="1.0"?><?xml-stylesheet href="a.xsl"?><!-- c --><urlset><url><loc><![CDATA[https://a.test/]]></loc></url></urlset>'),true);
 });

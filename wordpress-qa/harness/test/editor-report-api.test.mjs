@@ -21,13 +21,13 @@ function fakeClient(gate){
  const c={calls:0,get:async url=>{c.calls++;if(gate)await gate;return url===`${BASE}/sitemap.xml`?{status:200,location:null,headers:{},text:sitemap}:{status:200,location:null,headers:{},text:'<html><body>x</body></html>'};},head:async()=>({status:200})};
  return c;
 }
-async function fixture(t,{ai={enabled:true,approved:true,evidenceApproved:true},runStatus='finished',fetcher=fakeFetcher(),client=fakeClient(),external=false,runRows=rows}={}){
+async function fixture(t,{ai={enabled:true,approved:true,evidenceApproved:true},runStatus='finished',fetcher=fakeFetcher(),client=fakeClient(),external=false,runRows=rows,runBaseURL=BASE}={}){
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'qa-editor-api-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
  const codec=createSecretCodec(randomBytes(32)),store=new ProjectStore(path.join(dir,'projects'),{codec});
  const config=registrationConfig({name:'編集者API',baseURL:BASE,environment:'staging',profile,discovery:{pages:[{path:'/'}],warnings:[]}});
  const id=store.save({config,profile,auth:{publicPassword:'view-only-pass'}}),ctx=store.context(id);
  const run=path.join(ctx.outputDir,'run-1');fs.mkdirSync(run,{recursive:true});
- fs.writeFileSync(path.join(run,'results.json'),JSON.stringify({runId:'run-1',name:'編集者API',baseURL:BASE,environment:'staging',configHash:ctx.configHash,startedAt:'2026-11-05T00:00:00Z',...(runStatus==='finished'?{finishedAt:'2026-11-05T00:10:00Z'}:{}),runStatus,rows:runRows,summary:{fail:3,caution:1,pass:1}}));
+ fs.writeFileSync(path.join(run,'results.json'),JSON.stringify({runId:'run-1',name:'編集者API',baseURL:runBaseURL,environment:'staging',configHash:ctx.configHash,startedAt:'2026-11-05T00:00:00Z',...(runStatus==='finished'?{finishedAt:'2026-11-05T00:10:00Z'}:{}),runStatus,rows:runRows,summary:{fail:3,caution:1,pass:1}}));
  fs.writeFileSync(path.join(run,'context.json'),JSON.stringify({configHash:ctx.configHash,config:{pages:ctx.config.pages,visuals:ctx.config.visuals,policies:ctx.config.policies}}));
  fs.writeFileSync(path.join(run,'mystery.json'),JSON.stringify({note:'x'}));
  const settings=new SystemSettings({directory:path.join(dir,'projects','system'),codec});
@@ -144,4 +144,12 @@ test('page text in a failure reason is not sent to Claude but stays in the basis
  assert.deepEqual(f.fetcher.inputs[0][0].facts,{reasonKinds:[{kind:'page',errorClass:'assertion'}]});
  const basis=fs.readFileSync(path.join(f.run,'editor-report-basis.html'),'utf8');
  assert(basis.includes('Received: &#39;お客様の氏名 山田&#39;'));
+});
+
+// 実行後に登録URLが変わった場合、保存済みの閲覧パスワードを古い接続先へ送らない。
+test('refuses when the run was made against a different site origin than the registered one',async t=>{
+ const f=await fixture(t,{runBaseURL:'https://old.example.test'});
+ const r=await f.post();assert.equal(r.status,409);assert.equal((await r.json()).error,'登録済みサイトのURLが実行時と異なります。新しく検査を実行してから作成してください');
+ const s=await f.status();assert.equal(s.available,false);assert.equal(s.reason,'登録済みサイトのURLが実行時と異なります。新しく検査を実行してから作成してください');
+ assert.equal(f.fetcher.calls,0);assert.equal(f.client.calls,0);
 });
