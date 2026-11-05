@@ -108,6 +108,7 @@ button{background:#122017;color:#bed1b2;border:1px solid #40543a;border-radius:0
 #designer-report-status{overflow-wrap:anywhere}
 
 #registration-dialog [aria-invalid="true"]{border:2px solid #ff746c!important;outline:1px solid #ff746c;background:#351918!important}#registration-dialog .registration-field-error,#registration-validation{color:#ffb5ae;font-size:13px;font-weight:600}#registration-validation:empty{display:none}
+#registration-advanced-settings{padding-top:16px}#registration-advanced-settings>summary{font-weight:650}
 .pill.preparation{color:#bfe1f4;background:#163243;border:1px solid #618fa7}
 .dot.preparation{background:#90c9e6}
 .pill.caution{color:#f0b3cf;background:#35192a;border:1px solid #a8607f}

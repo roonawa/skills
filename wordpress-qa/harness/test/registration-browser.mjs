@@ -77,6 +77,7 @@ try{
   await expect(dialog).toBeVisible();
   await dialog.locator('[name=name]').fill('Local registration acceptance');
   await dialog.locator('[name=baseURL]').fill(origin);
+  await dialog.locator('#registration-advanced-settings>summary').click();
   // Assert the UI restriction, then exercise the local registration path.
   for(const name of ['writes','submitContact','bankOrder'])await dialog.locator(`[name=${name}]`).check();
   await dialog.locator('[name=environment]').selectOption('production');

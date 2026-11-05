@@ -49,11 +49,13 @@ test('registration drafts and submitted automation; settings retention and permi
   });
   await page.goto('http://automation.test/');await setup();await page.click('#new-site');
   await page.locator('[name=name]').fill('Automation');await page.locator('[name=baseURL]').fill('https://example.test');
+  await page.click('#registration-advanced-settings>summary');
   await page.locator('[name=automation-useObservedBaselines]').uncheck();
   await page.locator('[name=automation-additionalChecks]').fill(JSON.stringify([mail]));
   await page.reload();await setup();
   assert.equal(await page.locator('[name=automation-useObservedBaselines]').isChecked(),false);
   assert.deepEqual(JSON.parse(await page.locator('[name=automation-additionalChecks]').inputValue()),[mail]);
+  await page.click('#registration-advanced-settings>summary');
   await page.locator('[name=automation-additionalChecks]').fill('[bad');await page.click('#registration-save');
   assert.match(await page.locator('#registration-validation').textContent(),/入力内容/);
   assert.equal(await page.locator('[name=automation-additionalChecks]').getAttribute('aria-invalid'),'true');
@@ -68,6 +70,7 @@ test('registration drafts and submitted automation; settings retention and permi
   await page.goto('http://automation.test/register-again');await setup();await page.click('#new-site');
   for(const name of ['contactFormId','contactPath','contactNameField','contactEmailField','contactMessageField','contactConsentField'])assert.equal(await page.locator(`[name=${name}]`).inputValue(),'');
   await page.locator('[name=name]').fill('Discovered form');await page.locator('[name=baseURL]').fill('https://example.test');
+  await page.click('#registration-advanced-settings>summary');
   await page.locator('[name=writes]').check();await page.locator('[name=submitContact]').check();await page.locator('[name=testEmail]').fill('qa@example.test');
   await page.click('#registration-login');await page.click('#registration-save');
   await page.waitForFunction(()=>window.saved||document.querySelector('#registration-error').textContent);
@@ -156,6 +159,7 @@ test('registration role credentials are sent separately, excluded from drafts, a
   });
   await page.goto('http://role-registration.test/');await setup();await page.click('#new-site');
   await page.locator('[name=name]').fill('Role registration');await page.locator('[name=baseURL]').fill('https://example.test');
+  await page.click('#registration-advanced-settings>summary');
   await page.locator('[name=writes]').check();await page.locator('[name=environment]').selectOption('production');
   await page.locator('[name=roleName]').fill('subscriber');await page.locator('[name=roleUser]').fill('member');await page.locator('[name=rolePassword]').fill('private-role-password');
   const upload=()=>page.locator('[name=roleState]').setInputFiles({name:'member.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(state))});
