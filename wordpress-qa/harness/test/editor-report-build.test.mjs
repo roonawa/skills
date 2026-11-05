@@ -107,3 +107,26 @@ test('a site outside the allowed origins gives a short warning',async()=>{
   const r=await buildEditorReport({...base,allowedOrigins:[],client:komoroClient,ai:fakeAi()});
   assert.ok(r.warnings.includes('接続先の許可がないため再確認できませんでした'));
 });
+
+test('failed images in visual evidence reach the re-check',async()=>{
+  const report=komoro();
+  report.rows.find(r=>r.id==='layout.home-1280').evidence=['ready.json'];
+  const readEvidence=f=>{if(f!=='ready.json') throw new Error('x');return {jsErrors:[],fontErrors:[],failedImages:[{url:'https://s.w.org/images/core/emoji/15/72x72/1f600.png',host:'s.w.org',reason:'timeout'}]};};
+  // the page itself is unreadable, so the verdict can only come from the evidence
+  const client={...komoroClient,get:async url=>url===`${BASE}/`?{status:500,location:null,headers:{},text:''}:komoroClient.get(url)};
+  const r=await buildEditorReport({...base,report,readEvidence,client,ai:fakeAi()});
+  assert.match(r.basisHtml,/接続先の許可にない読み込み元の画像：s\.w\.org/);
+  const bad=await buildEditorReport({...base,report,readEvidence:()=>{throw new Error('x');},client,ai:fakeAi()});
+  assert.ok(bad.warnings.length>=1);
+});
+
+test('a stray AI item is dropped without a rewrite',async()=>{
+  const ai=fakeAi(groups=>[...groups.map((g,i)=>item(g.id,i)),item('not-a-group',99)]);
+  const r=await buildEditorReport({...base,client:komoroClient,ai});
+  assert.equal(r.aiCalls,1);assert.equal(ai.calls.length,1);
+});
+
+test('a missing item is named in Japanese in the error',async()=>{
+  const ai=fakeAi(groups=>groups.slice(1).map((g,i)=>item(g.id,i)));
+  await assert.rejects(buildEditorReport({...base,client:komoroClient,ai}),e=>/項目の不足（[^）]*[ぁ-ん][^）]*）/.test(e.message)&&!/[A-Za-z]+:fail/.test(e.message));
+});

@@ -11,8 +11,30 @@ const calls=groups=>Math.ceil(groups.length/BATCH);
 const REASONS=[[/接続先の許可/,'接続先の許可がないため再確認できませんでした'],[/上限/,'再確認の上限に達したため一部を再確認できませんでした'],[/閲覧パスワード/,'閲覧パスワードの画面が表示されたため再確認できませんでした']];
 const reasonOf=notes=>REASONS.find(([re])=>notes.some(n=>re.test(n)))?.[1]??'ページを取得できなかったため再確認できませんでした';
 
-function failure(problems,items){
-  const title=id=>items.find(i=>i.groupId===id)?.title??id;
+const RULE_NAMES={'plugin-vulnerability':'プラグインの既知の弱点',compatibility:'更新前の互換性の確認','security-headers':'セキュリティ用の設定',disclosure:'外から分かる情報','soft-404':'存在しないページの表示','index-expectation':'検索エンジンへの公開設定','render-timeout':'ページの表示に時間がかかった','link-transient':'リンク先の一時的な不調','sitemap-format':'サイトマップの形式','foreign-image':'検証用と思われる画像',unclassified:'その他の不具合'};
+const VISUAL=/^(layout|javascript|snapshot|axe)\./;
+
+// 画面の見た目の行の証拠にある読み込めなかった画像を、ページのパスごとにまとめる（読めない証拠は無視する）。
+function failedImagesOf(report,config,readEvidence){
+  const out={};
+  for(const row of report.rows??[]){
+    if(!VISUAL.test(row.id)) continue;
+    const id=row.id.split('.').slice(1).join('.');
+    const pageId=(config?.visuals??[]).find(v=>v.id===id)?.pageId,path=(config?.pages??[]).find(p=>p.id===pageId)?.path;
+    if(!path) continue;
+    for(const file of row.evidence??[]){
+      let data;try{data=readEvidence?.(file);}catch{continue;}
+      const list=data?.failedImages??data?.readiness?.failedImages;
+      if(!Array.isArray(list)) continue;
+      const seen=out[path]??=[];
+      for(const i of list) if(i?.url&&!seen.some(x=>x.url===i.url)) seen.push({url:i.url,host:i.host,reason:i.reason});
+    }
+  }
+  return out;
+}
+
+function failure(problems,items,groups){
+  const title=id=>items.find(i=>i.groupId===id)?.title??RULE_NAMES[groups.find(g=>g.id===id)?.rule]??'その他の項目';
   return Error(`文章の確認に通りませんでした：${problems.map(p=>`${PROBLEM_NAMES[p.problem]??p.problem}（${title(p.groupId)}）`).join('、')}`);
 }
 
@@ -26,7 +48,7 @@ export async function buildEditorReport({report,readEvidence,config,site,environ
   onStage('recheck');
   const http=client??defaultClient({allowedOrigins,siteOrigin:new URL(baseURL).origin,publicHeaders:await publicGateHeaders({baseURL,sitePath,password:publicPassword})});
   const checkedAt=typeof now==='function'?now():now;
-  const checked=await recheck(facts.groups,{baseURL,sitePath,environment:env,client:http,allowedOrigins,now:()=>checkedAt});
+  const checked=await recheck(facts.groups,{baseURL,sitePath,environment:env,client:http,allowedOrigins,now:()=>checkedAt,failedImagesByPath:failedImagesOf(report,config,readEvidence)});
   const groups=checked.groups;
   const warnings=[...new Set(groups.filter(g=>g.verification?.result==='unverified').map(g=>reasonOf(g.verification.notes??[])))];
 
@@ -34,19 +56,20 @@ export async function buildEditorReport({report,readEvidence,config,site,environ
   let items=[],aiCalls=0,problems=[];
   if(written.length){
     onStage('writing');
-    items=await ai.writeEditorItems(written);aiCalls+=calls(written);
+    const sent=new Set(written.map(g=>g.id));
+    items=(await ai.writeEditorItems(written)).filter(i=>sent.has(i?.groupId));aiCalls+=calls(written);
     onStage('checking');
     problems=lintItems(items,{groups:written});
     if(problems.length){
       const bad=new Set(problems.map(p=>p.groupId)),redo=written.filter(g=>bad.has(g.id));
       onStage('writing');
       let again=[];
-      if(redo.length){again=await ai.writeEditorItems(redo,{problems});aiCalls+=calls(redo);}
+      if(redo.length){again=(await ai.writeEditorItems(redo,{problems})).filter(i=>bad.has(i?.groupId));aiCalls+=calls(redo);}
       const fixed=new Set(again.map(i=>i.groupId));
       items=[...items.filter(i=>!fixed.has(i.groupId)),...again];
       onStage('checking');
       const left=lintItems(items,{groups:written});
-      if(left.length) throw failure(left,items);
+      if(left.length) throw failure(left,items,written);
     }
   }
 
