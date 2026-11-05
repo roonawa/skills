@@ -1,7 +1,7 @@
 import {zipFiles} from './zip.mjs';
 import {escapeHTML as e} from './results.mjs';
 export function resultDownload(report,read){
- const names=new Set(['report.html','issue-report.html','designer-report.html','results.json']);
+ const names=new Set(['report.html','issue-report.html','results.json']);
  for(const row of report.rows??[])for(const file of row.evidence??[])if(/\.(png|jpe?g)$/i.test(file))names.add(file);
  const files=[],missing=[];let total=0;
  for(const name of names){if(name.startsWith('/')||name.includes('\\')||name.includes(':')||name.split('/').some(x=>!x||x==='..'||x==='.'))continue;

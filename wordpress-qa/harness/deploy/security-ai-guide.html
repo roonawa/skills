@@ -1,6 +1,6 @@
 <!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>安全対策・AI補完版 更新と利用ガイド</title>
 <style>body{margin:0;background:#edf3f7;color:#183346;font:16px/1.8 system-ui,sans-serif}main{max-width:1020px;margin:auto;padding:32px}section{background:white;border:1px solid #ccdbe4;border-radius:14px;padding:26px;margin:24px 0}h1{font-size:30px}h2{font-size:23px}pre{background:#102c3e;color:#e4f5ff;padding:18px;overflow:auto;white-space:pre-wrap}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccdbe4;padding:12px;text-align:left}a{color:#006883}.note{border-left:5px solid #c7770f;background:#fff5df;padding:18px}.steps{display:flex;flex-wrap:wrap;gap:10px}.steps span{background:#e4f5f0;padding:12px;border-radius:8px}@media print{body{background:white}section{break-inside:avoid}pre{background:#eee;color:black}}</style>
-<main><p class="note"><a href="site-exam-guide.html">SITE EXAM_：同じページでの採点・説明・顧客向けHTML出力の利用ガイド</a></p><h1>安全対策・AI補完版 更新と利用ガイド</h1><p>配布識別子：2026-10-29-security-claude ／ 社内LAN・VPN内の少人数向け</p>
+<main><h1>安全対策・AI補完版 更新と利用ガイド</h1><p>配布識別子：2026-10-29-security-claude ／ 社内LAN・VPN内の少人数向け</p>
 <p class="note">配布物にAPIキー・ログイン情報・登録サイト・テスト結果は含みません。実際のLinuxコンテナ起動、ブラウザーのサンドボックス、社内TLS、実キーでのAnthropic API接続は導入先で確認してください。コードと構成の改修を実施した段階であり、第三者による侵入試験済みを意味しません。</p>
 <section><h2>1. 診断で見つかった問題への対応</h2><table><tr><th>診断項目</th><th>対応</th><th>確認範囲</th></tr>
 <tr><td>SEC01：メール検査への管理者認証の流用</td><td>管理者用環境変数の指定を拒否。メール専用認証と送信先の完全一致を要求し、転送先には追従しない。</td><td>回帰テスト済み</td></tr>

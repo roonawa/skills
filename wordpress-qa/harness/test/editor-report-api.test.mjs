@@ -105,8 +105,7 @@ test('other work is refused while an editor report is being created',async t=>{
  const configHash=f.boot.projects.find(p=>p.id===f.id).configHash,busy='編集者向け報告書の作成が終わってから実行してください';
  const first=f.post();
  for(let i=0;i<100&&(await f.status()).stage!=='recheck';i++)await new Promise(r=>setTimeout(r,20));
- for(const [route,data] of [[`/api/projects/${f.id}/runs`,{suite:'all'}],[`/api/projects/${f.id}/remove`,{confirmed:true,configHash}],['/api/system/settings',{dailyLimit:30}],['/api/logins',{baseURL:BASE}],['/api/ai/propose',{config:{},answers:{}}],
-  [`/api/projects/${f.id}/runs/run-1/exam-ai`,{}],[`/api/projects/${f.id}/runs/run-1/exam-evidence`,{}],[`/api/projects/${f.id}/runs/run-1/exam-evidence-run`,{}]]){
+ for(const [route,data] of [[`/api/projects/${f.id}/runs`,{suite:'all'}],[`/api/projects/${f.id}/remove`,{confirmed:true,configHash}],['/api/system/settings',{dailyLimit:30}],['/api/logins',{baseURL:BASE}],['/api/ai/propose',{config:{},answers:{}}]]){
   const r=await send(route,data);assert.equal(r.status,409,route);assert.equal((await r.json()).error,busy,route);
  }
  release();assert.equal((await first).status,200);

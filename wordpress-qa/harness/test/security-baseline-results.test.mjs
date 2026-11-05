@@ -7,7 +7,6 @@ import {writeReport,releaseGate,displayStatus} from '../lib/results.mjs';
 import {catalog} from '../lib/config.mjs';
 import {explainFailure,enrichFailures} from '../lib/failure-explanations.mjs';
 import {buildIssueReport} from '../lib/issue-report.mjs';
-import {examGroups} from '../lib/site-exam.mjs';
 import {RULES} from '../lib/security-baseline-rules.mjs';
 const caution=(id,status='fail')=>({id,title:id,required:false,level:'caution',status,reason:'x'});
 test('caution rows are counted separately',()=>{
@@ -38,8 +37,4 @@ test('issue report labels caution',()=>{
   const current={runId:'r',startedAt:'2026-01-01',finishedAt:'2026-01-01',runStatus:'finished',configHash:'h',baseURL:'https://example.test',environment:'production',name:'QA',rows:[{id:'check.x',title:'基礎診断',required:false,level:'caution',status:'fail',evidence:[]}]};
   const html=buildIssueReport({current,readEvidence:()=>({})}).html;
   assert.match(html,/基礎診断 — check\.x（注意）/);
-});
-test('exam groups mark caution rows',()=>{
-  const g=examGroups({rows:[{id:'check.x',title:'t',level:'caution',status:'fail',failures:[{key:'baseline:hsts:/',title:'HSTS',impact:'i',admin:'a'}]}]});
-  assert.equal(g[0].level,'caution');assert.match(g[0].title,/^注意：/);
 });
