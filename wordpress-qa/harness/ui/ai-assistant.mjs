@@ -26,7 +26,7 @@ if(Object.keys(x).sort().join(',')!=='kind,pageIndex,reason,targetIndex,viewport
   return p;
 }
 const secretKey=/password|cookie|token|secret|authorization|header|key/i;
-const redactions=[[/((?:Set-)?Cookie:)[^\n]*/gi,'$1 [redacted]'],[/\bwordpress_[a-z_]*=[^;\s]*/gi,'[redacted]'],[/Bearer\s+[A-Za-z0-9._~+\/=-]+/gi,'[redacted]'],[/\bsk-[A-Za-z0-9_-]+/g,'[redacted]'],[/\b(?:password|pwd)=[^&\s;]*/gi,'[redacted]'],[/\b(https?:\/\/[^\s?#"'<>]+)[?#][^\s"'<>]*/gi,'$1']];
+const redactions=[[/((?:Set-)?Cookie:)[^\n]*/gi,'$1 [redacted]'],[/(^|[^\w-])(?:[A-Za-z0-9]+_)?(?:wordpress_[\w-]*|wp-postpass_[\w-]*|wp-settings-[\w-]*|(?:bid_\d+_)?password_protected_[\w-]*)=[^;\s]*/gi,'$1[redacted]'],[/Bearer\s+[A-Za-z0-9._~+\/=-]+/gi,'[redacted]'],[/\bsk-[A-Za-z0-9_-]+/g,'[redacted]'],[/\b(?:password|pwd)=[^&\s;]*/gi,'[redacted]'],[/\b(https?:\/\/[^\s?#"'<>]+)[?#][^\s"'<>]*/gi,'$1']];
 const redactValue=t=>redactions.reduce((x,[re,to])=>x.replace(re,to),t);
 // Keeps only plain data and drops anything secret-looking before it can reach Claude.
 export function sanitizeForAi(v,depth=0){

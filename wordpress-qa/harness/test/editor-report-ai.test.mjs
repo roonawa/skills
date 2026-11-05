@@ -58,3 +58,8 @@ test('daily limit message surfaces as is and no fetch happens',async()=>{
   const ai=new AiAssistant(s,{fetcher:async()=>assert.fail('no call')});
   await assert.rejects(()=>ai.writeEditorItems([group(0)]),/本日のAI利用上限/);assert.equal(ai.lastEditorFailure.stage,'reserve');
 });
+test('redacts bare cookie pairs with hashed and prefixed names',async()=>{
+  const bodies=[],ai=new AiAssistant(settingsFor(),{fetcher:echo(bodies)});
+  await ai.writeEditorItems([group(0,{reasons:['sent wordpress_logged_in_5c8e1a2b3c4d=SECRET5; other','ENC_wordpress_logged_in_ab12=SECRET6','(wp-postpass_9f8e=SECRET7)','bid_1_password_protected_auth=SECRET8 end']})]);
+  const raw=bodies[0].o.body;for(const n of ['SECRET5','SECRET6','SECRET7','SECRET8'])assert(!raw.includes(n),n);assert(raw.includes('other'));
+});
