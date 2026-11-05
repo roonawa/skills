@@ -87,13 +87,18 @@ export function initSettings({api,currentProject,onSaved,shared=false}) {
   const passwordLabel=$('#profile-public-password').closest('label'),passwordNote=passwordLabel.previousElementSibling;
   profileBasics.append(profileField('indexable').closest('label'),passwordNote.previousElementSibling,passwordNote,passwordLabel,$('#profile-clear-public-password').closest('label'));
   fields.after(profileBasics);
+  const profileNote=document.createElement('p');profileNote.id='settings-profile-note';profileNote.textContent='閲覧パスワードと検索エンジンの設定は、詳細設定で『WordPressの標準操作テストを登録する』を有効にすると変更できます。';profileBasics.after(profileNote);
+  // 検索エンジンへの公開の初期値（新規サイトのみ）：利用者が触るまでは環境に合わせる（本番だけチェックあり）。登録済みサイトは保存済みの値を変えない。
+  let indexableTouched=true;
+  function indexableDefault(){if(!indexableTouched)profileField('indexable').checked=fields.querySelector('[data-key=environment]').value==='production';}
+  profileField('indexable').addEventListener('change',()=>{indexableTouched=true;});
   function profilePolicy(){
     const production=fields.querySelector('[data-key=environment]').value==='production';
     const enabled=$('#enable-operation-profile').checked;
     automationNote.hidden=enabled;
     for(const el of automationSection.querySelectorAll('input,textarea'))el.disabled=!editable||!enabled;
     for(const el of [...profileSection.querySelectorAll('[data-key]'),...profileBasics.querySelectorAll('[data-key]')])el.disabled=!editable||!enabled;
-    profileBasics.hidden=!enabled;
+    profileBasics.hidden=!enabled;profileNote.hidden=enabled||!editable;
     // 機密パス確認は操作テストの有無に関係なく保存時に送る（sensitivePaths）。
     profileField('sensitivePaths').disabled=!editable;
     for(const key of ['writes','submit','bankOrder']){
@@ -106,7 +111,7 @@ export function initSettings({api,currentProject,onSaved,shared=false}) {
     $('#profile-public-password').disabled=!editable||!enabled||$('#profile-clear-public-password').checked;
     $('#profile-clear-public-password').disabled=!editable||!enabled;
   }
-  fields.querySelector('[data-key=environment]').addEventListener('change',()=>{profileField('sensitivePaths').checked=fields.querySelector('[data-key=environment]').value!=='production';profilePolicy();});
+  fields.querySelector('[data-key=environment]').addEventListener('change',()=>{profileField('sensitivePaths').checked=fields.querySelector('[data-key=environment]').value!=='production';indexableDefault();profilePolicy();});
   $('#profile-clear-public-password').onchange=()=>{if($('#profile-clear-public-password').checked)$('#profile-public-password').value='';profilePolicy();};
   profileField('adminPath').oninput=()=>{$('#admin-path').value=profileField('adminPath').value;};
   function readProfile(){
@@ -264,7 +269,7 @@ export function initSettings({api,currentProject,onSaved,shared=false}) {
     $('#rest-state').textContent=credentials.rest?'登録済み（値は表示しません）':'未登録';$('#browser-state').textContent=credentials.browser?'登録済み（値は表示しません）':'未登録';
     $('#auth-user').value='';$('#auth-password').value='';$('#auth-state').value='';$('#clear-rest').checked=false;$('#clear-browser').checked=false;
     $('#editor-heading').textContent=editing?'サイト設定を編集':'サイトを登録';
-    $('#editor-mode').textContent=editable?'新規登録時は基本観点のテストケースを自動生成します。追加条件が必要な観点は設定が必要で残り、すべてが自動実行されるわけではありません。保存前の実行準備を確認してください。':'このサイトは外部ファイルで管理されています。複製すると操作テスト・認証参照・メール連携を除いた新しい登録を作成します。';
+    $('#editor-mode').textContent=editable?'新規登録時は基本観点のテストケースを自動生成します。追加条件が必要な観点は設定が必要で残り、すべてが自動実行されるわけではありません。必要な場合は詳細設定（技術担当向け）で確認できます。':'このサイトは外部ファイルで管理されています。複製すると操作テスト・認証参照・メール連携を除いた新しい登録を作成します。';
     $('#editor-copy').hidden=editable;$('#editor-save').hidden=!editable;
     for(const e of dialog.querySelectorAll('.editor-body input,.editor-body select,.editor-body textarea,.editor-body button'))e.disabled=!editable;
     $('#enable-operation-profile').disabled=!editable||!!operationProfile;
@@ -281,8 +286,7 @@ export function initSettings({api,currentProject,onSaved,shared=false}) {
         catch(e){preparationNotice='最新情報を取得できなかったため、保存済みの情報を使います。'+e.message;}
       }
       editable=data.managed;version=data.version;$('#refresh-automation').checked=!id;populate(id?data.config:generateCases(data.config),data.credentials,data.profile);
-      // 「詳細な検査設定を開く」（新規）では詳細設定を開いた状態で表示する。登録済みサイトは閉じておく。
-      advancedSettings.open=!id;
+      advancedSettings.open=false;indexableTouched=true;
       aiPanel.hidden=true;api('/api/system/settings').then(s=>{aiPanel.hidden=!(s?.enabled===true&&s.configured===true&&s.approved===true);},()=>{});
       const pending=(await api('/api/logins/current')).login;
       if(pending){
@@ -296,6 +300,12 @@ export function initSettings({api,currentProject,onSaved,shared=false}) {
         loginOwned=pending.projectId===(editing??null)&&pending.baseURL===fields.querySelector('[data-key=baseURL]').value;
         loginReady=loginOwned&&pending.phase==='verified';
         $('#login-status').textContent=!loginOwned?'別のサイトのログインが進行中です。続ける場合はそのサイトの設定を開き、終了する場合はキャンセルしてください。':loginReady?'ログイン確認済み。「保存」で認証を登録できます。':'ログインが進行中です。専用ブラウザーで完了後に確認してください。';loginControls();
+      }
+      // 新規サイト（「詳細な検査設定を開く」・共有版の登録）は標準操作テストを登録する前提で、最低限の項目だけで登録できるようにする。
+      if(!id&&editable){
+        $('#enable-operation-profile').checked=true;
+        for(const [key,value] of [['timezone','Asia/Tokyo'],['language','ja'],['adminPath','/wp-admin/']])if(!profileField(key).value)profileField(key).value=value;
+        indexableTouched=false;indexableDefault();profilePolicy();preview();
       }
       dialog.showModal();$('.editor-body').scrollTop=0;
       if(shared&&loginId&&loginOwned&&!loginReady)remote.start(loginId);

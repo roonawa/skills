@@ -34,6 +34,8 @@ try{
  await expect(d.locator('#login-status')).toBeAttached();
  assert.deepEqual(await visibleControls(d),[...base,'indexable','profile-public-password','profile-clear-public-password',...tail]);
  await expect(d.locator('#settings-profile-basics [data-key=indexable]')).toBeChecked();
+ await expect(d.locator('#settings-profile-note')).toBeHidden();
+ await expect(d.locator('#editor-mode')).not.toContainText('保存前の実行準備');
  await expect(advanced).not.toHaveAttribute('open','');
  await expect(summary).toHaveText('詳細設定（技術担当向け）');
  await expect(advanced).toContainText('通常は変更不要です。自動取得と結果画面の『次にやること』で設定されます。');
@@ -64,9 +66,27 @@ try{
  // 標準操作テスト未登録のサイトでは、検索エンジン・閲覧パスワードを出さない。
  await openSite('条件なしサイト');
  assert.deepEqual(await visibleControls(d),[...base,...tail]);
+ await expect(d.locator('#settings-profile-note')).toBeVisible();await expect(d.locator('#settings-profile-note')).toHaveText('閲覧パスワードと検索エンジンの設定は、詳細設定で『WordPressの標準操作テストを登録する』を有効にすると変更できます。');
+ // 詳細設定で標準操作テストを有効にすると、案内は消えて閲覧パスワード・検索エンジンが出る。
+ await summary.click();await d.locator('#enable-operation-profile').check();await expect(d.locator('#settings-profile-note')).toBeHidden();await expect(d.locator('#settings-profile-basics [data-key=indexable]')).toBeVisible();
+ await d.locator('#editor-cancel').click();await expect(d).not.toBeVisible();await openSite('条件なしサイト');
  const plainBefore=await settings(plain);
  await d.locator('#editor-save').click();await expect(d).not.toBeVisible();
  assert.deepEqual(await settings(plain),plainBefore);
+ // 新規サイト（「詳細な検査設定を開く」）も最低限の項目だけを表示し、標準操作テストを登録する前提で既定値を入れる。
+ await page.locator('#new-site').click();await page.locator('#registration-advanced-settings>summary').click();await page.locator('#registration-advanced').click();await expect(d).toBeVisible();
+ assert.deepEqual(await visibleControls(d),[...base,'indexable','profile-public-password','profile-clear-public-password',...tail]);
+ await expect(advanced).not.toHaveAttribute('open','');await expect(d.locator('#settings-profile-note')).toBeHidden();
+ await expect(d.locator('#enable-operation-profile')).toBeChecked();
+ for(const [key,value] of [['timezone','Asia/Tokyo'],['language','ja'],['adminPath','/wp-admin/']])await expect(d.locator(`#operation-profile-section [data-key=${key}]`)).toHaveValue(value);
+ const newIndexable=d.locator('#settings-profile-basics [data-key=indexable]'),env=d.locator('#site-fields [data-key=environment]');
+ await expect(newIndexable).not.toBeChecked();await env.selectOption('production');await expect(newIndexable).toBeChecked();await env.selectOption('staging');await expect(newIndexable).not.toBeChecked();
+ await newIndexable.check();await env.selectOption('production');await env.selectOption('local');await expect(newIndexable).toBeChecked();
+ await newIndexable.uncheck();await env.selectOption('production');await expect(newIndexable).not.toBeChecked();
+ await d.locator('#editor-cancel').click();await expect(d).not.toBeVisible();
+ // 登録済みサイトは環境を変えても保存済みの検索エンジンの値を変えない。
+ await openSite('最小設定テスト');const savedIndexable=d.locator('#settings-profile-basics [data-key=indexable]');await expect(savedIndexable).toBeChecked();
+ await d.locator('#site-fields [data-key=environment]').selectOption('local');await expect(savedIndexable).toBeChecked();await d.locator('#editor-cancel').click();await expect(d).not.toBeVisible();
  // AIが使えるときだけ「自動取得してClaudeで補完」を出す。
  fs.writeFileSync(aiFile,JSON.stringify({provider:'anthropic',enabled:true,approved:true,sealed:'sk-ant-fixture',model:'claude-sonnet-4-6',dailyLimit:20}));
  await openSite('最小設定テスト');

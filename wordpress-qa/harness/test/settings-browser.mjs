@@ -23,7 +23,9 @@ const storeDir=path.join(scratch,'projects');let app=await startUI({storeDir,por
 const browser=await chromium.launch();const page=await browser.newPage({viewport:{width:1440,height:1000}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
 try{
  await page.goto(app.url);await page.locator('#auto-download-results').uncheck();await page.getByRole('button',{name:'＋ サイトを登録'}).click();await page.locator('#registration-advanced-settings>summary').click();
- await page.locator('#registration-advanced').click();const dialog=page.locator('dialog:has(#site-editor)'),site=dialog.locator('#site-fields');
+ await page.locator('#registration-advanced').click();const dialog=page.locator('dialog:has(#site-editor)'),site=dialog.locator('#site-fields');await dialog.locator('#settings-advanced-settings>summary').click();
+ // このサイトは標準操作テストなしで登録する（後半で操作テスト未登録のサイトの動きを確かめる）。
+ await dialog.locator('#enable-operation-profile').uncheck();
  await site.locator('[data-key=name]').fill('登録テストサイト');await site.locator('[data-key=baseURL]').fill(origin);await site.locator('[data-key=environment]').selectOption('local');
  await dialog.locator('#add-admin').click();
  let row=dialog.locator('[data-kind=admin]').nth(0);await row.locator('[data-key=id]').fill('timezone');await row.locator('[data-key=title]').fill('タイムゾーン');await row.locator('[data-key=expected]').fill('Asia/Tokyo');

@@ -9,7 +9,7 @@ const fixture=http.createServer((req,res)=>{res.setHeader('Content-Type','text/h
 await new Promise(r=>fixture.listen(0,'127.0.0.1',r));const origin='http://127.0.0.1:'+fixture.address().port;
 const app=await startUI({storeDir:path.join(scratch,'projects'),port:0});const browser=await chromium.launch();const page=await browser.newPage({viewport:{width:1440,height:1000}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
 try{
- await page.goto(app.url);await page.locator('#new-site').click();await page.locator('#registration-advanced-settings>summary').click();await page.locator('#registration-advanced').click();const dialog=page.locator('dialog:has(#site-editor)');
+ await page.goto(app.url);await page.locator('#new-site').click();await page.locator('#registration-advanced-settings>summary').click();await page.locator('#registration-advanced').click();const dialog=page.locator('dialog:has(#site-editor)');await dialog.locator('#settings-advanced-settings>summary').click();
  await dialog.locator('[data-key=name]').fill('拡張検査UI');await dialog.locator('[data-key=baseURL]').fill(origin);await dialog.locator('[data-key=environment]').selectOption('local');await dialog.locator('[data-kind=page] [data-key=indexable]').check();
  // Test adding the extended plan independently of registration's generated coverage.
  while(await dialog.locator('.coverage-row').count())await dialog.locator('.coverage-row').first().locator('[data-remove]').click();

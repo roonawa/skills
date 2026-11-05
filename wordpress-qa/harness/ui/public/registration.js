@@ -37,7 +37,7 @@ export function initRegistration({api,onSaved}){
    profile.sitePath=sitePath;
    const config=generateCases({baseURL:field('baseURL').value,environment:field('environment').value,pages:[{id:'home',path:sitePath}]});
    renderPreparationSummary(preparation,preparationSummary(config,profile));
-   const note=document.createElement('p');note.textContent='公開ページの件数・検査範囲は登録時のURL取得後に確定します。表示・画像比較・アクセシビリティも生成され、初回画像基準と内容の妥当性は確認が必要です。必要な機能だけ選択し、不足する共通操作の条件は上の各設定欄で入力できます。';preparation.append(note);
+   const note=document.createElement('p');note.textContent='公開ページの件数・検査範囲は登録時のURL取得後に確定します。表示・画像比較・アクセシビリティも生成され、初回画像基準と内容の妥当性は確認が必要です。必要な機能だけ選択し、不足する共通操作の条件は詳細設定の各欄で入力できます。';preparation.append(note);
   }catch(e){preparation.textContent='実行準備を更新できません：'+e.message;}
  }
  form.addEventListener('input',preview);form.addEventListener('change',preview);

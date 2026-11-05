@@ -15,7 +15,7 @@ try{
  await expect(advanced).toContainText('通常は変更不要です。自動取得と結果画面の『次にやること』で設定されます。');
  await advanced.locator(':scope>summary').click();
  for(const n of ['timezone','bankOrder','loginPath','adminPath','testEmail','writes','sensitivePaths','maxPages'])await expect(advanced.locator(`[name=${n}]`)).toBeVisible();
- await expect(advanced).toContainText('共通の操作テスト');await expect(advanced.locator('#registration-advanced')).toBeVisible();await expect(advanced.locator('#registration-preparation')).toBeVisible();
+ await expect(advanced).toContainText('不足する共通操作の条件は詳細設定の各欄で入力できます。');await expect(advanced).toContainText('共通の操作テスト');await expect(advanced.locator('#registration-advanced')).toBeVisible();await expect(advanced.locator('#registration-preparation')).toBeVisible();
  await advanced.locator(':scope>summary').click();
  // Untouched: the default follows the environment both ways.
  await expect(indexable).not.toBeChecked();

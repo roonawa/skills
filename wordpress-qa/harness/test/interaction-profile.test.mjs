@@ -285,7 +285,8 @@ test('browser registration restores interaction drafts and settings save works w
   assert.equal(Object.hasOwn(saved,'profile'),false);
   assert.equal(saved.config.checks.find(c=>c.kind==='site-interaction').options.settings.mainSelector,'#updated');
   // A new advanced registration without a profile still gets the four defaults.
-  await page.click('#new-site');await page.locator('#site-fields [data-key=name]').fill('New');await page.locator('#site-fields [data-key=baseURL]').fill('https://example.test');
+  // 新規サイトは標準操作テストが既定で有効なので、詳細設定で外してから確かめる。
+  await page.click('#new-site');await page.click('#settings-advanced-settings>summary');await page.locator('#enable-operation-profile').uncheck();await page.locator('#site-fields [data-key=name]').fill('New');await page.locator('#site-fields [data-key=baseURL]').fill('https://example.test');
   await page.evaluate(()=>{window.saved=null;});assert.deepEqual(await page.locator('#site-editor :invalid').evaluateAll(es=>es.map(e=>({name:e.name,id:e.id,key:e.dataset.key,message:e.validationMessage,html:e.outerHTML}))),[]);await page.click('#editor-save');await page.waitForFunction(()=>window.saved||document.querySelector('#editor-error').textContent);assert.equal(await page.locator('#editor-error').textContent(),'');
   const created=await page.evaluate(()=>window.saved);
   assert.equal(Object.hasOwn(created,'profile'),false);
