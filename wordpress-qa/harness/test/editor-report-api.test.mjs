@@ -21,13 +21,13 @@ function fakeClient(gate){
  const c={calls:0,get:async url=>{c.calls++;if(gate)await gate;return url===`${BASE}/sitemap.xml`?{status:200,location:null,headers:{},text:sitemap}:{status:200,location:null,headers:{},text:'<html><body>x</body></html>'};},head:async()=>({status:200})};
  return c;
 }
-async function fixture(t,{ai={enabled:true,approved:true,evidenceApproved:true},runStatus='finished',fetcher=fakeFetcher(),client=fakeClient(),external=false}={}){
+async function fixture(t,{ai={enabled:true,approved:true,evidenceApproved:true},runStatus='finished',fetcher=fakeFetcher(),client=fakeClient(),external=false,runRows=rows}={}){
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'qa-editor-api-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
  const codec=createSecretCodec(randomBytes(32)),store=new ProjectStore(path.join(dir,'projects'),{codec});
  const config=registrationConfig({name:'編集者API',baseURL:BASE,environment:'staging',profile,discovery:{pages:[{path:'/'}],warnings:[]}});
  const id=store.save({config,profile,auth:{publicPassword:'view-only-pass'}}),ctx=store.context(id);
  const run=path.join(ctx.outputDir,'run-1');fs.mkdirSync(run,{recursive:true});
- fs.writeFileSync(path.join(run,'results.json'),JSON.stringify({runId:'run-1',name:'編集者API',baseURL:BASE,environment:'staging',configHash:ctx.configHash,startedAt:'2026-11-05T00:00:00Z',...(runStatus==='finished'?{finishedAt:'2026-11-05T00:10:00Z'}:{}),runStatus,rows,summary:{fail:3,caution:1,pass:1}}));
+ fs.writeFileSync(path.join(run,'results.json'),JSON.stringify({runId:'run-1',name:'編集者API',baseURL:BASE,environment:'staging',configHash:ctx.configHash,startedAt:'2026-11-05T00:00:00Z',...(runStatus==='finished'?{finishedAt:'2026-11-05T00:10:00Z'}:{}),runStatus,rows:runRows,summary:{fail:3,caution:1,pass:1}}));
  fs.writeFileSync(path.join(run,'context.json'),JSON.stringify({configHash:ctx.configHash,config:{pages:ctx.config.pages,visuals:ctx.config.visuals,policies:ctx.config.policies}}));
  fs.writeFileSync(path.join(run,'mystery.json'),JSON.stringify({note:'x'}));
  const settings=new SystemSettings({directory:path.join(dir,'projects','system'),codec});
@@ -97,6 +97,27 @@ test('reports the stage while creating and refuses a second creation',async t=>{
  const second=await f.post();assert.equal(second.status,409);assert.equal((await second.json()).error,'ほかの処理が終わってから作成してください');
  release();assert.equal((await first).status,200);
  assert.equal((await f.status()).stage,null);
+});
+
+test('other work is refused while an editor report is being created',async t=>{
+ let release;const gate=new Promise(r=>release=r),f=await fixture(t,{client:fakeClient(gate)});
+ const send=(route,data)=>fetch(f.app.url+route,{method:'POST',headers:{Origin:f.app.url,'X-QA-Token':f.boot.token,'Content-Type':'application/json'},body:JSON.stringify(data)});
+ const configHash=f.boot.projects.find(p=>p.id===f.id).configHash,busy='編集者向け報告書の作成が終わってから実行してください';
+ const first=f.post();
+ for(let i=0;i<100&&(await f.status()).stage!=='recheck';i++)await new Promise(r=>setTimeout(r,20));
+ for(const [route,data] of [[`/api/projects/${f.id}/runs`,{suite:'all'}],[`/api/projects/${f.id}/remove`,{confirmed:true,configHash}],['/api/system/settings',{dailyLimit:30}],['/api/logins',{baseURL:BASE}]]){
+  const r=await send(route,data);assert.equal(r.status,409,route);assert.equal((await r.json()).error,busy,route);
+ }
+ release();assert.equal((await first).status,200);
+ const run=await send(`/api/projects/${f.id}/runs`,{suite:'all',ids:['check.nothing-here']});assert.equal(run.status,400);assert.notEqual((await run.json()).error,busy);
+ const removed=await send(`/api/projects/${f.id}/remove`,{confirmed:true,configHash});assert.equal(removed.status,200,await removed.clone().text());
+});
+
+test('the estimate leaves room for one group added by the re-check',async t=>{
+ const plugin=i=>({id:`check.plugin-${i}`,title:'プラグイン',suite:'audit',status:'fail',reason:'vulnerable',softwareSecurity:{component:'plugin',unknown:[],findings:[{title:'a',asset:{slug:`p${i}`,name:`P${i}`,version:'1.0'},cves:[`CVE-2026-${i}`],range:{max_version:'2.0',max_operator:'lt',unfixed:'0',closed:'0'}}]}});
+ const f=await fixture(t,{runRows:Array.from({length:20},(_,i)=>plugin(i)),ai:{enabled:true,approved:true,evidenceApproved:true,dailyLimit:3}});
+ const s=await f.status();assert.equal(s.groups,20);assert.equal(s.calls,4);assert.equal(s.available,false);
+ assert.equal(s.reason,'本日のAI利用の残り回数が足りません（必要 4 回・残り 3 回）');
 });
 
 test('returns the check failure in Japanese and writes nothing',async t=>{

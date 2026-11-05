@@ -158,7 +158,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
   function jobState(job){return job?{projectId:job.projectId,kind:job.kind,runId:job.runId,state:job.state,exitCode:job.exitCode,log:job.log}:null;}
   function launch(p,args,kind,operationEnv={}) {
     admission();allowTarget(projectInfo(p).config.baseURL);
-    if(closing)reject(503,'終了処理中です');if(active)reject(409,'別の処理が実行中です。完了を待ってください');
+    if(closing)reject(503,'終了処理中です');if(active)reject(409,'別の処理が実行中です。完了を待ってください');if(editorJob)reject(409,'編集者向け報告書の作成が終わってから実行してください');
     if(['run','recover'].includes(kind)&&projectIsAlive(p.outputDir))reject(409,'以前の検査プロセスが生存している可能性があります。終了を待ってください。');
     if(logins.busy)reject(409,'ログインの保存またはキャンセル後に実行してください');
     const prepared=p.managed?store.prepare(p.id):externalAuth?.prepare(p.id,projectInfo(p).config)??{env:{}};
@@ -212,6 +212,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
   async function autoPrepare(p){
     if(!p.managed)return null;
     if(active||closing||logins.busy||preparing||projectIsAlive(p.outputDir))reject(409,'検査・ログイン・設定補完の完了後に実行してください');
+    if(editorJob)reject(409,'編集者向け報告書の作成が終わってから実行してください');
     const record=store.record(p.id);
     if(!unresolvedPreparation(record.config,record.profile??{}).length)return null;
     preparing={projectId:p.id,kind:'prepare',state:'preparing',log:'サイト情報を取得し、設定を自動補完しています。'};
@@ -297,6 +298,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
         if(req.method==='GET')return json(200,{...system.view(),canEdit:isAdmin(actor)});
         if(!isAdmin(actor))reject(403,'この設定は管理者のみ変更できます');
         if(active||logins.busy||ai.busy)reject(409,'検査・ログイン・AI処理の完了後に設定してください');
+        if(editorJob)reject(409,'編集者向け報告書の作成が終わってから実行してください');
         try{return json(200,system.save(await body(req)));}catch(e){reject(400,e.message);}
       }
       if(target.pathname==='/api/ai/propose'&&req.method==='POST'){
@@ -343,6 +345,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
         if(!store)reject(503,'サイト登録が無効です');
         const data=await body(req);
         if(active||closing)reject(409,'実行完了後にログインしてください');
+        if(editorJob)reject(409,'編集者向け報告書の作成が終わってから実行してください');
         try{
           if(segments.length===2){
             admission();allowTarget(data.baseURL);
@@ -374,6 +377,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
           const data=await body(req);
           if(data.confirmed!==true||typeof data.configHash!=='string')reject(400,'対象サイトの削除を確認してください');
           if(active||preparing||closing||logins.busy||ai?.busy||projectIsAlive(p.outputDir))reject(409,'検査・ログイン・AI処理の完了後に削除してください');
+          if(editorJob)reject(409,'編集者向け報告書の作成が終わってから実行してください');
           if(data.configHash!==projectInfo(p).configHash)reject(409,'サイト設定が変更されました。画面を再読み込みしてください');
           if(data.mode!==undefined&&!['hide','delete'].includes(data.mode))reject(400,'削除方法が不正です');
           if(data.mode==='delete'){
@@ -517,6 +521,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
           // ids は指定した行だけを実行する。設定が必要・対象外・存在しない行が1つでもあれば実行しない。
           const pickIds=config=>{if(!ids)return;if(ids.some(id=>config.journeys.some(j=>j.explicitOnly&&id==='journey.'+j.id)))reject(400,'操作テストの画面で送信内容を確認して実行してください');try{selectTests(catalog(config,data.suite),ids);}catch(e){reject(400,e.message);}};
           if(ids){const before=projectInfo(p).config;pickIds(p.managed?addSecurityChecks(structuredClone(before),store.record(p.id).profile?.adminPath??'/wp-admin/'):before);}
+          if(editorJob)reject(409,'編集者向け報告書の作成が終わってから実行してください');
           if(p.managed&&!active&&!preparing&&!logins.busy){const saved=store.record(p.id),config=addSecurityChecks(structuredClone(saved.config),saved.profile?.adminPath??'/wp-admin/');if(config.checks.length!==(saved.config.checks??[]).length){store.save({id:p.id,version:saved.version,config,profile:saved.profile});registerManaged(p.id);}}const preparation=await autoPrepare(p);const current=projectInfo(p);pickIds(current.config);
           const operations=!ids&&!profileScope(p,current)&&['all','journey'].includes(data.suite)?current.config.journeys.filter(j=>j.runWithSuite&&j.explicitOnly):[];
           let env={};if(operations.length){
@@ -678,7 +683,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
             const finished=report.runStatus==='finished'&&!!report.finishedAt&&!runIsAlive(directory);
             const readContext=()=>{try{const file=boundedPath(directory,'context.json');if(fs.statSync(file).size>16*1024*1024)return null;const context=JSON.parse(fs.readFileSync(file,'utf8'));if(context.configHash!==report.configHash)return null;const {pages,visuals,policies}=context.config;return {pages,visuals,policies};}catch{return null;}};
             const config=readContext(),view=system.view(),remaining=system.remaining();
-            const groups=groupRows(report,{environment:report.environment,config}).groups.filter(g=>['editor','admin','tech','not-site'].includes(g.category)).length,calls=estimateEditorCalls(groups);
+            const groups=groupRows(report,{environment:report.environment,config}).groups.filter(g=>['editor','admin','tech','not-site'].includes(g.category)).length,calls=estimateEditorCalls(groups+1);
             const busy=!!editorJob||!!active||closing||!!preparing||logins.busy||ai.busy;
             const reason=!finished?'完了した実行を選択してください':!(view.enabled&&view.approved&&view.evidenceApproved&&view.configured)?'AIの利用設定（有効化・承認・取得情報の送信許可）を確認してください':remaining<calls?`本日のAI利用の残り回数が足りません（必要 ${calls} 回・残り ${remaining} 回）`:busy?'ほかの処理が終わってから作成してください':null;
             const stage=editorJob?.projectId===p.id&&editorJob.runId===id?editorJob.stage:null;
@@ -688,7 +693,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
             if(editorJob||active||closing||preparing||logins.busy||ai.busy)reject(409,'ほかの処理が終わってから作成してください');
             for(const name of Object.values(files)){const output=path.join(directory,name);if(fs.existsSync(output)&&fs.lstatSync(output).isSymbolicLink())reject(403,'報告書の保存先を確認してください');}
             const record=store.record(p.id),baseURL=report.baseURL??record.config.baseURL;
-            allowTarget(baseURL);
+            admission();allowTarget(baseURL);
             editorJob={projectId:p.id,runId:id,stage:'facts'};
             const stageNames={facts:'結果の整理',recheck:'サイトの再確認',writing:'文章の作成',checking:'文章の確認',rendering:'報告書の作成'};
             try{
@@ -706,9 +711,9 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
               };
               let generated;
               try{
-                generated=await buildEditorReport({report,readEvidence,config,site:{name:record.config.name,baseURL,environment:report.environment??record.config.environment},sitePath,allowedOrigins,publicPassword:secrets.publicPassword??'',...(editorRecheckClient?{client:editorRecheckClient}:{}),ai,onStage:s=>{editorJob.stage=s;}});
+                generated=await buildEditorReport({report,readEvidence,config,site:{name:record.config.name,baseURL,environment:report.environment??record.config.environment},sitePath,allowedOrigins,publicPassword:secrets.publicPassword??'',...(editorRecheckClient?{client:editorRecheckClient}:{}),ai,onStage:s=>{if(editorJob)editorJob.stage=s;}});
               }catch(e){
-                const where=stageNames[editorJob.stage]??'作成';
+                const where=stageNames[editorJob?.stage]??'作成';
                 if(/^文章の確認に通りませんでした/.test(e?.message))reject(422,e.message);
                 if(/[぀-ヿ一-鿿]/.test(String(e?.message)))reject(422,`${where}の段階で止まりました：${e.message}`);
                 reject(500,`${where}の段階で編集者向け報告書を作成できませんでした。時間をおいて再試行してください`);
