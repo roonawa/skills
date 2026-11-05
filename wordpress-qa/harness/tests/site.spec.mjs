@@ -11,6 +11,7 @@ import { scopedHeaders } from '../lib/headers.mjs';
 import {checkCancellation} from '../lib/cancellation.mjs';
 import {captureMarkedScreenshots} from '../lib/marked-screenshots.mjs';
 import {isolatedAuthOnly} from '../lib/isolated-auth.mjs';
+import {trackImages} from '../lib/readiness-images.mjs';
 
 const ctx=JSON.parse(fs.readFileSync(process.env.WPQA_CONTEXT,'utf8'));
 const c=ctx.config;
@@ -75,18 +76,21 @@ for(const j of c.journeys) if(enabled(`journey.${j.id}`)) test(title(`journey.${
 
 async function ready(page,v,info) {
   const jsErrors=[];page.on('pageerror',e=>jsErrors.push({message:e.message,stack:e.stack}));
-  const p=c.pages.find(p=>p.id===v.pageId);
+  const tracker=trackImages(page),p=c.pages.find(p=>p.id===v.pageId);
   await page.setViewportSize({width:v.width,height:v.height});
   const response=await page.goto(p.path);expect(response?.status()).toBe(200);
   await expect(page.locator(v.ready)).toBeVisible();
   await page.evaluate(()=>document.fonts.ready);
   // Trigger lazy images, then restore the viewport before comparing.
   for(const img of await page.locator('img').all()) {
-    if(await img.isVisible()) {await img.scrollIntoViewIfNeeded();await expect.poll(()=>img.evaluate(el=>el.complete&&el.naturalWidth>0)).toBe(true);}
+    if(await img.isVisible()) {
+      try {await img.scrollIntoViewIfNeeded();await expect.poll(()=>img.evaluate(el=>el.complete&&el.naturalWidth>0)).toBe(true);}
+      catch(error) {await evidence(info,'readiness',{jsErrors,fontErrors:[],failedImages:await tracker.failed()});throw error;}
+    }
   }
   await page.evaluate(()=>window.scrollTo(0,0));
   const fontErrors=await page.evaluate(()=>[...document.fonts].filter(f=>f.status==='error').map(f=>f.family));
-  await evidence(info,'readiness',{jsErrors,fontErrors});expect(fontErrors).toEqual([]);
+  await evidence(info,'readiness',{jsErrors,fontErrors,failedImages:await tracker.failed()});expect(fontErrors).toEqual([]);
   return jsErrors;
 }
 for(const v of c.visuals) {
