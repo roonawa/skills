@@ -4,10 +4,23 @@ export const CATEGORIES=['editor','admin','tech','not-site','unverified','not-ap
 const ANSI=/\x1b\[[0-9;]*[A-Za-z]/g;
 const DISPLAY_PREFIX=/^(layout|javascript|snapshot|axe)\./;
 const MAX_PROBES=3;
-const flag=v=>!!v&&!['0','false','no'].includes(String(v).toLowerCase());
 const text=row=>String(row.reason??'').replace(ANSI,'');
-const pathOf=row=>row.path??row.url??row.details?.path??row.details?.url??null;
-const probesFor=(rows,kind,key='path')=>rows.map(pathOf).filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i).slice(0,MAX_PROBES).map(v=>({kind,[key]:v}));
+const uniq=(v,i,a)=>a.indexOf(v)===i;
+const probes=(kind,values,key='path')=>values.filter(Boolean).filter(uniq).slice(0,MAX_PROBES).map(v=>({kind,[key]:v}));
+// Page path of a row, taken from the run config (page.<id>, links.<id>, <display>.<visualId>).
+function pagePath(row,config){
+  const [prefix,...rest]=row.id.split('.'),id=rest.join('.');
+  const pageId=prefix==='page'||prefix==='links'?id:(config?.visuals??[]).find(v=>v.id===id)?.pageId;
+  return (config?.pages??[]).find(p=>p.id===pageId)?.path??null;
+}
+function failedLinks(row,readEvidence){
+  for(const file of row.evidence??[]){
+    let data;try{data=readEvidence?.(file);}catch{continue;}
+    const list=Array.isArray(data)?data:data?.links;
+    if(Array.isArray(list)){const bad=list.filter(l=>l?.url&&l.status>=400).map(l=>l.url);if(bad.length) return bad;}
+  }
+  return [];
+}
 
 // Per-row rule match for failed/caution rows; null means no catalog rule applies.
 function ruleOf(row){
@@ -28,19 +41,22 @@ const PROVISIONAL={'index-expectation':'not-site','render-timeout':'not-site','l
 
 function pluginFacts(row){
   const plugins=(row.softwareSecurity?.findings??[]).map(f=>{
-    const r=f.range??{};
-    const unfixed=flag(r.unfixed);
+    const r=f.range??{},unfixed=r.unfixed==='1';
     return {name:f.asset?.name??f.asset?.slug??'',version:f.asset?.version??'',cves:[...(f.cves??[])],
-      fixedIn:!unfixed&&r.max_version&&r.max_operator==='<'?String(r.max_version):null,closed:flag(r.closed)};
+      fixedIn:!unfixed&&r.max_operator==='lt'&&r.max_version?String(r.max_version):null,unfixed,closed:r.closed==='1'};
   });
   return {plugins};
 }
 
-function factsAndProbes(rule,rows,environment){
+function factsAndProbes(rule,rows,{environment,config,readEvidence}){
+  const paths=rs=>rs.map(r=>pagePath(r,config));
   switch(rule){
-    case 'index-expectation': return {facts:{environment:environment??null,pageCount:rows.filter(r=>r.id.startsWith('page.')).length,adminSetting:rows.some(r=>r.id==='admin.indexing')},probes:probesFor(rows.filter(r=>r.id.startsWith('page.')),'page')};
-    case 'render-timeout': return {facts:{environment:environment??null},probes:probesFor(rows,'images')};
-    case 'link-transient': return {facts:{},probes:probesFor(rows,'link','url')};
+    case 'index-expectation': return {facts:{environment:environment??null,pageCount:rows.filter(r=>r.id.startsWith('page.')).length,adminSetting:rows.some(r=>r.id==='admin.indexing')},probes:probes('page',paths(rows.filter(r=>r.id.startsWith('page.'))))};
+    case 'render-timeout': return {facts:{environment:environment??null},probes:probes('images',paths(rows))};
+    case 'link-transient': {
+      const urls=rows.flatMap(r=>failedLinks(r,readEvidence));
+      return {facts:{},probes:urls.length?probes('link',urls,'url'):probes('page',paths(rows))};
+    }
     case 'soft-404': return {facts:{},probes:[{kind:'missing-page'}]};
     case 'sitemap-format': return {facts:{},probes:[{kind:'sitemap'}]};
     case 'plugin-vulnerability': return {facts:pluginFacts(rows[0]),probes:[]};
@@ -49,7 +65,7 @@ function factsAndProbes(rule,rows,environment){
   }
 }
 
-export function groupRows(report,{environment}={}){
+export function groupRows(report,options={}){
   const buckets=new Map();
   const put=(key,rule,status,row)=>{if(!buckets.has(key))buckets.set(key,{rule,status,rows:[]});buckets.get(key).rows.push(row);};
   for(const row of report.rows??[]){
@@ -66,7 +82,7 @@ export function groupRows(report,{environment}={}){
   const groups=[];
   for(const [key,{rule,status,rows}] of buckets){
     const category=status==='unverified'||status==='not-applicable'?status:PROVISIONAL[rule];
-    const {facts,probes}=factsAndProbes(rule,rows,environment);
+    const {facts,probes}=factsAndProbes(rule,rows,options);
     groups.push({id:key.replace(/[^A-Za-z0-9._:-]/g,'_'),rule,rowIds:rows.map(r=>r.id),status,category,facts,probes});
   }
   const count=s=>groups.filter(g=>g.status===s).reduce((n,g)=>n+g.rowIds.length,0);

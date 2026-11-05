@@ -14,8 +14,8 @@ function komoro(){
   rows.push(row('sitemap.main','fail','malformed sitemap XML'));
   rows.push(row('check.auto-security-404','fail','unknown URL must return 404'));
   rows.push(row('check.security-plugin','fail','vulnerable',{softwareSecurity:{component:'plugin',unknown:[],findings:[
-    {title:'a',asset:{slug:'foo',name:'Foo',version:'1.0'},cves:['CVE-2026-1'],range:{max_version:'1.2',max_operator:'<',unfixed:'0',closed:false}},
-    {title:'b',asset:{slug:'bar',name:'Bar',version:'2.0'},cves:['CVE-2026-2'],range:{max_version:'2.0',max_operator:'<=',unfixed:'1',closed:'0'}}]}}));
+    {title:'a',asset:{slug:'user-role-editor',name:'User Role Editor',version:'4.52.1'},cves:['CVE-2026-1'],range:{max_version:'4.64.4',max_operator:'lt',unfixed:'0',closed:'0'}},
+    {title:'b',asset:{slug:'whats-new-generator',name:"What's New Generator",version:'2.0.2'},cves:['CVE-2026-2'],range:{max_version:'2.0.2',max_operator:'le',unfixed:'1',closed:'1'}}]}}));
   rows.push(row('mystery.thing','fail','something odd'));
   rows.push(row('check.auto-security-headers','fail','missing-hsts missing-csp',{level:'caution'}));
   rows.push(row('check.security-compatibility','fail','php old',{level:'caution'}));
@@ -25,23 +25,28 @@ function komoro(){
   rows.push(row('check.ok','pass',''));
   return {rows};
 }
+const config={pages:[...Array(6)].map((_,i)=>({id:`p${i}`,path:`/p${i}/`})).concat([{id:'home',path:'/'},{id:'about',path:'/about/'},{id:'x',path:'/x/'}]),
+  visuals:['home-1280','home-390','about-1280','about-390'].map(id=>({id,pageId:id.split('-')[0]})).concat([{id:'home',pageId:'home'},{id:'about',pageId:'about'}])};
 const flat=g=>g.flatMap(x=>x.rowIds);
 
 test('groups the komoro-shaped run',()=>{
-  const {groups}=groupRows(komoro(),{environment:'production'});
+  const {groups}=groupRows(komoro(),{environment:'production',config});
   const idxG=groups.filter(g=>g.rule==='index-expectation'),rt=groups.filter(g=>g.rule==='render-timeout');
   assert.equal(idxG.length,1);assert.equal(idxG[0].rowIds.length,7);assert.equal(idxG[0].facts.environment,'production');
   assert.equal(rt.length,1);assert.equal(rt[0].rowIds.length,8);assert.ok(rt[0].probes.length<=3);
   for(const r of ['link-transient','sitemap-format','soft-404','security-headers','compatibility']) assert.equal(groups.filter(g=>g.rule===r).length,1,r);
   assert.equal(groups.find(g=>g.rule==='security-headers').status,'caution');
   const p=groups.find(g=>g.rule==='plugin-vulnerability');
-  assert.deepEqual(p.facts.plugins,[{name:'Foo',version:'1.0',cves:['CVE-2026-1'],fixedIn:'1.2',closed:false},{name:'Bar',version:'2.0',cves:['CVE-2026-2'],fixedIn:null,closed:false}]);
+  assert.deepEqual(p.facts.plugins,[{name:'User Role Editor',version:'4.52.1',cves:['CVE-2026-1'],fixedIn:'4.64.4',unfixed:false,closed:false},{name:"What's New Generator",version:'2.0.2',cves:['CVE-2026-2'],fixedIn:null,unfixed:true,closed:true}]);
+  assert.deepEqual(idxG[0].probes,[0,1,2].map(i=>({kind:'page',path:`/p${i}/`})));
+  assert.deepEqual(rt[0].probes,[{kind:'images',path:'/'},{kind:'images',path:'/about/'}]);
+  assert.deepEqual(groups.find(g=>g.rule==='link-transient').probes,[{kind:'page',path:'/x/'}]);
   assert.ok(groups.every(g=>CATEGORIES.includes(g.category)));
 });
 
 test('counts match the original rows',()=>{
   const report=komoro();
-  const {groups,counts}=groupRows(report,{environment:'production'});
+  const {groups,counts}=groupRows(report,{environment:'production',config});
   assert.deepEqual(counts,{fail:20,caution:2,unverified:3,notApplicable:2});
   const ids=flat(groups);
   assert.equal(ids.length,new Set(ids).size);
@@ -55,4 +60,11 @@ test('unknown failures are kept',()=>{
   const u=groups.find(g=>g.rule==='unclassified');
   assert.deepEqual(u.rowIds,['mystery.thing']);assert.equal(u.category,'tech');
   assert.deepEqual(u.facts.reasons,['something odd']);
+});
+
+test('link probes use failed links from evidence when present',()=>{
+  const r=row('links.x','fail','Expected: 200 Received: 503',{evidence:['links.json']});
+  const readEvidence=f=>f==='links.json'?[{url:'https://e.test/a',status:200},{url:'https://e.test/b',status:503}]:null;
+  const {groups}=groupRows({rows:[r]},{config,readEvidence});
+  assert.deepEqual(groups[0].probes,[{kind:'link',url:'https://e.test/b'}]);
 });
