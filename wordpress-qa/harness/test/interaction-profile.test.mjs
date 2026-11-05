@@ -62,7 +62,7 @@ test('settings resolve write revocation, representative scope and opt-in shared 
     if(options?.method==='POST'){window.saved=JSON.parse(options.body);return {id:'managed'};}
     return url==='/api/logins/current'?{login:null}:{config:c,profile:p,managed:true,version:'v1',credentials:{}};
    }});
-  },{c,p});await page.click('#edit-site');return page;
+  },{c,p});await page.click('#edit-site');await page.click('#settings-advanced-settings>summary');return page;
  }
  async function save(page){await page.click('#editor-save');await page.waitForFunction(()=>window.saved||document.querySelector('#editor-error').textContent);assert.equal(await page.locator('#editor-error').textContent(),'');return page.evaluate(()=>window.saved);}
  try{
@@ -275,7 +275,7 @@ test('browser registration restores interaction drafts and settings save works w
     return {config:c,managed:true,version:'v1',credentials:{}};
    }});
   },{...config,name:'Config only',admin:[],journeys:[],visuals:[],manual:[],checks:[{id:'interaction-all-links',title:'Links',kind:'site-interaction',suite:'delivery',options:{operation:'all-links',settings:{enabled:['all-links'],sitePath:'/shop/',paths:['/shop/'],mainSelector:'#original'}}}]});
-  await page.click('#edit-site');
+  await page.click('#edit-site');await page.click('#settings-advanced-settings>summary');
   assert.equal(await page.locator('#interaction-profile-section').isVisible(),true);
   assert.equal(await page.locator('[name="interaction-mainSelector"]').inputValue(),'#original');
   await page.locator('[name="interaction-mainSelector"]').fill('#updated');

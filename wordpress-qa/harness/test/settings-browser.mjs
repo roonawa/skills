@@ -22,7 +22,7 @@ const stateFile=path.join(scratch,'session.json');fs.writeFileSync(stateFile,JSO
 const storeDir=path.join(scratch,'projects');let app=await startUI({storeDir,port:0});
 const browser=await chromium.launch();const page=await browser.newPage({viewport:{width:1440,height:1000}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
 try{
- await page.goto(app.url);await page.locator('#auto-download-results').uncheck();await page.getByRole('button',{name:'＋ サイトを登録'}).click();
+ await page.goto(app.url);await page.locator('#auto-download-results').uncheck();await page.getByRole('button',{name:'＋ サイトを登録'}).click();await page.locator('#registration-advanced-settings>summary').click();
  await page.locator('#registration-advanced').click();const dialog=page.locator('dialog:has(#site-editor)'),site=dialog.locator('#site-fields');
  await site.locator('[data-key=name]').fill('登録テストサイト');await site.locator('[data-key=baseURL]').fill(origin);await site.locator('[data-key=environment]').selectOption('local');
  await dialog.locator('#add-admin').click();
@@ -40,7 +40,7 @@ try{
  assert.equal((await fetch(app.url+'/api/projects',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).status,403);
  const run=async()=>{await page.locator('#suite-select').selectOption('admin');await page.locator('#run-button').click();await page.getByText('実行中',{exact:true}).first().waitFor();await page.getByText('実行が完了しました',{exact:true}).waitFor({timeout:90000});if(await page.locator('#cinema-verdict').isVisible())await page.locator('#cinema-verdict button').click();};
  await run();await expect(page.locator('#metric-pass')).toHaveText('2');
- await page.locator('#edit-site').click();await expect(dialog.locator('#auth-password')).toHaveValue('');await expect(dialog.locator('#rest-state')).toContainText('登録済み');
+ await page.locator('#edit-site').click();await dialog.locator('#settings-advanced-settings>summary').click();await expect(dialog.locator('#auth-password')).toHaveValue('');await expect(dialog.locator('#rest-state')).toContainText('登録済み');
  await dialog.locator('[data-kind=admin]').first().locator('[data-key=expected]').fill('UTC');await dialog.locator('#editor-save').click();await expect(dialog).not.toBeVisible();
  await run();await expect(page.locator('#metric-fail')).toHaveText('1');
  await page.locator('[data-group="admin.timezone"]').click();
@@ -50,17 +50,17 @@ try{
  const state=await(await fetch(app.url+'/api/projects/'+id)).json();const detail=await(await fetch(app.url+'/api/projects/'+id+'/runs/'+state.runs[0].runId)).json();
  assert.ok(!JSON.stringify(detail).includes('fixture-password'));assert.ok(!JSON.stringify(detail).includes('fixture-session'));
  await app.close();app=await startUI({storeDir,port:0});await page.goto(app.url);await expect(page.locator('#project-name')).toContainText('登録テストサイト');
- await page.locator('#edit-site').click();await expect(dialog.locator('#rest-state')).toContainText('登録済み');await dialog.locator('#clear-rest').check();await dialog.locator('#clear-browser').check();await dialog.locator('#editor-save').click();await expect(dialog).not.toBeVisible();
- await page.locator('#edit-site').click();await expect(dialog.locator('#rest-state')).toHaveText('未登録');await expect(dialog.locator('#browser-state')).toHaveText('未登録');
+ await page.locator('#edit-site').click();await dialog.locator('#settings-advanced-settings>summary').click();await expect(dialog.locator('#rest-state')).toContainText('登録済み');await dialog.locator('#clear-rest').check();await dialog.locator('#clear-browser').check();await dialog.locator('#editor-save').click();await expect(dialog).not.toBeVisible();
+ await page.locator('#edit-site').click();await dialog.locator('#settings-advanced-settings>summary').click();await expect(dialog.locator('#rest-state')).toHaveText('未登録');await expect(dialog.locator('#browser-state')).toHaveText('未登録');
  // A site without an operation profile can still change sensitivePaths (sent as sensitivePaths); choosing production clears the box.
  const sensitive=async()=>(await(await fetch(app.url+'/api/projects/'+id+'/settings')).json()).config.allowSensitivePaths,sp=dialog.locator('[data-key=sensitivePaths]'),openProfile=()=>dialog.locator('summary',{hasText:'登録済みの操作テスト'}).click();
  assert.equal(await sensitive(),true);
  await dialog.locator('#editor-cancel').click();await expect(dialog).not.toBeVisible();
- await page.locator('#edit-site').click();await openProfile();await expect(dialog.locator('#enable-operation-profile')).not.toBeChecked();await expect(sp).toBeEnabled();await expect(sp).toBeChecked();
+ await page.locator('#edit-site').click();await dialog.locator('#settings-advanced-settings>summary').click();await openProfile();await expect(dialog.locator('#enable-operation-profile')).not.toBeChecked();await expect(sp).toBeEnabled();await expect(sp).toBeChecked();
  await site.locator('[data-key=environment]').selectOption('production');await expect(sp).not.toBeChecked();await site.locator('[data-key=environment]').selectOption('local');await expect(sp).toBeChecked();
  await sp.uncheck();await dialog.locator('#editor-save').click();await expect(dialog).not.toBeVisible();assert.equal(await sensitive(),false);
- await page.locator('#edit-site').click();await openProfile();await expect(sp).toBeEnabled();await expect(sp).not.toBeChecked();await sp.check();await dialog.locator('#editor-save').click();await expect(dialog).not.toBeVisible();assert.equal(await sensitive(),true);
- await page.locator('#edit-site').click();
+ await page.locator('#edit-site').click();await dialog.locator('#settings-advanced-settings>summary').click();await openProfile();await expect(sp).toBeEnabled();await expect(sp).not.toBeChecked();await sp.check();await dialog.locator('#editor-save').click();await expect(dialog).not.toBeVisible();assert.equal(await sensitive(),true);
+ await page.locator('#edit-site').click();await dialog.locator('#settings-advanced-settings>summary').click();
  await page.setViewportSize({width:390,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));await page.screenshot({path:path.join(scratch,'settings-mobile.png'),fullPage:true});
  assert.deepEqual(errors,[]);console.log('Settings UI acceptance passed: '+scratch);
 }finally{await browser.close();await app.close();await new Promise(r=>fixture.close(r));}

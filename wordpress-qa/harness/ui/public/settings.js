@@ -81,13 +81,19 @@ export function initSettings({api,currentProject,onSaved,shared=false}) {
   interactionSection.addEventListener('change',()=>{$('#refresh-automation').checked=true;});
   interactionSection.addEventListener('input',()=>{$('#refresh-automation').checked=true;});
   for(const event of ['input','change','click'])$('#admin-editors').addEventListener(event,()=>{$('#refresh-automation').checked=true;});
-  const profileField=key=>profileSection.querySelector(`[data-key="${key}"]`);
+  const profileField=key=>dialog.querySelector(`#operation-profile-section [data-key="${key}"],#settings-profile-basics [data-key="${key}"]`);
+  // 検索エンジンへの公開と閲覧パスワードは、操作テストの区画から出してサイト情報の下に表示する（data-key・idは変えない）。
+  const profileBasics=document.createElement('div');profileBasics.id='settings-profile-basics';
+  const passwordLabel=$('#profile-public-password').closest('label'),passwordNote=passwordLabel.previousElementSibling;
+  profileBasics.append(profileField('indexable').closest('label'),passwordNote.previousElementSibling,passwordNote,passwordLabel,$('#profile-clear-public-password').closest('label'));
+  fields.after(profileBasics);
   function profilePolicy(){
     const production=fields.querySelector('[data-key=environment]').value==='production';
     const enabled=$('#enable-operation-profile').checked;
     automationNote.hidden=enabled;
     for(const el of automationSection.querySelectorAll('input,textarea'))el.disabled=!editable||!enabled;
-    for(const el of profileSection.querySelectorAll('[data-key]'))el.disabled=!editable||!enabled;
+    for(const el of [...profileSection.querySelectorAll('[data-key]'),...profileBasics.querySelectorAll('[data-key]')])el.disabled=!editable||!enabled;
+    profileBasics.hidden=!enabled;
     // 機密パス確認は操作テストの有無に関係なく保存時に送る（sensitivePaths）。
     profileField('sensitivePaths').disabled=!editable;
     for(const key of ['writes','submit','bankOrder']){
@@ -115,16 +121,17 @@ export function initSettings({api,currentProject,onSaved,shared=false}) {
       const value=profileField(key).value.trim();
       if(!value){delete profile[key];continue;}
       if(type==='number'){
-        if(!Number.isSafeInteger(Number(value))||Number(value)<1)throw new Error(label+'は正の整数で入力してください');
+        if(!Number.isSafeInteger(Number(value))||Number(value)<1)throw fieldError(profileField(key),label+'は正の整数で入力してください');
         profile[key]=Number(value);
       }else profile[key]=value;
     }
-    if(!profile.adminPath)throw new Error('操作テストの管理画面パスを入力してください');
-    if(!profile.timezone||!profile.language)throw new Error('標準操作テストのタイムゾーンと言語を入力してください');
-    if(profile.contactFormId&&['name','email','message'].some(k=>!(profile.interactions.contact?.[k+'Field']||profile['contact'+k[0].toUpperCase()+k.slice(1)+'Field'])))throw new Error('CF7設定検査の名前・メール・本文の項目名を入力してください');
-    try{new Intl.DateTimeFormat('ja',{timeZone:profile.timezone});}catch{throw new Error('タイムゾーンが不正です');}
-    if((profile.submit||profile.bankOrder)&&!profile.writes)throw new Error('送信・注文検査にはテストデータの操作許可が必要です');
-    validateInteractionPermissions(profile.interactions,fields.querySelector('[data-key=environment]').value,profile.writes);
+    if(!profile.adminPath)throw fieldError(profileField('adminPath'),'操作テストの管理画面パスを入力してください');
+    if(!profile.timezone||!profile.language)throw fieldError(profileField(profile.timezone?'language':'timezone'),'標準操作テストのタイムゾーンと言語を入力してください');
+    const contactKey=k=>'contact'+k[0].toUpperCase()+k.slice(1)+'Field',missingContact=profile.contactFormId&&['name','email','message'].find(k=>!(profile.interactions.contact?.[k+'Field']||profile[contactKey(k)]));
+    if(missingContact)throw fieldError(profileField(contactKey(missingContact)),'CF7設定検査の名前・メール・本文の項目名を入力してください');
+    try{new Intl.DateTimeFormat('ja',{timeZone:profile.timezone});}catch{throw fieldError(profileField('timezone'),'タイムゾーンが不正です');}
+    if((profile.submit||profile.bankOrder)&&!profile.writes)throw fieldError(profileField('writes'),'送信・注文検査にはテストデータの操作許可が必要です');
+    try{validateInteractionPermissions(profile.interactions,fields.querySelector('[data-key=environment]').value,profile.writes);}catch(e){throw fieldError(interactionSection,e.message);}
     return profile;
   }
   const coverageSection=document.createElement('section');$('#credentials-section').before(coverageSection);const coverage=initCoverage(coverageSection);
@@ -155,7 +162,7 @@ export function initSettings({api,currentProject,onSaved,shared=false}) {
       $('#refresh-automation').checked=true;rediscoveryDirty=true;preview();return result.preparation;
     },
     applyConfig(config){const before=coverage.read().checks;aiChecks.push(...config.checks.filter(c=>JSON.stringify(c)!==JSON.stringify(before.find(x=>x.id===c.id))));coverage.populate(config);rediscoveryDirty=true;preview();},
-    openCheck(id){const row=[...coverageSection.querySelectorAll('.coverage-row')].find(r=>r.querySelector('[data-c=id]')?.value===id);if(!row)return;showPreparationWizard({row,config:aiConfig(),profile:operationProfile,profileFields:profileField,onProfileChange:()=>{$('#refresh-automation').checked=true;}});dialog.dataset.preparationCheck=id;row.scrollIntoView({block:'start'});}
+    openCheck(id){const row=[...coverageSection.querySelectorAll('.coverage-row')].find(r=>r.querySelector('[data-c=id]')?.value===id);if(!row)return;reveal(row);showPreparationWizard({row,config:aiConfig(),profile:operationProfile,profileFields:profileField,onProfileChange:()=>{$('#refresh-automation').checked=true;}});dialog.dataset.preparationCheck=id;row.scrollIntoView({block:'start'});}
   });
   const preparation=document.createElement('section');preparation.id='settings-preparation';preparation.setAttribute('aria-live','polite');coverageSection.before(preparation);
   function preview(){
@@ -186,6 +193,15 @@ export function initSettings({api,currentProject,onSaved,shared=false}) {
   coverageSection.querySelector('[data-writes]').onchange=e=>setWritePermission(e.target.checked);
   $('#enable-operation-profile').onchange=()=>{profilePolicy();$('#refresh-automation').checked=true;};
   const rolesSection=document.createElement('div');rolesSection.innerHTML='<h4>ロール別の認証</h4><p>ロール名は検査options.roleと一致させます。値は再表示しません。</p><div id="role-editors"></div><button type="button" id="add-role">ロールを追加</button><label>ログインするロール<select id="login-role"><option value="">既定の管理者</option></select></label>';$('#credentials-section').append(rolesSection);
+  // 最低限の項目（サイト情報・閲覧パスワード等・管理画面へのログイン・Claude補完）以外は、閉じた「詳細設定」へ既存の要素ごと移す（id・処理・保存内容は変えない）。
+  const loginSection=document.createElement('section');loginSection.id='settings-login';loginSection.innerHTML='<h3>管理画面へのログイン</h3>';
+  const browserState=$('#browser-state');loginSection.append(browserState,browserState.nextElementSibling,$('.login-actions'),$('#login-status'));if(remote)loginSection.append($('.remote-login'));
+  $('#login-path').closest('.editor-grid').previousElementSibling.textContent='ログイン・管理画面のパスとセッション';
+  const siteSection=fields.closest('section');siteSection.after(loginSection);
+  const advancedSettings=document.createElement('details');advancedSettings.id='settings-advanced-settings';advancedSettings.innerHTML='<summary>詳細設定（技術担当向け）</summary><p>通常は変更不要です。自動取得と結果画面の『次にやること』で設定されます。</p>';
+  for(const el of [...$('.editor-body').children])if(!['editor-mode','editor-error'].includes(el.id)&&el!==siteSection&&el!==loginSection)advancedSettings.append(el);
+  $('.editor-body').append(advancedSettings);
+  const aiPanel=$('.ai-preparation');aiPanel.hidden=true;
   let loginRole='';
   function refreshRoles(){const previous=$('#login-role').value;$('#login-role').replaceChildren(new Option('既定の管理者',''));for(const e of dialog.querySelectorAll('[data-role-name]'))if(e.value.trim())$('#login-role').add(new Option(e.value.trim(),e.value.trim()));$('#login-role').value=previous;}
   function roleRow(name='',status={}){const row=document.createElement('fieldset');row.className='role-row';row.innerHTML=`<legend>ロール認証</legend><label>ロール名<input data-role-name value="${esc(name)}" pattern="[a-z][a-z0-9_-]*" required></label><p>REST: ${status.rest?'登録済み':'未登録'} / ブラウザー: ${status.browser?'登録済み':'未登録'}</p><div class="editor-grid"><label>ユーザー名<input data-role-user autocomplete="off"></label><label>アプリケーションパスワード<input data-role-password type="password" autocomplete="new-password"></label></div><label class="check-line"><input type="checkbox" data-role-clear-rest>保存済みREST認証を削除</label><label class="check-line"><input type="checkbox" data-role-clear-browser>保存済みブラウザー認証を削除</label>`;row.querySelector('[data-role-name]').oninput=refreshRoles;$('#role-editors').append(row);refreshRoles();}
@@ -204,6 +220,10 @@ export function initSettings({api,currentProject,onSaved,shared=false}) {
     loginId=null;loginReady=false;loginOwned=true;$('#login-status').textContent='';loginControls();
   }
   function error(message){$('#editor-error').textContent=message;$('#editor-error').hidden=!message;}
+  // 入力欄に結び付いたエラー。保存時に閉じた区画の中の欄なら、区画を開いて欄を示す。
+  function fieldError(field,message){return Object.assign(new Error(message),{field});}
+  function reveal(el){for(let box=el.parentElement?.closest('details');box;box=box.parentElement.closest('details'))box.open=true;}
+  $('#site-editor').addEventListener('invalid',e=>reveal(e.target),true);
   function row(kind,data={}) {
     const box=document.createElement('fieldset');box.className='setting-row';box.dataset.kind=kind;box._original=data;
     box.innerHTML=`<legend>${kind==='page'?'ページ':'管理設定'}</legend><button type="button" class="remove-setting" aria-label="項目を削除">削除</button><div class="editor-grid">`+
@@ -261,6 +281,9 @@ export function initSettings({api,currentProject,onSaved,shared=false}) {
         catch(e){preparationNotice='最新情報を取得できなかったため、保存済みの情報を使います。'+e.message;}
       }
       editable=data.managed;version=data.version;$('#refresh-automation').checked=!id;populate(id?data.config:generateCases(data.config),data.credentials,data.profile);
+      // 「詳細な検査設定を開く」（新規）では詳細設定を開いた状態で表示する。登録済みサイトは閉じておく。
+      advancedSettings.open=!id;
+      aiPanel.hidden=true;api('/api/system/settings').then(s=>{aiPanel.hidden=!(s?.enabled===true&&s.configured===true&&s.approved===true);},()=>{});
       const pending=(await api('/api/logins/current')).login;
       if(pending){
         loginId=pending.id;
@@ -280,6 +303,7 @@ export function initSettings({api,currentProject,onSaved,shared=false}) {
       if(target?.checkId){
         const row=[...dialog.querySelectorAll('.coverage-row')].find(r=>r.querySelector('[data-c=id]')?.value===target.checkId);
         if(row){
+          reveal(row);
           const wizard=showPreparationWizard({row,config:data.config,profile:data.profile,profileFields:profileField,onProfileChange:()=>{$('#refresh-automation').checked=true;}});
           if(wizard){dialog.classList.add('preparation-mode');row.classList.add('settings-target');const all=document.createElement('button');all.type='button';all.textContent='認証情報や他の設定も表示';all.onclick=()=>dialog.classList.remove('preparation-mode');wizard.append(all);row.scrollIntoView({block:'start'});wizard.querySelector('input,select,button')?.focus({preventScroll:true});return;}
           row.classList.add('settings-target');
@@ -330,14 +354,15 @@ export function initSettings({api,currentProject,onSaved,shared=false}) {
         const data={...box._original};for(const el of box.querySelectorAll('[data-key]'))data[el.dataset.key]=el.type==='checkbox'?el.checked:el.value;
         if(box.dataset.kind==='page'){if(!data.title)delete data.title;config.pages.push(data);}
         else{
-          if(data.expectedType==='number'){if(!data.expected.trim()||!Number.isFinite(Number(data.expected)))throw new Error('数値の期待値を入力してください');data.expected=Number(data.expected);}
-          if(data.expectedType==='boolean'){if(!['true','false'].includes(data.expected))throw new Error('真偽値は true または false を入力してください');data.expected=data.expected==='true';}
+          const expected=box.querySelector('[data-key=expected]');
+          if(data.expectedType==='number'){if(!data.expected.trim()||!Number.isFinite(Number(data.expected)))throw fieldError(expected,'数値の期待値を入力してください');data.expected=Number(data.expected);}
+          if(data.expectedType==='boolean'){if(!['true','false'].includes(data.expected))throw fieldError(expected,'真偽値は true または false を入力してください');data.expected=data.expected==='true';}
           delete data.expectedType;delete data.headersEnv;delete data.storageStateEnv;if(!data.title)delete data.title;
           if(data.source==='rest'){delete data.selector;delete data.authenticatedSelector;delete data.read;}else delete data.field;
           config.admin.push(data);
         }
       }
-      for(const key of ['policies','visuals','manual']){try{config[key]=JSON.parse($('#edit-'+key).value);}catch{throw new Error(key+'のJSON形式を確認してください');}}
+      for(const key of ['policies','visuals','manual']){try{config[key]=JSON.parse($('#edit-'+key).value);}catch{throw fieldError($('#edit-'+key),key+'のJSON形式を確認してください');}}
       if(!editing) config=generateCases(config);
       const auth={clearRest:$('#clear-rest').checked,clearBrowser:$('#clear-browser').checked};
       const profile=readProfile();
@@ -350,7 +375,7 @@ export function initSettings({api,currentProject,onSaved,shared=false}) {
           const old=(original.admin??[]).find(a=>a.id===entry.id),now=config.admin.find(a=>a.id===entry.id);
           if(!old||shape(old)===shape(now))return true;
           const initial=initialInteractions.admin?.find(a=>a.id===entry.id);
-          if(JSON.stringify(entry)!==JSON.stringify(initial))throw new Error(entry.id+' は管理設定欄と追加JSONの両方で変更されています。片方の変更を戻して保存してください');
+          if(JSON.stringify(entry)!==JSON.stringify(initial))throw fieldError(interactionSection,entry.id+' は管理設定欄と追加JSONの両方で変更されています。片方の変更を戻して保存してください');
           // An explicit edit/removal in the ordinary admin editor supersedes its stale JSON override.
           return false;
         });
@@ -369,11 +394,11 @@ export function initSettings({api,currentProject,onSaved,shared=false}) {
       auth.roleCredentials=[...dialog.querySelectorAll('.role-row')].map(row=>{const name=row.querySelector('[data-role-name]').value.trim(),username=row.querySelector('[data-role-user]').value,password=row.querySelector('[data-role-password]').value;return {name,clearRest:row.querySelector('[data-role-clear-rest]').checked,clearBrowser:row.querySelector('[data-role-clear-browser]').checked,...(username||password?{rest:{username,password}}:{})};});
       if(loginId){auth.browserLoginId=loginId;if(loginRole)auth.browserLoginRole=loginRole;}
       if($('#auth-user').value||$('#auth-password').value)auth.rest={username:$('#auth-user').value,password:$('#auth-password').value};
-      const file=$('#auth-state').files[0];if(file){if(file.size>800000)throw new Error('セッションファイルは800KB以下にしてください');try{auth.browser=JSON.parse(await file.text());}catch{throw new Error('セッションファイルのJSONを確認してください');}}
+      const file=$('#auth-state').files[0];if(file){if(file.size>800000)throw fieldError($('#auth-state'),'セッションファイルは800KB以下にしてください');try{auth.browser=JSON.parse(await file.text());}catch{throw fieldError($('#auth-state'),'セッションファイルのJSONを確認してください');}}
       saving=true;$('#editor-save').disabled=true;
       const result=await api(editing?`/api/projects/${encodeURIComponent(editing)}/settings`:'/api/projects',{method:'POST',body:JSON.stringify({version,config,auth,sensitivePaths:profileField('sensitivePaths').checked,...(profile?{profile}:{})})});
       saving=false;loginId=null;loginReady=false;await close();await onSaved(result.id);
-    }catch(e){error(e.message);}finally{saving=false;loginControls();}
+    }catch(e){error(e.message);if(e.field){reveal(e.field);e.field.scrollIntoView({block:'center'});e.field.focus({preventScroll:true});}}finally{saving=false;loginControls();}
   };
   document.querySelector('#new-site').onclick=()=>open(null);
   document.querySelector('#edit-site').onclick=()=>open(currentProject());

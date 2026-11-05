@@ -87,13 +87,13 @@ test('registration drafts and submitted automation; settings retention and permi
      return {managed:true,version:'v1',credentials:{},config:{name:'Existing',baseURL:'https://example.test',environment:'staging',pages:[],admin:[],checks:[],allowTestWrites:false},profile:{timezone:'Asia/Tokyo',language:'ja',sitePath:'/',adminPath:'/wp-admin/',writes:false,performanceMs:4321,...(automation?{automation}:{})}};
     }});
    },automation);
-   await page.click('#edit-site');
+   await page.click('#edit-site');await page.click('#settings-advanced-settings>summary');
    assert.equal(await page.locator('[name=automation-useObservedBaselines]').isChecked(),automation?.useObservedBaselines??true);
    await page.click('#editor-save');await page.waitForFunction(()=>window.saved||document.querySelector('#editor-error').textContent);
    assert.equal(await page.locator('#editor-error').textContent(),'');
    const first=await page.evaluate(()=>window.saved);
    assert.deepEqual(first.profile.automation,automation);assert.equal(first.profile.writes,false);assert.equal(first.profile.performanceMs,4321);
-   await page.click('#edit-site');
+   await page.click('#edit-site');await page.click('#settings-advanced-settings>summary');
    await page.locator('[name=automation-useObservedBaselines]').uncheck();
    await page.locator('[name=automation-additionalChecks]').fill(JSON.stringify([mail]));
    await page.evaluate(()=>{window.saved=null;});await page.click('#editor-save');
@@ -125,7 +125,7 @@ test('settings rediscovery sends only saved version, reloads results and guards 
     return {managed:true,version,credentials:{browser:true},config:{name:version==='v1'?'Original':'Refreshed',baseURL:'https://example.test',environment:'staging',pages:[],admin:[],checks:[],allowTestWrites:false},profile:{timezone:'Asia/Tokyo',language:'ja',indexable:false,sitePath:'/',adminPath:'/wp-admin/',writes:false}};
    }});
   });
-  await page.click('#edit-site');await page.click('#rediscover-automation');
+  await page.click('#edit-site');await page.click('#settings-advanced-settings>summary');await page.click('#rediscover-automation');
   await page.waitForFunction(()=>window.refreshed);
   assert.deepEqual(await page.evaluate(()=>window.requests),[{version:'v1'}]);
   assert.equal(await page.locator('#site-fields [data-key=name]').inputValue(),'Refreshed');
