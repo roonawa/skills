@@ -105,7 +105,8 @@ test('other work is refused while an editor report is being created',async t=>{
  const configHash=f.boot.projects.find(p=>p.id===f.id).configHash,busy='編集者向け報告書の作成が終わってから実行してください';
  const first=f.post();
  for(let i=0;i<100&&(await f.status()).stage!=='recheck';i++)await new Promise(r=>setTimeout(r,20));
- for(const [route,data] of [[`/api/projects/${f.id}/runs`,{suite:'all'}],[`/api/projects/${f.id}/remove`,{confirmed:true,configHash}],['/api/system/settings',{dailyLimit:30}],['/api/logins',{baseURL:BASE}]]){
+ for(const [route,data] of [[`/api/projects/${f.id}/runs`,{suite:'all'}],[`/api/projects/${f.id}/remove`,{confirmed:true,configHash}],['/api/system/settings',{dailyLimit:30}],['/api/logins',{baseURL:BASE}],['/api/ai/propose',{config:{},answers:{}}],
+  [`/api/projects/${f.id}/runs/run-1/exam-ai`,{}],[`/api/projects/${f.id}/runs/run-1/exam-evidence`,{}],[`/api/projects/${f.id}/runs/run-1/exam-evidence-run`,{}]]){
   const r=await send(route,data);assert.equal(r.status,409,route);assert.equal((await r.json()).error,busy,route);
  }
  release();assert.equal((await first).status,200);
@@ -132,4 +133,15 @@ test('external-config sites cannot create editor reports',async t=>{
  const ext=f.boot.projects.find(p=>p.id!==f.id);
  const s=await(await fetch(`${f.app.url}/api/projects/${ext.id}/runs/run-1/editor-report`)).json();
  assert.equal(s.available,false);assert.equal(s.reason,'登録済みサイトのみ作成できます');
+});
+
+test('page text in a failure reason is not sent to Claude but stays in the basis',async t=>{
+ const reason="expect(locator).toHaveText(expected) Received: 'お客様の氏名 山田'";
+ const f=await fixture(t,{runRows:[{id:'page.contact',title:'問い合わせ',suite:'audit',status:'fail',reason}]});
+ const r=await f.post();assert.equal(r.status,200,await r.clone().text());
+ assert.equal(f.fetcher.calls,1);
+ const sent=JSON.stringify(f.fetcher.inputs);assert.doesNotMatch(sent,/山田|お客様|Received|toHaveText/);
+ assert.deepEqual(f.fetcher.inputs[0][0].facts,{reasonKinds:[{kind:'page',errorClass:'assertion'}]});
+ const basis=fs.readFileSync(path.join(f.run,'editor-report-basis.html'),'utf8');
+ assert(basis.includes('Received: &#39;お客様の氏名 山田&#39;'));
 });

@@ -302,7 +302,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
         try{return json(200,system.save(await body(req)));}catch(e){reject(400,e.message);}
       }
       if(target.pathname==='/api/ai/propose'&&req.method==='POST'){
-        if(!ai)reject(503,'AI設定がありません');admission();const data=await body(req);
+        if(!ai)reject(503,'AI設定がありません');admission();if(editorJob)reject(409,'編集者向け報告書の作成が終わってから実行してください');const data=await body(req);
         try{return json(200,await ai.propose(data.config,data.answers??{},actor?.name??'local'));}catch(e){reject(400,e.message);}
       }
       if(target.pathname==='/api/ai/apply'&&req.method==='POST'){
@@ -557,7 +557,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
               const updated=buildExam(enriched,record);return json(200,{...updated,presentationWarnings:customerImageWarnings(updated,bundle.image)});
             }
             if(['exam-evidence','exam-evidence-run'].includes(segments[5])&&req.method==='POST'){
-              admission();if(active||closing||preparing||logins.busy)reject(409,'処理の終了後に実行してください');
+              admission();if(active||closing||preparing||logins.busy)reject(409,'処理の終了後に実行してください');if(editorJob)reject(409,'編集者向け報告書の作成が終わってから実行してください');
               const data=await body(req);if(data.fingerprint!==exam.fingerprint||data.version!==exam.version)reject(409,'結果が更新されています。評価を再取得してください');
               if(segments[5]==='exam-evidence'){
                 try{return json(200,attachGapPlans(exam,await completeEvidence(p,directory,exam)));}catch(e){reject(400,e.message);}
@@ -572,7 +572,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
               const {job}=launch(p,['run','--config',p.file,'--suite',row.suite,'--id',row.id],'run');return json(202,jobState(job));
             }
             if(segments[5]==='exam-ai'&&req.method==='POST'){
-              admission();
+              admission();if(editorJob)reject(409,'編集者向け報告書の作成が終わってから実行してください');
               if(!ai)reject(503,'AI設定がありません');const data=await body(req);if(data.fingerprint!==exam.fingerprint||data.version!==exam.version)reject(409,'結果が更新されています。評価を再取得してください');
               try{return json(200,{fingerprint:exam.fingerprint,version:exam.version,suggestions:await ai.explain(exam.issues)});}catch(e){reject(400,e.message);}
             }

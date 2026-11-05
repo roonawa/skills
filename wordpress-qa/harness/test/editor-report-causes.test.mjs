@@ -59,7 +59,19 @@ test('unknown failures are kept',()=>{
   const {groups}=groupRows(komoro(),{});
   const u=groups.find(g=>g.rule==='unclassified');
   assert.deepEqual(u.rowIds,['mystery.thing']);assert.equal(u.category,'tech');
-  assert.deepEqual(u.facts.reasons,['something odd']);
+  assert.deepEqual(u.facts,{reasonKinds:[{kind:'other',errorClass:'other'}]});
+  assert.deepEqual(u.basis.reasons,['something odd']);
+});
+
+test('unclassified facts carry only the kind of reason, never its text',()=>{
+  const rows=[row('page.a','fail',"expect(locator).toHaveText(expected) Received: 'お客様の氏名 山田'"),row('axe.b','fail','<div class="x">color-contrast</div>'),
+    row('journey.c','fail','Timeout 5000ms exceeded'),row('links.d','fail','Expected: 200 Received: 404'),row('javascript.e','fail','pageerror: TypeError: x is undefined'),
+    row('check.f','fail','locator.click: element(s) not found')];
+  const u=groupRows({rows},{}).groups.find(g=>g.rule==='unclassified');
+  assert.deepEqual(u.facts.reasonKinds,[{kind:'page',errorClass:'assertion'},{kind:'axe',errorClass:'accessibility'},{kind:'journey',errorClass:'timeout'},
+    {kind:'links',errorClass:'status'},{kind:'javascript',errorClass:'javascript'},{kind:'check',errorClass:'missing-element'}]);
+  assert.doesNotMatch(JSON.stringify(u.facts),/山田|Received|color-contrast|<div/);
+  assert.equal(u.basis.reasons[0],"expect(locator).toHaveText(expected) Received: 'お客様の氏名 山田'");
 });
 
 test('link probes use failed links from evidence when present',()=>{

@@ -196,3 +196,31 @@ test('a malformed Location or link URL makes only that group unverified',async()
   assert.equal(byRule(r,'link-transient').category,'unverified');
   assert.equal(byRule(r,'index-expectation').category,'not-site');
 });
+
+test('a password gate page served for the sitemap is unverified, not malformed',async()=>{
+  const r=await recheck([group('sitemap-format',[{kind:'sitemap'}])],options(fake({[`${BASE}/sitemap.xml`]:page('<form><input name="password_protected_pwd"></form>')})));
+  const g=byRule(r,'sitemap-format');
+  assert.equal(g.category,'unverified');assert.equal(g.verification.result,'unverified');
+  assert(g.verification.notes.some(n=>/閲覧パスワード/.test(n)));
+});
+
+test('an own-origin image whose request was only aborted does not make the timeout a site problem',async()=>{
+  const html=page('<img src="/own.jpg">');
+  const evidence=[{url:`${BASE}/own.jpg`,host:'komoro.example',reason:'request-failed'},{url:'https://maps.example/tile.png',host:'maps.example',reason:'request-failed'}];
+  const r=await recheck([group('render-timeout',[{kind:'images',path:'/'}])],options(fake({[`${BASE}/`]:html}),{failedImagesByPath:{'/':evidence}}));
+  assert.equal(byRule(r,'render-timeout').category,'not-site');assert.equal(byRule(r,'render-timeout').verification.result,'tool-side');
+  const onlyOwn=await recheck([group('render-timeout',[{kind:'images',path:'/'}])],options(fake({[`${BASE}/`]:html}),{failedImagesByPath:{'/':evidence.slice(0,1)}}));
+  assert.notEqual(byRule(onlyOwn,'render-timeout').category,'tech');assert.equal(byRule(onlyOwn,'render-timeout').verification.result,'unverified');
+});
+
+test('default client sends no viewing Cookie to another allowed origin',async t=>{
+  const {createServer}=await import('node:http');
+  const listen=async seen=>{const s=createServer((req,res)=>{seen.push({method:req.method,cookie:req.headers.cookie??null,auth:req.headers.authorization??null});res.writeHead(200);res.end();}).listen(0,'127.0.0.1');
+    await new Promise(r=>s.once('listening',r));t.after(()=>s.close());return `http://127.0.0.1:${s.address().port}`;};
+  const siteSeen=[],otherSeen=[],site=await listen(siteSeen),other=await listen(otherSeen);
+  const c=defaultClient({allowedOrigins:[site,other],publicHeaders:{Cookie:'pp=1',Authorization:'Basic eDp5'},siteOrigin:site});
+  assert.deepEqual(await c.head(`${other}/x.png`),{status:200});
+  await c.get(`${other}/`);await c.head(`${site}/`);
+  assert.deepEqual(otherSeen,[{method:'HEAD',cookie:null,auth:null},{method:'GET',cookie:null,auth:null}]);
+  assert.deepEqual(siteSeen,[{method:'HEAD',cookie:'pp=1',auth:'Basic eDp5'}]);
+});

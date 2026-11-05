@@ -27,7 +27,12 @@ function failedImagesOf(report,config,readEvidence){
       const list=data?.failedImages??data?.readiness?.failedImages;
       if(!Array.isArray(list)) continue;
       const seen=out[path]??=[];
-      for(const i of list) if(i?.url&&!seen.some(x=>x.url===i.url)) seen.push({url:i.url,host:i.host,reason:i.reason});
+      for(const i of list){
+        if(!i?.url) continue;
+        const known=seen.find(x=>x.url===i.url);
+        // 同じ画像が別の証拠で「読み込めなかった」なら、そちらの理由を優先する。
+        if(!known) seen.push({url:i.url,host:i.host,reason:i.reason});else if(i.reason==='not-loaded') known.reason='not-loaded';
+      }
     }
   }
   return out;

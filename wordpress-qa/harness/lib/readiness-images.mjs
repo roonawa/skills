@@ -3,7 +3,8 @@ const hostOf=url=>{try{return new URL(url).host;}catch{return '';}};
 export function trackImages(page) {
   const failed=new Map();
   page.on('requestfailed',req=>{
-    if(req.resourceType()!=='image'||failed.has(req.url())) return;
+    // 読み込み中の中断（ページの移動・遅延読み込みの取り消し）は失敗に数えない。
+    if(req.resourceType()!=='image'||failed.has(req.url())||req.failure()?.errorText==='net::ERR_ABORTED') return;
     failed.set(req.url(),{url:req.url(),host:hostOf(req.url()),reason:'request-failed'});
   });
   return {async failed() {

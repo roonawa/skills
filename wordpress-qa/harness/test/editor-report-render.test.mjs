@@ -6,7 +6,7 @@ const site={name:'テスト病院',baseURL:'https://example.test',environment:'p
 const groups=[
   {id:'g-admin',rule:'plugin-vulnerability',rowIds:['check.security-plugin'],status:'fail',category:'admin',facts:{},probes:[],verification:{result:'site-side',notes:['確認しました']}},
   {id:'g-tech',rule:'security-headers',rowIds:['check.auto-security-headers'],status:'caution',category:'tech',facts:{},probes:[]},
-  {id:'g-ns',rule:'link-transient',rowIds:['links.a','links.b','links.c'],status:'fail',category:'not-site',facts:{reasons:['expect(received).toBe Received: 503']},probes:[],verification:{result:'tool-side',notes:[]}},
+  {id:'g-ns',rule:'link-transient',rowIds:['links.a','links.b','links.c'],status:'fail',category:'not-site',facts:{},basis:{reasons:['expect(received).toBe Received: 503']},probes:[],verification:{result:'tool-side',notes:[]}},
   {id:'g-un',rule:'unverified',rowIds:['page.x','page.y'],status:'unverified',category:'unverified',facts:{},probes:[]},
   {id:'g-na',rule:'not-applicable',rowIds:['admin.z'],status:'not-applicable',category:'not-applicable',facts:{},probes:[]}
 ];
@@ -59,4 +59,22 @@ test('empty run says nothing to do',()=>{
   const html=renderEditorReport({...base,counts:{fail:0,caution:0,unverified:0,notApplicable:0},groups:[],items:[]});
   assert.match(html,/対応が必要なことはありません/);
   assert.doesNotMatch(renderBasis({...base,groups:[],recheckLog:[],lintResults:[],aiCalls:0}),/<script/i);
+});
+
+test('a run with nothing for the site to fix says so instead of counting zero',()=>{
+  const only=groups.filter(g=>['not-site','unverified','not-applicable'].includes(g.category));
+  const html=renderEditorReport({...base,groups:only,items:[item('g-ns')]});
+  assert.match(html,/<p>サイトで直すことはありません。<\/p>/);
+  assert.doesNotMatch(html,/0つ/);
+  assert.match(html,/診断ツール側が原因で不合格になったものが<strong>3件<\/strong>/);
+  assert.match(html,/まだ確かめられていないものが<strong>2件<\/strong>/);
+  const waitOnly=renderEditorReport({...base,groups:groups.filter(g=>g.category==='unverified'),items:[]});
+  assert.match(waitOnly,/サイトで直すことはありません。/);assert.doesNotMatch(waitOnly,/0つ|0件<\/strong>あります/);
+});
+
+test('the environment is shown in Japanese',()=>{
+  for(const [environment,name] of [['production','本番環境'],['staging','検証環境'],['local','ローカル環境']]){
+    const html=renderEditorReport({...base,site:{...site,environment}});
+    assert.match(html,new RegExp(`環境：${name}<br>`));assert.doesNotMatch(html,new RegExp(`環境：${environment}`));
+  }
 });

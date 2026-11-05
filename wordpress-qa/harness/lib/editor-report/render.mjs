@@ -11,7 +11,8 @@ const SECTIONS=[
 ];
 const FIX=['editor','admin','tech'];
 const URGENCY={high:'早めに対応',normal:'通常',low:'急がない'};
-const RULE_LABELS={'plugin-vulnerability':'プラグインの既知の弱点',compatibility:'更新前の互換性の確認','security-headers':'セキュリティ用の設定',disclosure:'外から分かる情報','soft-404':'存在しないページの表示','index-expectation':'検索エンジンへの公開設定','render-timeout':'ページの表示に時間がかかった','link-transient':'リンク先の一時的な不調','sitemap-format':'サイトマップの形式',unclassified:'その他の不具合'};
+const RULE_LABELS={'plugin-vulnerability':'プラグインの既知の弱点',compatibility:'更新前の互換性の確認','security-headers':'セキュリティ用の設定',disclosure:'外から分かる情報','soft-404':'存在しないページの表示','index-expectation':'検索エンジンへの公開設定','render-timeout':'ページの表示に時間がかかった','link-transient':'リンク先の一時的な不調','sitemap-format':'サイトマップの形式','foreign-image':'検証用と思われる画像',unclassified:'その他の不具合'};
+const ENVIRONMENTS={production:'本番環境',staging:'検証環境',local:'ローカル環境'};
 // Rows of unverified / not-applicable groups carry only an internal id; show a plain label for its kind.
 const ID_LABELS={page:'ページの表示確認',links:'リンクの確認',layout:'画面の見た目',snapshot:'画面の見た目',axe:'アクセシビリティ',javascript:'画面の動き',admin:'管理画面の設定確認',journey:'操作の流れ',check:'サイト全体の検査'};
 const label=g=>g.status==='unverified'||g.status==='not-applicable'?ID_LABELS[String(g.rowIds?.[0]).split('.')[0]]??'その他の検査':RULE_LABELS[g.rule]??'その他の項目';
@@ -99,16 +100,19 @@ function section(n,s,groups,items){
 
 function header(title,{site,runId,startedAt,checkedAt}){
   return `<h1>${esc(title)}</h1>
-<p class="meta">対象：${esc(site?.name)}（${esc(site?.baseURL)}）／環境：${esc(site?.environment)}<br>
+<p class="meta">対象：${esc(site?.name)}（${esc(site?.baseURL)}）／環境：${esc(ENVIRONMENTS[site?.environment]??site?.environment)}<br>
 診断の実行：${esc(runId)}（開始：${esc(startedAt)}）／再確認：${esc(checkedAt)}</p>`;
 }
 
 export function renderEditorReport(input){
   const {site,runId,startedAt,checkedAt,groups=[],items=[]}=input;
   const count=c=>byCategory(groups,c).length;
+  const fix=groups.filter(g=>FIX.includes(g.category)).length,notSite=sum(byCategory(groups,'not-site')),unverified=sum(byCategory(groups,'unverified'));
+  const notSiteText=`<p>診断ツール側が原因で不合格になったものが<strong>${notSite}件</strong>あります。これはサイトの問題ではなく、診断の担当側で直してもう一度診断します。</p>`;
   const lead=!groups.length?'<p>対応が必要なことはありません。</p>'
-    :`<p>サイトで直すことは<strong>${groups.filter(g=>FIX.includes(g.category)).length}つ</strong>です。そのうち編集者の方にお願いしたいのは${count('editor')}つ、管理者の権限が必要なものが${count('admin')}つ、技術担当に頼むものが${count('tech')}つです。</p>
-<p>診断ツール側が原因で不合格になったものが<strong>${sum(byCategory(groups,'not-site'))}件</strong>あります。これはサイトの問題ではなく、診断の担当側で直してもう一度診断します。</p>`;
+    :fix?`<p>サイトで直すことは<strong>${fix}つ</strong>です。そのうち編集者の方にお願いしたいのは${count('editor')}つ、管理者の権限が必要なものが${count('admin')}つ、技術担当に頼むものが${count('tech')}つです。</p>
+${notSiteText}`
+    :`<p>サイトで直すことはありません。</p>${notSite?`\n${notSiteText}`:''}${unverified?`\n<p>まだ確かめられていないものが<strong>${unverified}件</strong>あります。診断の担当が設定や準備を整えて、もう一度診断します。</p>`:''}`;
   const rows=SECTIONS.map(s=>{
     const gs=byCategory(groups,s.category),n=sum(gs);
     const cell=s.category==='not-applicable'?(gs.length?bullets(gs):'0件'):`${n}件${FIX.includes(s.category)?`（${gs.length}項目）`:''}`;
@@ -149,7 +153,7 @@ export function renderBasis(input){
   const {groups=[],recheckLog=[],lintResults=[],aiCalls=0}=input;
   const title=`${input.site?.name??''} 編集者向け報告書の根拠（レビュー用）`;
   const cards=groups.map(g=>{
-    const reasons=g.facts?.reasons?.length?g.facts.reasons:g.rowIds??[];
+    const reasons=g.basis?.reasons?.length?g.basis.reasons:g.rowIds??[];
     const log=recheckLog.filter(e=>e.rule===g.rule),v=g.verification;
     return `<div class="card">
 <h3>${esc(g.id)}</h3>

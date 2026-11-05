@@ -130,3 +130,41 @@ test('a missing item is named in Japanese in the error',async()=>{
   const ai=fakeAi(groups=>groups.slice(1).map((g,i)=>item(g.id,i)));
   await assert.rejects(buildEditorReport({...base,client:komoroClient,ai}),e=>/項目の不足（[^）]*[ぁ-ん][^）]*）/.test(e.message)&&!/[A-Za-z]+:fail/.test(e.message));
 });
+
+// What an editor reads: the page text without the stylesheet and tags.
+const visible=html=>html.replace(/<style>[\s\S]*?<\/style>/g,'').replace(/<[^>]*>/g,'\n').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&amp;/g,'&');
+const FORBIDDEN=[/expect\(/,/Error:/,/AssertionError/,/Timeout \d+ms/,/^\s*at /m,/[{}]/,/\b(check|page|journey|links|admin|layout|axe|snapshot|javascript)\.[A-Za-z0-9_-]/,/\x1b/];
+function assertReadable(html,extra=[]){
+  const text=[visible(html),...extra].join('\n');
+  for(const re of FORBIDDEN) assert.doesNotMatch(text,re,`editor report contains ${re}`);
+}
+
+test('the editor report has no code, errors or internal ids',async()=>{
+  const report=komoro();
+  report.rows.find(r=>r.id==='mystery.thing').reason="\x1b[31mError: expect(locator).toHaveText(expected)\x1b[39m\n    at check.mystery (spec.ts:1:1)\nTimeout 5000ms exceeded {x}";
+  const r=await buildEditorReport({...base,report,client:komoroClient,ai:fakeAi()});
+  assertReadable(r.html,r.warnings);
+  assert.match(r.basisHtml,/toHaveText/);
+});
+
+test('an unverified and not-applicable only run is readable',async()=>{
+  const rows=[row('check.u0','not_run','x'),row('page.p0','blocked','Error: x'),row('journey.contact','review','x'),row('check.na1','not_applicable','n/a'),row('layout.home-1280','not_applicable','n/a')];
+  const ai=fakeAi(),r=await buildEditorReport({...base,report:{runId:'run-2',startedAt:'2026-11-05T00:00:00Z',name:'小諸',rows},client:komoroClient,ai});
+  assert.equal(ai.calls.length,0);
+  assertReadable(r.html,r.warnings);
+  assert.match(r.html,/サイトで直すことはありません。/);
+});
+
+test('an unreachable site gives readable warnings',async()=>{
+  const down=()=>{throw new Error('ECONNREFUSED');};
+  const r=await buildEditorReport({...base,client:{get:down,head:down},ai:fakeAi()});
+  assert.ok(r.warnings.length>=1);
+  assertReadable(r.html,r.warnings);
+});
+
+test('the foreign-image item is readable',async()=>{
+  const report={runId:'run-3',startedAt:'2026-11-05T00:00:00Z',name:'小諸',rows:['layout.home-1280','axe.home'].map(id=>row(id,'fail',timeout))};
+  const r=await buildEditorReport({...base,report,client:komoroClient,ai:fakeAi()});
+  assert.match(r.basisHtml,/foreign-image/);
+  assertReadable(r.html,r.warnings);
+});

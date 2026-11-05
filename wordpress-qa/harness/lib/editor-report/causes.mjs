@@ -48,6 +48,16 @@ function pluginFacts(row){
   return {plugins};
 }
 
+// AI に渡すのは理由の種類だけ。元の理由の文（ページの本文の抜粋を含みうる）は根拠のファイルにだけ残す。
+const KINDS=['page','links','layout','axe','javascript','snapshot','journey','check','admin'];
+const ERROR_CLASSES=[['timeout',/Timeout \d+ms|timed? ?out/i],['accessibility',/\baxe\b|violation|wcag|accessib/i],['javascript',/pageerror|ReferenceError|TypeError|SyntaxError|console error|javascript/i],
+  ['status',/Received:\s*[1-5]\d\d\b|\bHTTP\s*[1-5]\d\d\b|\bstatus\b/i],['missing-element',/not found|toBeVisible|toHaveCount|waiting for (?:locator|selector)|no element/i],['assertion',/expect\(|Expected|Received|AssertionError|toHave|toBe|toEqual|toMatch/]];
+export function reasonKind(row){
+  const prefix=String(row.id).split('.')[0],reason=text(row);
+  const kind=KINDS.includes(prefix)?prefix:'other';
+  return {kind,errorClass:kind==='axe'?'accessibility':ERROR_CLASSES.find(([,re])=>re.test(reason))?.[0]??'other'};
+}
+
 function factsAndProbes(rule,rows,{environment,config,readEvidence}){
   const paths=rs=>rs.map(r=>pagePath(r,config));
   switch(rule){
@@ -60,7 +70,7 @@ function factsAndProbes(rule,rows,{environment,config,readEvidence}){
     case 'soft-404': return {facts:{},probes:[{kind:'missing-page'}]};
     case 'sitemap-format': return {facts:{},probes:[{kind:'sitemap'}]};
     case 'plugin-vulnerability': return {facts:pluginFacts(rows[0]),probes:[]};
-    case 'unclassified': return {facts:{reasons:rows.map(text)},probes:[]};
+    case 'unclassified': return {facts:{reasonKinds:rows.map(reasonKind)},probes:[],basis:{reasons:rows.map(text)}};
     default: return {facts:{},probes:[]};
   }
 }
@@ -82,8 +92,8 @@ export function groupRows(report,options={}){
   const groups=[];
   for(const [key,{rule,status,rows}] of buckets){
     const category=status==='unverified'||status==='not-applicable'?status:PROVISIONAL[rule];
-    const {facts,probes}=factsAndProbes(rule,rows,options);
-    groups.push({id:key.replace(/[^A-Za-z0-9._:-]/g,'_'),rule,rowIds:rows.map(r=>r.id),status,category,facts,probes});
+    const {facts,probes,basis}=factsAndProbes(rule,rows,options);
+    groups.push({id:key.replace(/[^A-Za-z0-9._:-]/g,'_'),rule,rowIds:rows.map(r=>r.id),status,category,facts,probes,...(basis?{basis}:{})});
   }
   const count=s=>groups.filter(g=>g.status===s).reduce((n,g)=>n+g.rowIds.length,0);
   return {groups,counts:{fail:count('fail'),caution:count('caution'),unverified:count('unverified'),notApplicable:count('not-applicable')}};

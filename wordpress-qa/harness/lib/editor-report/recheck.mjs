@@ -132,7 +132,9 @@ export async function recheck(groups,{baseURL,sitePath='/',environment,client,al
         for(const i of seen) if(originOf(i.url)!==base.origin&&isTestHost(i.host)&&!foreign.has(i.url)) foreign.set(i.url,{url:i.url,host:i.host,nearestHeading:i.nearestHeading,path:p.path});
         const failing=evidence?evidence.map(i=>i.url):found.filter(i=>originOf(i.url)!==base.origin&&!allowed.has(originOf(i.url))).map(i=>i.url);
         let cause=false;
-        for(const u of failing){const o=originOf(u);if(o===base.origin||allowed.has(o)) own.push(u);else{cause=true;if(!isTestHost(hostOf(u)))blocked.add(hostOf(u));}}
+        // 自サイト側の画像で通信だけが失敗した記録（読み込み中のページ遷移で止まったものなど）は、読み込めなかった証拠にしない。
+        const ownFailed=u=>!(evidence?.find(i=>i.url===u)?.reason==='request-failed');
+        for(const u of failing){const o=originOf(u);if(o===base.origin||allowed.has(o)){if(ownFailed(u))own.push(u);}else{cause=true;if(!isTestHost(hostOf(u)))blocked.add(hostOf(u));}}
         if(cause) explained++;
       }
       if(own.length) return {result:'site-side',notes:[...notes,`対象サイトか接続先の許可にある読み込み元の画像が読み込めませんでした：${[...new Set(own.map(hostOf))].join('、')}`]};
@@ -177,6 +179,7 @@ export async function recheck(groups,{baseURL,sitePath='/',environment,client,al
       let url=site(tries.shift());
       for(let n=0;n<perRule;n++){
         const r=await fetch('get',url,rule);
+        if(r.status===200&&isGate(r.text)) return {result:'unverified',notes:[`閲覧パスワードの画面が表示されたため確かめていません：${url}`]};
         if(r.status===200&&r.truncated) return {result:'unverified',notes:[`サイトマップが大きすぎて最後まで読めないため確かめていません：${url}`]};
         if(r.status===200) return sitemapWellFormed(r.text)?{result:'tool-side',notes:[`標準の XML として読めました：${url}`]}:{result:'site-side',notes:[`標準の XML として読めませんでした：${url}`]};
         const to=r.status>=300&&r.status<400?r.location??r.headers?.location:null;
