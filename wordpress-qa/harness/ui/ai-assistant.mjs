@@ -26,9 +26,11 @@ if(Object.keys(x).sort().join(',')!=='kind,pageIndex,reason,targetIndex,viewport
   return p;
 }
 const secretKey=/password|cookie|token|secret|authorization|header|key/i;
+const redactions=[[/((?:Set-)?Cookie:)[^\n]*/gi,'$1 [redacted]'],[/\bwordpress_[a-z_]*=[^;\s]*/gi,'[redacted]'],[/Bearer\s+[A-Za-z0-9._~+\/=-]+/gi,'[redacted]'],[/\bsk-[A-Za-z0-9_-]+/g,'[redacted]'],[/\b(?:password|pwd)=[^&\s;]*/gi,'[redacted]'],[/\b(https?:\/\/[^\s?#"'<>]+)[?#][^\s"'<>]*/gi,'$1']];
+const redactValue=t=>redactions.reduce((x,[re,to])=>x.replace(re,to),t);
 // Keeps only plain data and drops anything secret-looking before it can reach Claude.
 export function sanitizeForAi(v,depth=0){
-  if(typeof v==='string')return v.slice(0,500);
+  if(typeof v==='string')return redactValue(v).slice(0,500);
   if(typeof v==='number'||typeof v==='boolean')return v;
   if(depth>6)return undefined;
   if(Array.isArray(v))return v.map(x=>sanitizeForAi(x,depth+1)).filter(x=>x!==undefined);
@@ -99,23 +101,27 @@ export class AiAssistant {
   async writeEditorItems(groups,{problems=[]}={}){
     if(this.busy)throw Error('AIの応答を待っています');
     const settings=this.settings.read();
-    if(!settings.evidenceApproved)throw Error('AI設定の取得情報の送信許可が必要です');
+    if(settings.evidenceApproved!==true)throw Error('AI設定の取得情報の送信許可が必要です');
     const key=this.settings.key();
     const byGroup=new Map();for(const p of problems)if(p?.groupId!==undefined)byGroup.set(p.groupId,[...(byGroup.get(p.groupId)??[]),{problem:sanitizeForAi(p.problem),detail:sanitizeForAi(p.detail)}]);
     const targets=problems.length?groups.filter(g=>byGroup.has(g.id)):groups;
-    this.busy=true;
+    this.busy=true;this.lastEditorFailure=null;let batchNo=0,stage='reserve';
     try{
       const items=[];
       for(let offset=0;offset<targets.length;offset+=20){
-        this.settings.reserve();const batch=targets.slice(offset,offset+20);
+        batchNo=offset/20+1;stage='reserve';this.settings.reserve();stage='http';const batch=targets.slice(offset,offset+20);
         const input=batch.map((g,index)=>({index,rule:sanitizeForAi(g.rule),category:sanitizeForAi(g.category),rowCount:g.rowIds.length,facts:sanitizeForAi(g.facts??{}),verification:sanitizeForAi(g.verification??null)??null,...(byGroup.has(g.id)?{problems:byGroup.get(g.id)}:{})}));
         const response=await this.fetcher('https://api.anthropic.com/v1/messages',{method:'POST',redirect:'error',headers:{'x-api-key':key,'anthropic-version':'2023-06-01','Content-Type':'application/json'},signal:AbortSignal.timeout(180000),body:JSON.stringify({model:settings.model,max_tokens:16000,system:editorSystem,messages:[{role:'user',content:JSON.stringify(input)}],output_config:{format:{type:'json_schema',schema:editorItemSchema}}})});
-        if(!response.ok)throw Error('API');const text=await response.text();if(text.length>400000)throw Error('size');const body=JSON.parse(text);if(body.stop_reason!=='end_turn')throw Error('incomplete');
-        const raw=JSON.parse(body.content?.filter(c=>c.type==='text').map(c=>c.text).join(''));
+        if(!response.ok)throw Object.assign(Error('API'),{httpStatus:response.status});stage='parse';const text=await response.text();if(text.length>400000)throw Error('size');const body=JSON.parse(text);if(body.stop_reason!=='end_turn')throw Error('incomplete');
+        const raw=JSON.parse(body.content?.filter(c=>c.type==='text').map(c=>c.text).join(''));stage='validate';
         for(const x of validateEditorItems(raw,input.map(i=>i.index))){const {index,...rest}=x;items.push({groupId:batch[index].id,...rest});}
       }
       return items;
-    }catch{throw Error('Claudeによる報告文の作成を完了できませんでした。検査結果・分類・件数は変更していません。API設定・利用上限を確認してください。');}finally{this.busy=false;}
+    }catch(e){
+      const timeout=e.name==='TimeoutError';this.lastEditorFailure={batch:batchNo,stage:e.httpStatus?'http':timeout?'timeout':stage,code:e.httpStatus??e.name};
+      if(stage==='reserve'&&e.message?.startsWith('本日のAI利用上限'))throw e;
+      throw Error('Claudeによる報告文の作成を完了できませんでした。検査結果・分類・件数は変更していません。API設定・利用上限を確認してください。');
+    }finally{this.busy=false;}
   }
   async explain(issues){
     if(this.busy)throw Error('AIの応答を待っています');

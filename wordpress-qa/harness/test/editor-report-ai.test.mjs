@@ -41,3 +41,20 @@ test('requires evidence approval',async()=>{
   const ai=new AiAssistant(settingsFor({evidenceApproved:false}),{fetcher:async()=>assert.fail('no call')});
   await assert.rejects(()=>ai.writeEditorItems([group(0)]),/許可/);
 });
+test('redacts secrets inside string values',async()=>{
+  const bodies=[],ai=new AiAssistant(settingsFor(),{fetcher:echo(bodies)});
+  await ai.writeEditorItems([group(0,{reasons:['Cookie: wordpress_logged_in_abc=SECRET1; x=1','https://site.test/p?token=SECRET2#SECRET5','Authorization: Bearer SECRET3','key sk-ant-SECRET4 here','password=SECRET6']})]);
+  const raw=bodies[0].o.body;for(const n of ['SECRET1','SECRET2','SECRET3','SECRET4','SECRET5','SECRET6'])assert(!raw.includes(n),n);
+  assert(raw.includes('https://site.test/p'));
+});
+test('records diagnostics for a later batch failure and clears them on success',async()=>{
+  let n=0,ok=echo([]);const ai=new AiAssistant(settingsFor(),{fetcher:async(u,o)=>++n===2?{ok:false,status:500}:ok(u,o)});
+  await assert.rejects(()=>ai.writeEditorItems(Array.from({length:25},(_,i)=>group(i))),/Claudeによる報告文/);
+  assert.equal(ai.busy,false);assert.deepEqual(ai.lastEditorFailure,{batch:2,stage:'http',code:500});
+  await ai.writeEditorItems([group(0)]);assert.equal(ai.lastEditorFailure,null);
+});
+test('daily limit message surfaces as is and no fetch happens',async()=>{
+  const s=settingsFor();s.reserve=()=>{throw Error('本日のAI利用上限に達しました（UTC日付で更新）');};
+  const ai=new AiAssistant(s,{fetcher:async()=>assert.fail('no call')});
+  await assert.rejects(()=>ai.writeEditorItems([group(0)]),/本日のAI利用上限/);assert.equal(ai.lastEditorFailure.stage,'reserve');
+});
