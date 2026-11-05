@@ -11,6 +11,8 @@ const CVE_RE=/CVE-\d{4}-\d+/g;
 const FILE_EXT=/^(?:php|html?|txt|xml|json|jsx?|mjs|css|png|jpe?g|gif|svg|webp|pdf|ico|md|ya?ml|ini|log|zip)$/i;
 const DOMAIN_RE=/(?<![\w@.-])(?:[a-z0-9-]+\.)+[a-z]{2,}(?![\w-])/gi;
 const VERSION_RE=/(?<![\w.])\d+\.\d+(?:\.\d+)*(?![\w]|\.\d)/g;
+// 内部IDと見分けるため、渡した事実にあるドメイン名として許す最後の語はこの一覧だけ。
+const REAL_TLDS=new Set(['com','net','org','info','biz','io','co','jp','dev','app','me','us','uk','de','fr','cn','kr','tw','au','ca','eu','xyz','site','online','tech','shop','test','invalid','localhost']);
 const FIELDS=['title','summary','impact','steps','location','note'];
 const trimUrl=u=>u.replace(/[.,;:]+$/,'');
 const escapeRe=s=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
@@ -58,7 +60,7 @@ export function lintItems(items,{groups=[]}={}){
     const groupId=String(it?.groupId),all=texts(it),pool=poolOf(byId.get(it?.groupId)),body=all.join('\n');
 
     for(const [re,label] of CODE)if(re.test(body))add(groupId,'code',`編集者向けの文章に出してはいけない文字列：${label}`);
-    for(const m of body.matchAll(INTERNAL_ID))if(!(/\.[A-Za-z]{2,}$/.test(m[0])&&pool.includes(m[0])))add(groupId,'code',`内部の識別子：${m[0]}`);
+    for(const m of body.matchAll(INTERNAL_ID))if(!(REAL_TLDS.has(m[0].slice(m[0].lastIndexOf('.')+1).toLowerCase())&&pool.includes(m[0])))add(groupId,'code',`内部の識別子：${m[0]}`);
 
     // 同じ文は報告書全体で1回だけ。
     for(const s of all.flatMap(sentences)){

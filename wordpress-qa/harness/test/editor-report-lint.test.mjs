@@ -54,9 +54,10 @@ test('every group needs exactly one item',()=>{
 });
 
 test('internal ids are never allowed even if facts carry them, except pool domain names',()=>{
-  const gs=[{id:'g1',facts:{row:'check.links-x',host:'admin.example.co.jp'}}];
+  const gs=[{id:'g1',facts:{row:'check.links-x',host:'admin.example.co.jp',id:'page.home'}}];
   const lint=impact=>lintItems([item('g1',{impact})],{groups:gs}).filter(p=>p.problem==='code');
   assert.equal(lint('check.links-x が原因です。').length,1);
   assert.deepEqual(lint('admin.example.co.jp に接続します。'),[]);
+  assert.equal(lint('page.home を見てください。').length,1);
   assert.equal(lint('admin.other.co.jp に接続します。').length,1);
 });
