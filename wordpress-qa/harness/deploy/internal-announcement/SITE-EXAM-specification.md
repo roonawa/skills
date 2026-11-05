@@ -384,20 +384,20 @@ Linux共有版はブラウザーから利用する。接続URL、ネットワー
 
 | ファイル | 確認対象 | SHA-256 |
 |---|---|---|
-| ui/server.mjs | UI/API、実行前補完、認証境界、ファイル配信 | 2ff13dff706b3429c0333d7e9cc3ca3e831e45e33bd973354d2b0d7a93d52c26 |
+| ui/server.mjs | UI/API、実行前補完、認証境界、ファイル配信 | 35fe1646da449e642e59301dd5d7121eeea008e0f596379c47a9ad569af3883a |
 | ui/registration.mjs | 登録条件検証・WordPress情報取得 | ef546d181d802d7d4053ef307f2bc2e5b18632258236368b520320354da3ab67 |
 | ui/automatic-preparation.mjs | 共通補完・既存検査への紐付け・許可維持 | cb02a8507ccea1a282060861ca2b28738c082cece5b0916df64d3243dcb779e5 |
 | ui/automation-discovery.mjs | 観測情報の取得 | f783551c5b9d5212c50a41f2c01d6f6df981c38930f9603d45ee3bc1cf3ff73c |
 | ui/automation-plan.mjs | 実行可能な検査条件の生成 | b278e790b1695db820a85ea3f1f5e1d286868849b06232c505cad5af9aaff6fa |
 | ui/evidence-preparation.mjs | AIへ渡す構造化根拠・参照検証 | b8c523d348e59fc13a33d9ba21f0a0d24c8ea8e686a9f36007fd8d566f71e728 |
 | ui/todo-triage.mjs | 設定が必要の振り分け・次にやることの算出 | 2c803b48247f7756a8d1d7955a4cbc947ee633bd829c04992f46b4383a43f8b5 |
-| ui/ai-assistant.mjs | Claude呼出し・構造化出力・説明支援 | a77b00463f76c49a7451495690ba4b36ef93c4c802e7f51a6e9c20d84ca541ac |
+| ui/ai-assistant.mjs | Claude呼出し・構造化出力・説明支援 | 5949dcbaa905b3427cd724a2f6ab68552382743f53c54182830542a3e5a90e1f |
 | ui/system-settings.mjs | APIキー・モデル・回数・接続先管理 | 1f61c178280ce21c20abf1e908ba5ae39dcb5784612ed9cc5849a6ea0cd4a999 |
 | ui/project-store.mjs | 登録サイト・認証の保存 | 9fd41a6efcfb007d33667a63784eda34478bbcbc4bfb29164858314e45772fe0 |
 | ui/secret-codec.mjs | Linux用の暗号化 | 10740ec2e822ec31939d87016a57ec6cad5ee7c72338538b9197835a6ede3622 |
 | ui/shared-access.mjs | 共有版利用者認証・負荷制限 | 3fd4e01cba6765b52442dd59f01f3dff2ba6cb67946cd9769a644c5bb8c1c033 |
 | ui/remote-login.mjs | 共有版の画面内ログイン | 9fcc849a8251576cb53b0c3bb359f4e8cd7ef5b696ad8db1bc1e0fdbe1b2fa19 |
-| ui/public/app.js | 分類・詳細・ステータス・表示操作 | 5cf1f78e0ff68b2c0e2ecf06309cba822ed4926b0d191958498a53f2b5c0c43c |
+| ui/public/app.js | 分類・詳細・ステータス・表示操作 | 1eccbd7f5c3d12379e770b794f2ef31a510b596b9dc1a1391b71d2f6a2b178dd |
 | ui/public/case-generator.js | 観点一覧・重要表示の定義 | ae3d3decb8d0530df3b98d2450beed62585411ae73d9df35507f3a3879009a79 |
 | ui/public/interaction-profile.js | 固有操作の条件・許可・入力項目 | 20bd170f960b37e8828f497d69693e987e5e960ea63a04b316ea70b290753fc2 |
 | lib/checks/index.mjs | 検査ハンドラーの登録・設定不足判定 | a3a8fa309552d778f1848871715981e41a8bbddd593ba14e4268f7979004ed6b |
