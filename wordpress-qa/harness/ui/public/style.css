@@ -83,6 +83,11 @@ button{background:#122017;color:#bed1b2;border:1px solid #40543a;border-radius:0
 #issue-report-generate,#issue-report-open{display:inline-block;margin:12px 12px 0 0}
 #issue-report-open[hidden],#issue-report-panel[hidden]{display:none}
 #issue-report-status{overflow-wrap:anywhere}
+#editor-report-panel{margin:0 20px 18px;padding:14px;border:1px solid var(--border,#64748b);border-radius:8px;min-width:0}
+#editor-report-panel summary{cursor:pointer;font-weight:700}
+#editor-report-generate,#editor-report-open,#editor-report-basis{display:inline-block;margin:12px 12px 0 0}
+#editor-report-open[hidden],#editor-report-basis[hidden],#editor-report-panel[hidden]{display:none}
+#editor-report-status,#editor-report-calls{overflow-wrap:anywhere}
 /* Guided confirmation keeps per-step evidence next to the action. */
 .confirmation-panel{padding:16px;margin:16px 0;border:1px solid #879caf;border-radius:8px}
 .confirmation-panel label{display:block;margin:12px 0}
