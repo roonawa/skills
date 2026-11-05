@@ -24,11 +24,11 @@ export function defaultClient({allowedOrigins=[],publicHeaders={},siteOrigin}={}
     if(!allowed.has(u.origin)||u.username||u.password) throw new Error(`接続先が許可されていません：${u.origin}`);
     const headers={'user-agent':'Mozilla/5.0 (compatible; SITE EXAM)',accept:'*/*',...(u.origin===originOf(siteOrigin)?publicHeaders:{})};
     const res=await request(u.href,{method,headers,maxRedirections:0,headersTimeout:TIMEOUT_MS,bodyTimeout:TIMEOUT_MS,signal:AbortSignal.timeout(TIMEOUT_MS)});
-    const chunks=[];let n=0;
-    try{if(method==='GET')for await(const c of res.body){chunks.push(c);n+=c.length;if(n>=MAX_BODY)break;}}finally{res.body.on('error',()=>{});res.body.destroy();}
+    const chunks=[];let n=0,truncated=false;
+    try{if(method==='GET')for await(const c of res.body){chunks.push(c);n+=c.length;if(n>=MAX_BODY){truncated=true;break;}}}finally{res.body.on('error',()=>{});res.body.destroy();}
     const h=Object.fromEntries(Object.entries(res.headers).map(([k,v])=>[k.toLowerCase(),Array.isArray(v)?v.join(', '):String(v)]));
     if(res.statusCode===407||res.statusCode===403&&h['x-wpqa-egress']!==undefined) throw new Error(`接続先が許可されていません（HTTP ${res.statusCode}）`);
-    return {status:res.statusCode,location:h.location??null,headers:h,text:Buffer.concat(chunks).subarray(0,MAX_BODY).toString('utf8')};
+    return {status:res.statusCode,location:h.location??null,headers:h,text:Buffer.concat(chunks).subarray(0,MAX_BODY).toString('utf8'),truncated};
   }
   const one=(method,url)=>{const run=queue.then(()=>send(method,url));queue=run.catch(()=>{});return run;};
   return {get:url=>one('GET',url),head:async url=>({status:(await one('HEAD',url)).status})};
@@ -88,10 +88,14 @@ export function sitemapWellFormed(text){
 
 export async function recheck(groups,{baseURL,sitePath='/',environment,client,allowedOrigins=[],limit=60,perRule=3,now=()=>new Date().toISOString(),failedImagesByPath={}}={}){
   const base=new URL(baseURL),allowed=new Set(allowedOrigins.map(originOf).filter(Boolean)),siteAllowed=allowed.has(base.origin);
-  const log=[],cache=new Map(),foreign=new Map();let used=0;
+  const log=[],cache=new Map(),foreign=new Map(),pagesByRule=new Map();let used=0;
+  const ruleSet=rule=>{if(!pagesByRule.has(rule))pagesByRule.set(rule,new Set());return pagesByRule.get(rule);};
+  const resolve=(to,from)=>{try{return new URL(to,from);}catch{throw new Skip(`URL を解釈できないため確かめていません：${String(to).slice(0,200)}`);}};
   const stamp=()=>{const t=typeof now==='function'?now():now;return t instanceof Date?t.toISOString():String(t);};
   const site=path=>{const u=new URL(path,base);if(u.origin!==base.origin) throw new Skip(`対象サイトの外のため確かめていません：${u.host}`);return u.href;};
   async function fetch(method,url,rule){
+    // 規則ごとに代表ページは最大 perRule 件（fail と caution のグループを合わせて数える）。
+    const seen=ruleSet(rule);if(!seen.has(url)){if(seen.size>=perRule) throw new Skip(`規則ごとの代表ページの上限（${perRule}件）に達したため確かめていません`);seen.add(url);}
     const key=`${method} ${url}`;if(cache.has(key)) return cache.get(key);
     if(used>=limit) throw new Skip(`再確認の上限（${limit}件）に達したため確かめていません`);
     used++;const entry={at:stamp(),method:method.toUpperCase(),url,status:null,rule};log.push(entry);
@@ -101,16 +105,23 @@ export async function recheck(groups,{baseURL,sitePath='/',environment,client,al
   async function getPage(url,rule){
     const r=await fetch('get',url,rule);
     if(r.status!==200) throw new Skip(`ページを取得できませんでした（HTTP ${r.status}）：${url}`);
+    if(r.truncated) throw new Skip(`本文が大きすぎて最後まで読めないため確かめていません：${url}`);
     if(isGate(r.text)) throw new Skip(`閲覧パスワードの画面が表示されたため確かめていません：${url}`);
     return r;
   }
-  const pagesOf=(g,kind)=>g.probes.filter(p=>p.kind===kind&&p.path).slice(0,perRule);
+  // 同じ規則の別グループで取得済みのページを優先し、残りは規則ごとの上限の空きの分だけ選ぶ。
+  function pick(rule,items,urlOf){
+    const seen=ruleSet(rule),known=[],fresh=[];
+    for(const it of items){let u;try{u=urlOf(it);}catch{u=null;}(u&&seen.has(u)?known:fresh).push(it);}
+    return [...known,...fresh.slice(0,Math.max(0,perRule-seen.size))].slice(0,perRule);
+  }
+  const pagesOf=(g,kind,rule)=>pick(rule,g.probes.filter(p=>p.kind===kind&&p.path),p=>new URL(p.path,base).href);
   const none=()=>({result:'unverified',notes:['確かめる対象のページがありません']});
   const isTestHost=host=>environment==='production'&&TEST_HOST.test(host);
 
   const handlers={
     async 'render-timeout'(g,rule){
-      const pages=pagesOf(g,'images');if(!pages.length) return none();
+      const pages=pagesOf(g,'images',rule);if(!pages.length) return none();
       const blocked=new Set(),own=[],notes=[];let explained=0;
       for(const p of pages){
         const url=site(p.path),evidence=failedImagesByPath?.[p.path]??g.facts?.failedImages?.[p.path];
@@ -130,7 +141,7 @@ export async function recheck(groups,{baseURL,sitePath='/',environment,client,al
       return {result:'tool-side',notes:[...notes,...blocked.size?[`接続先の許可にない読み込み元の画像：${[...blocked].join('、')}`]:[],...testHosts.length?[`検証用と思われるドメインの画像：${testHosts.join('、')}（編集者向けの別の項目にしました）`]:[]]};
     },
     async 'index-expectation'(g,rule){
-      const pages=pagesOf(g,'page');if(!pages.length) return none();
+      const pages=pagesOf(g,'page',rule);if(!pages.length) return none();
       const notes=[];let noindex=false;
       for(const p of pages){const url=site(p.path),r=await getPage(url,rule),found=noindexOf(r);if(found)noindex=true;notes.push(`${url}：${found??'検索エンジンに公開（noindex なし）'}`);}
       if(noindex) return {result:'site-side',notes:[...notes,'実際のページが検索エンジンに非公開（noindex）です']};
@@ -138,11 +149,11 @@ export async function recheck(groups,{baseURL,sitePath='/',environment,client,al
       return {result:'tool-side',notes:[...notes,'本番の実際のページは検索エンジンに公開されています。公開方針を案件の担当と確認すること']};
     },
     async 'link-transient'(g,rule){
-      const targets=g.probes.slice(0,perRule).map(p=>p.kind==='link'?p.url:p.kind==='page'?p.path:null).filter(Boolean);
+      const targets=pick(rule,g.probes.map(p=>p.kind==='link'?p.url:p.kind==='page'?p.path:null).filter(Boolean),t=>new URL(t,base).href);
       if(!targets.length) return none();
       const good=[],bad=[];
       for(const t of targets){
-        const u=new URL(t,base);let r;
+        const u=resolve(t,base);let r;
         if(u.origin===base.origin){r=await fetch('get',u.href,rule);if(r.status===200&&isGate(r.text)) throw new Skip(`閲覧パスワードの画面が表示されたため確かめていません：${u.href}`);}
         else if(allowed.has(u.origin)) r=await fetch('head',u.href,rule);
         else throw new Skip(`別ドメインのリンクで、接続先の許可がないため確かめていません：${u.host}`);
@@ -166,9 +177,10 @@ export async function recheck(groups,{baseURL,sitePath='/',environment,client,al
       let url=site(tries.shift());
       for(let n=0;n<perRule;n++){
         const r=await fetch('get',url,rule);
+        if(r.status===200&&r.truncated) return {result:'unverified',notes:[`サイトマップが大きすぎて最後まで読めないため確かめていません：${url}`]};
         if(r.status===200) return sitemapWellFormed(r.text)?{result:'tool-side',notes:[`標準の XML として読めました：${url}`]}:{result:'site-side',notes:[`標準の XML として読めませんでした：${url}`]};
         const to=r.status>=300&&r.status<400?r.location??r.headers?.location:null;
-        if(to&&originOf(new URL(to,url))===base.origin) url=new URL(to,url).href;
+        if(to&&resolve(to,url).origin===base.origin) url=resolve(to,url).href;
         else if(r.status===404&&tries.length) url=site(tries.shift());
         else break;
       }

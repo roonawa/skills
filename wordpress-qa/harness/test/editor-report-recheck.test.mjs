@@ -160,3 +160,39 @@ test('no viewing password means no gate request',async()=>{
   const {publicGateHeaders}=await import('../lib/editor-report/recheck.mjs');
   assert.deepEqual(await publicGateHeaders({baseURL:BASE,sitePath:'/'}),{});
 });
+
+test('representative pages are capped per rule across fail and caution groups',async()=>{
+  const routes=Object.fromEntries(['/a/','/b/','/c/','/d/','/e/'].map(p=>[`${BASE}${p}`,page('x')]));
+  const client=fake(routes);
+  const fail=group('index-expectation',[{kind:'page',path:'/a/'},{kind:'page',path:'/b/'},{kind:'page',path:'/c/'}]);
+  const caution={...group('index-expectation',[{kind:'page',path:'/d/'},{kind:'page',path:'/e/'},{kind:'page',path:'/b/'}]),id:'index-expectation:caution',status:'caution'};
+  const r=await recheck([fail,caution],options(client));
+  assert.equal(new Set(client.calls.map(c=>c.url)).size,3);assert.equal(r.used,3);
+  for(const g of r.groups) assert.equal(g.category,'not-site');
+  assert.deepEqual(r.groups[1].verification.notes.filter(n=>n.startsWith(BASE)).map(n=>n.split('：')[0]),[`${BASE}/b/`]);
+});
+
+test('truncated bodies are not judged',async()=>{
+  const big={status:200,location:null,headers:{},text:SITEMAP.slice(0,80),truncated:true};
+  const s=await recheck([group('sitemap-format',[{kind:'sitemap'}])],options(fake({[`${BASE}/sitemap.xml`]:big})));
+  assert.equal(byRule(s,'sitemap-format').category,'unverified');assert(byRule(s,'sitemap-format').verification.notes.some(n=>/大きすぎ/.test(n)));
+  const p=await recheck([group('index-expectation',[{kind:'page',path:'/'}])],options(fake({[`${BASE}/`]:{...page('x'),truncated:true}})));
+  assert.equal(byRule(p,'index-expectation').category,'unverified');
+});
+
+test('default client marks a body cut at the size cap as truncated',async t=>{
+  const {createServer}=await import('node:http');
+  const server=createServer((req,res)=>{res.writeHead(200,{'content-type':'application/xml'});res.end(req.url==='/big'?'x'.repeat(3*1024*1024):'<urlset/>');}).listen(0,'127.0.0.1');
+  await new Promise(r=>server.once('listening',r));t.after(()=>server.close());
+  const origin=`http://127.0.0.1:${server.address().port}`,c=defaultClient({allowedOrigins:[origin]});
+  const big=await c.get(`${origin}/big`),small=await c.get(`${origin}/small`);
+  assert.equal(big.truncated,true);assert.equal(big.text.length,2*1024*1024);assert.equal(small.truncated,false);
+});
+
+test('a malformed Location or link URL makes only that group unverified',async()=>{
+  const client=fake({[`${BASE}/sitemap.xml`]:{status:301,location:'http://[bad',headers:{location:'http://[bad'},text:''},[`${BASE}/`]:page('x')});
+  const r=await recheck([group('sitemap-format',[{kind:'sitemap'}]),group('link-transient',[{kind:'link',url:'http://[bad'}]),group('index-expectation',[{kind:'page',path:'/'}])],options(client));
+  assert.equal(byRule(r,'sitemap-format').category,'unverified');assert(byRule(r,'sitemap-format').verification.notes.some(n=>/解釈できない/.test(n)));
+  assert.equal(byRule(r,'link-transient').category,'unverified');
+  assert.equal(byRule(r,'index-expectation').category,'not-site');
+});
