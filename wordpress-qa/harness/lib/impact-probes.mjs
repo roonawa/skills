@@ -41,10 +41,10 @@ export function impactAssessments(data){
    if(['link-name','button-name'].includes(o.rule)&&['A','BUTTON','INPUT'].includes(o.tag)&&o.labelled===false&&o.textPresent===false){impact=2;observation='表示中の操作要素に識別用の名前がなく、同じ要素の違反を2回確認。';}
    if(!impact)continue;
    output.push({key:'axe:'+o.rule,scores:[impact,3,2],observation,reasons:[
-    impact===3?'スクロール領域へのフォーカス移動が成立しないことを検査で確認。検査したキーボードアクセス経路が利用できないため影響度3。別経路での回避は未確認。':'表示対象の識別情報または文字の判読性の欠落を直接確認したため、その欠落自体を影響度2で暫定評価。主要操作不能や情報漏えいを評価した点数ではありません。',
-    '同じ要素の違反を2回検出し、DOMの状態を確認しました。支援技術・視認・キーボードの条件に依存する問題として成立容易性3。',
-    '確認した要素を使う利用者と、その要素へのアクセスに評価範囲を限定するため範囲2。URL件数から全サイトへの波及を推定していません。'
-   ],scope:'観測した要素のアクセシビリティ障壁だけの暫定評価です。業務操作全体・他要素・他端末への影響は別途確認が必要です。'});
+    impact===3?'スクロール領域へのフォーカス移動が成立しないことを検査で確認。検査したキーボードアクセス経路は利用できません。別経路での回避は未確認。':'表示対象の識別情報または文字の判読性の欠落を直接確認しました。主要操作の停止や情報漏えいを確認したものではありません。',
+    '同じ要素の違反を2回検出し、DOMの状態を確認しました。支援技術・視認・キーボードの条件に依存する問題です。',
+    '確認した要素を使う利用者と、その要素へのアクセスに対象を限定しています。URL件数から全サイトへの波及を推定していません。'
+   ],scope:'観測した要素のアクセシビリティ障壁だけを確認しています。業務操作全体・他要素・他端末への影響は別途確認が必要です。'});
   }
  }
  if(data?.schema==='wpqa-document-impact-v1'&&data.statuses?.length===2&&data.statuses.every(s=>s===200)&&data.repeated===true&&typeof data.path==='string'){
@@ -52,10 +52,10 @@ export function impactAssessments(data){
    const labels={'fragment-missing':'ページ内リンク先がありません','title-empty':'ページタイトルがありません','lang-missing':'文書の言語指定がありません'};
    if(!labels[type]||(type==='fragment-missing'&&data.browserConfirmed!==true))continue;
    output.push({key:'document:'+type+':'+data.path,title:labels[type],scores:[2,type==='fragment-missing'?4:3,1],observation:'同じ文書をHTTP 200で2回取得し、'+labels[type]+'ことを両回で確認。',reasons:[
-    '文書内の補助的な移動・識別情報の欠落を2回確認したため影響度2。ページ全体の閲覧不能を示す証拠ではありません。',
-    type==='fragment-missing'?'同一ページ内のリンクと移動先IDの不一致を2回確認。通常のリンク操作に関わるため成立容易性4。':'文書の識別・言語情報の欠落を2回確認。支援技術等が利用する条件として成立容易性3。',
-    '単一文書内の補助情報の不一致だけを対象とするため範囲1。他ページへの影響はこの評価に含めません。'
-   ],scope:'取得した文書の補助情報だけの暫定評価。JavaScriptによる動的な補完や業務操作への影響は未確認です。'});
+    '文書内の補助的な移動・識別情報の欠落を2回確認しました。ページ全体の閲覧不能を示す証拠ではありません。',
+    type==='fragment-missing'?'同一ページ内のリンクと移動先IDの不一致を2回確認。通常のリンク操作に関わる問題です。':'文書の識別・言語情報の欠落を2回確認。支援技術等が利用する情報の問題です。',
+    '単一文書内の補助情報の不一致だけを対象としています。他ページへの影響は確認していません。'
+   ],scope:'取得した文書の補助情報だけを確認しています。JavaScriptによる動的な補完や業務操作への影響は未確認です。'});
   }
  }
  return output;
