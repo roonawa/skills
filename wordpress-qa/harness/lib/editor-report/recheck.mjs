@@ -134,7 +134,7 @@ export async function recheck(groups,{baseURL,sitePath='/',environment,client,al
       const notes=[];let noindex=false;
       for(const p of pages){const url=site(p.path),r=await getPage(url,rule),found=noindexOf(r);if(found)noindex=true;notes.push(`${url}：${found??'検索エンジンに公開（noindex なし）'}`);}
       if(noindex) return {result:'site-side',notes:[...notes,'実際のページが検索エンジンに非公開（noindex）です']};
-      if(environment!=='production') return {result:'unverified',notes:[...notes,'登録の環境が本番ではないため、診断の設定の問題とは判断していません']};
+      if(environment!=='production') return {result:'site-side',notes:[...notes,'検証サイトが検索エンジンに公開されています（登録の環境が本番ではありません）']};
       return {result:'tool-side',notes:[...notes,'本番の実際のページは検索エンジンに公開されています。公開方針を案件の担当と確認すること']};
     },
     async 'link-transient'(g,rule){

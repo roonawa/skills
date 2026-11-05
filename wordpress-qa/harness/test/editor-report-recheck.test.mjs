@@ -24,10 +24,12 @@ test('index expectation on production with indexable pages is tool-side',async()
   assert.deepEqual(r.log[0],{at:'2026-11-05T00:00:00.000Z',method:'GET',url:`${BASE}/`,status:200,rule:'index-expectation'});
 });
 
-test('index expectation outside production is not concluded as tool-side',async()=>{
+test('index expectation outside production with indexable pages goes to admin',async()=>{
   const client=fake({[`${BASE}/`]:page('x')});
   const r=await recheck([group('index-expectation',[{kind:'page',path:'/'}])],options(client,{environment:'staging'}));
-  assert.equal(byRule(r,'index-expectation').category,'unverified');
+  const g=byRule(r,'index-expectation');assert.equal(g.category,'admin');assert.equal(g.verification.result,'site-side');assert(g.verification.notes.some(n=>n.includes('検証サイトが検索エンジンに公開されています')));
+  const failed=await recheck([group('index-expectation',[{kind:'page',path:'/x/'}])],options(fake(),{environment:'staging'}));
+  assert.equal(byRule(failed,'index-expectation').category,'unverified');
 });
 
 test('real noindex goes to admin',async()=>{
