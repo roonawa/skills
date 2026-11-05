@@ -1,11 +1,9 @@
 import {latestResults} from '../lib/latest-results.mjs';
-import {attachGapPlans,gapVersion,evidenceGapInput} from '../lib/evidence-gaps.mjs';
 import {releaseVersion} from '../lib/release-version.mjs';
 import {deletionPlan,deleteSiteData} from './project-removal.mjs';
 import {pipeline} from 'node:stream/promises';
 import {completePreparation,prepareSaved,preparationWidens} from './automatic-preparation.mjs';
 import {discoverAutomation} from './automation-discovery.mjs';
-import {collectExamEvidence} from '../lib/exam-evidence.mjs';
 import {preparationEvidence,applyEvidenceDecision,unresolvedPreparation,requiredRegistrationInputs} from './evidence-preparation.mjs';
 import {applyAutomationPlan,mergeAutomationConfig,resolveAutomationProfile} from './automation-plan.mjs';
 import {registrationTrace} from './registration-diagnostics.mjs';
@@ -30,7 +28,6 @@ import { loadConfig,catalog } from '../lib/config.mjs';
 import {writeReport} from '../lib/results.mjs';
 import {enrichFailures} from '../lib/failure-explanations.mjs';
 import {resultDownload} from '../lib/result-download.mjs';
-import {buildExam,validateExamItems,customerExamHtml,customerImageWarnings} from '../lib/site-exam.mjs';
 import {summarizeRecovery} from '../lib/recovery.mjs';
 import {preflight} from '../lib/preflight.mjs';
 import {guidance} from '../lib/guidance.mjs';
@@ -39,7 +36,6 @@ import {triage} from './todo-triage.mjs';
 import {storedNotApplicable} from '../lib/auto-not-applicable.mjs';
 import {operationRequest} from '../lib/operations.mjs';
 import {buildIssueReport} from '../lib/issue-report.mjs';
-import {buildDesignerReport} from '../lib/designer-report.mjs';
 import {buildEditorReport} from '../lib/editor-report/index.mjs';
 import {groupRows} from '../lib/editor-report/causes.mjs';
 import {autoReport} from '../lib/auto-report.mjs';
@@ -184,27 +180,10 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
     });
     const done=new Promise(resolve=>{
       let ended=false;
-      const finish=async(code,error)=>{if(ended)return;ended=true;clearInterval(capacityTimer);if(error)append(error.message);if(kind==='run'&&job.runId)try{const directory=runPath(p,job.runId),generated=autoReport(directory),report=readRun(p,job.runId);report.autoReport=generated;if(report.rows[0])report.rows[0].evidence=[...new Set([...(report.rows[0].evidence??[]),'issue-report.html'])];writeReport(directory,report);append('\n報告書を自動生成しました: issue-report.html\n');}catch(e){append('\n報告書の自動生成に失敗: '+e.message+'\n');}if(kind==='run'&&job.runId&&system?.view().enabled&&system.view().evidenceApproved&&!closing)try{const directory=runPath(p,job.runId),report=readRun(p,job.runId);if(report.runStatus==='finished'){job.state='running';const exam=buildExam(readExamEvidence(directory,report).report);await completeEvidence(p,directory,exam);append('Claudeで採点保留の不足証拠・追加確認を整理しました。点数の推測は行っていません。\n');}}catch(e){append('不足証拠のAI整理: '+e.message+'\n');}job.exitCode=code;job.state='finished';if(active===job)active=null;resolve(jobState(job));};
+      const finish=async(code,error)=>{if(ended)return;ended=true;clearInterval(capacityTimer);if(error)append(error.message);if(kind==='run'&&job.runId)try{const directory=runPath(p,job.runId),generated=autoReport(directory),report=readRun(p,job.runId);report.autoReport=generated;if(report.rows[0])report.rows[0].evidence=[...new Set([...(report.rows[0].evidence??[]),'issue-report.html'])];writeReport(directory,report);append('\n報告書を自動生成しました: issue-report.html\n');}catch(e){append('\n報告書の自動生成に失敗: '+e.message+'\n');}job.exitCode=code;job.state='finished';if(active===job)active=null;resolve(jobState(job));};
       child.once('error',e=>finish(2,e));child.once('close',code=>finish(code??2));
     });
     jobs.add(done);done.finally(()=>jobs.delete(done));return {job,done};
-  }
-  function readExamEvidence(directory,report){
-    return collectExamEvidence(enrichFailures(report,evidenceJSON(directory)),file=>{const f=boundedPath(directory,file);if(fs.statSync(f).size>8*1024*1024)throw Error('Evidence too large');return fs.readFileSync(f);});
-  }
-  function readGapRecord(directory){
-    if(!fs.existsSync(path.join(directory,'evidence-completion.json')))return null;
-    const file=boundedPath(directory,'evidence-completion.json');if(fs.statSync(file).size>2*1024*1024)throw Error('Evidence plan too large');return readJSON(file);
-  }
-  async function completeEvidence(p,directory,exam){
-    const cached=readGapRecord(directory);
-    if(cached?.version===gapVersion&&cached.fingerprint===exam.fingerprint&&cached.examVersion===(exam.version??null))return cached;
-    if(!ai)throw Error('AI設定がありません');
-    const record=await ai.completeAssessmentEvidence(exam,projectInfo(p).config);
-    const destination=path.join(directory,'evidence-completion.json');
-    if(fs.existsSync(destination))boundedPath(directory,'evidence-completion.json');
-    const tmp=destination+'.'+randomUUID()+'.tmp';try{fs.writeFileSync(tmp,JSON.stringify(record),{flag:'wx',mode:0o600});fs.renameSync(tmp,destination);}finally{if(fs.existsSync(tmp))fs.unlinkSync(tmp);}
-    return record;
   }
   async function completeObservedPreparation(config,profile,discovery){
     return completePreparation(config,profile,discovery,{ai,aiEnabled:!!system?.view().enabled&&system.view().approved&&system.view().evidenceApproved});
@@ -535,54 +514,6 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
         }
         if(segments[3]==='runs'&&segments[4]) {
           const id=segments[4],report=readRun(p,id),directory=runPath(p,id);
-          if(['exam','exam-ai','exam-evidence','exam-evidence-run','customer-report'].includes(segments[5])&&segments.length===6){
-            if(report.runStatus!=='finished'||!report.finishedAt||runIsAlive(directory))reject(409,'完了した診断結果を選択してください');
-            const readAssessment=r=>collectExamEvidence(enrichFailures(r,evidenceJSON(directory)),file=>{const f=boundedPath(directory,file);if(fs.statSync(f).size>8*1024*1024)throw Error('Evidence too large');return fs.readFileSync(f);});
-            const bundle=readAssessment(report),enriched=bundle.report;
-            const storage=path.join(directory,'site-exam.json');let saved=null;
-            if(fs.existsSync(storage)){const f=boundedPath(directory,'site-exam.json');if(fs.statSync(f).size>2*1024*1024)reject(413,'評価ファイルが大きすぎます');saved=readJSON(f);}
-            const exam=attachGapPlans(buildExam(enriched,saved),readGapRecord(directory));exam.presentationWarnings=customerImageWarnings(exam,bundle.image);
-            if(segments[5]==='exam'&&req.method==='GET')return json(200,exam);
-            if(segments[5]==='exam'&&req.method==='POST'){
-              admission();
-              if(active||closing)reject(409,'処理の終了後に評価を保存してください');
-              const data=await body(req);if(data.fingerprint!==exam.fingerprint||data.version!==exam.version)reject(409,'結果または評価が更新されました。評価を再取得してください');
-              const latest=fs.existsSync(storage)?readJSON(boundedPath(directory,'site-exam.json')):null;
-              const currentReport=readAssessment(readRun(p,id)).report;
-              if(latest?.version!==saved?.version||buildExam(currentReport).fingerprint!==exam.fingerprint)reject(409,'結果または評価が更新されました。評価を再取得してください');
-              let items;try{items=validateExamItems(data.items,exam);}catch(e){reject(400,e.message);}
-              const record={fingerprint:exam.fingerprint,version:randomUUID(),savedAt:new Date().toISOString(),items};
-              if(fs.existsSync(storage)&&fs.lstatSync(storage).isSymbolicLink())reject(403,'評価の保存先が不正です');
-              const temp=storage+'.'+randomUUID()+'.tmp';try{fs.writeFileSync(temp,JSON.stringify(record),{flag:'wx',mode:0o600});fs.renameSync(temp,storage);}finally{if(fs.existsSync(temp))fs.unlinkSync(temp);}
-              const updated=buildExam(enriched,record);return json(200,{...updated,presentationWarnings:customerImageWarnings(updated,bundle.image)});
-            }
-            if(['exam-evidence','exam-evidence-run'].includes(segments[5])&&req.method==='POST'){
-              admission();if(active||closing||preparing||logins.busy)reject(409,'処理の終了後に実行してください');if(editorJob)reject(409,'編集者向け報告書の作成が終わってから実行してください');
-              const data=await body(req);if(data.fingerprint!==exam.fingerprint||data.version!==exam.version)reject(409,'結果が更新されています。評価を再取得してください');
-              if(segments[5]==='exam-evidence'){
-                try{return json(200,attachGapPlans(exam,await completeEvidence(p,directory,exam)));}catch(e){reject(400,e.message);}
-              }
-              const current=projectInfo(p);if(current.configHash!==report.configHash)reject(409,'設定が更新されています。現在の設定で検査を実行してください');
-              const plan=exam.evidenceCompletion?.plans?.find(x=>x.issueId===data.issueId&&x.caseIds.includes(data.rowId));
-              const pending=exam.issues.filter(i=>i.certainty==='pending'),index=pending.findIndex(i=>i.id===data.issueId),entry=evidenceGapInput(exam,current.config).find(x=>x.index===index);
-              const allowed=entry?.cases.some(c=>c.rerunPermitted&&pending[index].cases[c.ref].id===data.rowId);
-              const row=report.rows.find(r=>r.id===data.rowId);
-              if(!plan||!allowed||!row)reject(400,'実行可能な証拠取得検査ではありません');
-              try{selectSingleTest(catalog(current.config),row.id);}catch(e){reject(400,e.message);}
-              const {job}=launch(p,['run','--config',p.file,'--suite',row.suite,'--id',row.id],'run');return json(202,jobState(job));
-            }
-            if(segments[5]==='exam-ai'&&req.method==='POST'){
-              admission();if(editorJob)reject(409,'編集者向け報告書の作成が終わってから実行してください');
-              if(!ai)reject(503,'AI設定がありません');const data=await body(req);if(data.fingerprint!==exam.fingerprint||data.version!==exam.version)reject(409,'結果が更新されています。評価を再取得してください');
-              try{return json(200,{fingerprint:exam.fingerprint,version:exam.version,suggestions:await ai.explain(exam.issues)});}catch(e){reject(400,e.message);}
-            }
-            if(segments[5]==='customer-report'&&req.method==='GET'){
-              res.setHeader('Content-Type','text/html; charset=utf-8');res.setHeader('Cache-Control','no-store');res.setHeader('Content-Security-Policy',"sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:");
-              if(target.searchParams.get('download')==='1')res.setHeader('Content-Disposition','attachment; filename="site-exam-report.html"');
-              res.end(customerExamHtml(enriched,exam,bundle.image));return;
-            }
-            reject(405,'対応していない操作です');
-          }
           if(segments[5]==='confirmation'&&segments.length===7){
             const row=report.rows.find(r=>r.id===segments[6]);if(!row)reject(404,'検査項目が見つかりません');
             const current=projectInfo(p),plan=confirmationPlan(row);
@@ -636,12 +567,12 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
             const {scopeGap,...lists}=comparison;
             return json(200,{handoffId,baseline:{handoffId:record.handoffId,sourceRunId:record.sourceRunId,createdAt:record.createdAt},comparison:Object.fromEntries(Object.entries(lists).map(([k,v])=>[k,v.map(brief)])),scopeGap,body:text.body,truncated:text.truncated});
           }
-          if(['issue-report','designer-report'].includes(segments[5])&&segments.length===6&&req.method==='POST'){
+          if(segments[5]==='issue-report'&&segments.length===6&&req.method==='POST'){
             if(report.runStatus!=='finished'||!report.finishedAt||runIsAlive(directory))reject(409,'完了した実行を選択してください');
             const data=await body(req);
             if(typeof data.includeHistory!=='boolean'||typeof (data.notes??'')!=='string'||(data.notes??'').length>10000)reject(400,'報告書の指定が不正です');
             const previous=data.includeHistory?history(p,10000).filter(r=>r.runId!==id).map(r=>readRun(p,r.runId)):[];
-            const designer=segments[5]==='designer-report',outputName=designer?'designer-report.html':'issue-report.html';
+            const outputName='issue-report.html';
             const output=path.join(directory,outputName);
             if(fs.existsSync(output)&&fs.lstatSync(output).isSymbolicLink())reject(403,'報告書の保存先を確認してください');
             let bytesRead=0;
@@ -653,7 +584,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
               if(buffer.length>limit||bytesRead>64*1024*1024)throw new Error('Report evidence too large');
               cached.set(file,buffer);return buffer;
             };
-            const generated=(designer?buildDesignerReport:buildIssueReport)({current:report,previous,includeHistory:data.includeHistory,notes:data.notes??'',readImage:(runId,file)=>{
+            const generated=buildIssueReport({current:report,previous,includeHistory:data.includeHistory,notes:data.notes??'',readImage:(runId,file)=>{
               const source=runId===id?report:previous.find(r=>r.runId===runId);
               if(!file.endsWith('.png')||!source?.rows.some(r=>(r.evidence??[]).includes(file)))throw new Error('Unregistered image');
               const image=boundedPath(runPath(p,runId),file);
@@ -733,7 +664,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
             let log='';try{log=fs.readFileSync(path.join(directory,'ui.log'),'utf8');}catch{}
             const {configHash}=projectInfo(p);
             const candidates=report.rows.filter(r=>r.id.startsWith('snapshot.')&&fs.existsSync(path.join(directory,'candidates',`${r.id}.png`))).map(r=>r.id);
-            return json(200,{report,log,candidates,designerReport:fs.existsSync(path.join(directory,'designer-report.html')),recovery:summarizeRecovery(directory),canApprove:report.configHash===configHash&&!active&&!runIsAlive(directory),orphaned:['running','starting'].includes(report.runStatus)&&active?.runId!==id&&!runIsAlive(directory)});
+            return json(200,{report,log,candidates,recovery:summarizeRecovery(directory),canApprove:report.configHash===configHash&&!active&&!runIsAlive(directory),orphaned:['running','starting'].includes(report.runStatus)&&active?.runId!==id&&!runIsAlive(directory)});
           }
           if(segments[5]==='guidance'&&segments.length===7&&req.method==='GET'){
             const row=report.rows.find(r=>r.id===segments[6]);if(!row)reject(404,'検査項目が見つかりません');
@@ -785,7 +716,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
           }
           if(segments.length>=6&&req.method==='GET') {
             const relative=segments[5]==='files'&&segments.length===6?target.searchParams.get('path'):segments.slice(5).join('/');
-            const allowed=new Set(['report.html','issue-report.html','designer-report.html','editor-report.html','editor-report-basis.html','results.json','ui.log',...report.rows.flatMap(r=>r.evidence??[])]);
+            const allowed=new Set(['report.html','issue-report.html','editor-report.html','editor-report-basis.html','results.json','ui.log',...report.rows.flatMap(r=>r.evidence??[])]);
             for(const row of report.rows) if(/^snapshot\.[a-z][a-z0-9-]{0,63}$/.test(row.id))allowed.add(`candidates/${row.id}.png`);
             if(!allowed.has(relative))reject(403,'台帳に登録されていないファイルです');
             let file;try{file=boundedPath(directory,relative);}catch(e){if(e.status)throw e;reject(404,'証拠ファイルがありません');}
@@ -793,19 +724,17 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
             res.setHeader('Content-Security-Policy',"sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:");
             res.setHeader('Cache-Control','no-store');res.setHeader('Content-Type',type);
             if(ext==='.zip')res.setHeader('Content-Disposition','attachment; filename="trace.zip"');
-            if(relative==='designer-report.html'&&target.searchParams.get('download')==='1')res.setHeader('Content-Disposition',`attachment; filename="designer-report-${id.replace(/[^a-zA-Z0-9_-]/g,'_')}.html"`);
             await pipeline(fs.createReadStream(file),res);return;
           }
         }
         reject(404,'APIが見つかりません');
       }
       if(req.method!=='GET')reject(404,'ページが見つかりません');
-      const files={'/':'index.html','/app.js':'app.js','/style.css':'style.css','/automation-inputs.js':'automation-inputs.js','/interaction-profile.js':'interaction-profile.js','/case-generator.js':'case-generator.js','/settings.js':'settings.js','/external-auth.js':'external-auth.js','/registration.js':'registration.js','/coverage-editor.js':'coverage-editor.js','/options-form.js':'options-form.js','/designer-report.js':'designer-report.js'};
+      const files={'/':'index.html','/app.js':'app.js','/style.css':'style.css','/automation-inputs.js':'automation-inputs.js','/interaction-profile.js':'interaction-profile.js','/case-generator.js':'case-generator.js','/settings.js':'settings.js','/external-auth.js':'external-auth.js','/registration.js':'registration.js','/coverage-editor.js':'coverage-editor.js','/options-form.js':'options-form.js'};
       files['/preparation-wizard.js']='preparation-wizard.js';
       files['/remote-login.js']='remote-login.js';
       files['/ai-settings.js']='ai-settings.js';files['/ai-preparation.js']='ai-preparation.js';
-      files['/site-exam.js']='site-exam.js';files['/risk-rubric.js']='risk-rubric.js';
-      const helpFiles={'/help/user-manual.html':'user-manual.html','/help/site-exam-guide.html':'site-exam-guide.html','/help/security-ai-guide.html':'security-ai-guide.html'};
+      const helpFiles={'/help/user-manual.html':'user-manual.html','/help/security-ai-guide.html':'security-ai-guide.html'};
       const helpName=helpFiles[target.pathname];
       if(helpName)res.setHeader('Content-Security-Policy',"default-src 'none'; style-src 'unsafe-inline'; img-src data:; frame-ancestors 'none'; base-uri 'none'");
       const name=helpName??files[target.pathname];if(!name)reject(404,'ページが見つかりません');

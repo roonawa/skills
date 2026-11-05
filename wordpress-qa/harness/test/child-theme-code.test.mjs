@@ -11,13 +11,6 @@ test('escaped output and block comments do not produce direct-input findings',()
  const r=scanChildCode('x.php','<?php\nrequire $_GET[0];\n$wpdb->query($_POST[0]);');
  assert.deepEqual(r.findings.map(f=>f.rule),['include','sql']);
 });
-import {buildExam,customerExamHtml} from '../lib/site-exam.mjs';
-test('customer report omits internal source inventory and does not declare safety',()=>{
- const childCode={...scanChildCode('functions.php','echo $_GET[0];'),files:[{file:'functions.php'}],incomplete:[],scope:'簡易静的検査'};
- const report={runId:'x',rows:[{id:'theme',title:'テーマ',status:'review',softwareSecurity:{assets:[{name:'Child',childCode}],checkedAt:'now'}}]};
- const html=customerExamHtml(report,buildExam(report));
- assert(!html.includes('取得 1ファイル'));assert(!html.includes('$_GET'));assert(html.includes('未確認'));assert.equal(report.rows[0].softwareSecurity.assets[0].childCode.findings.length,1);
-});
 test('subdirectory WordPress absolute editor links are collected',async()=>{
  const page=f=>'<form id="template"><input name="theme" value="child"><input name="file" value="'+f+'"><textarea id="newcontent">echo $_GET[0];</textarea></form><a href="/sub/wp-admin/theme-editor.php?theme=child&amp;file=functions.php">PHP</a>';
  const r=await inspectChildTheme({slug:'child'},async p=>page(p.includes('&file=')?'functions.php':'style.css'),'https://site.test/sub/wp-admin/theme-editor.php');

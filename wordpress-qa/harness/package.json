@@ -12,7 +12,6 @@
     "test:ui": "node test/ui-browser.mjs",
     "test:report-ui": "node test/issue-report-browser.mjs",
     "test:handoff-ui": "node test/handoff-browser.mjs",
-    "test:designer-report-ui": "node test/designer-report-browser.mjs",
     "ui": "node ui/start.mjs",
     "qa": "node bin/qa.mjs",
     "demo": "node examples/demo-server.mjs",
@@ -27,7 +26,6 @@
     "pilot:init": "node bin/init-pilot.mjs",
     "test:shared-ui": "node test/shared-pilot-browser.mjs",
     "test:ai-ui": "node test/ai-browser.mjs",
-    "test:site-exam-ui": "node test/site-exam-browser.mjs",
     "test:first-screen-ui": "node test/first-screen-browser.mjs"
   },
   "dependencies": {

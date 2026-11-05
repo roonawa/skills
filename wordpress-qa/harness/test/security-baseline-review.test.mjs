@@ -12,9 +12,7 @@ import {catalog,validateConfig} from '../lib/config.mjs';
 import {addSecurityChecks} from '../ui/public/case-generator.js';
 import {ProjectStore} from '../ui/project-store.mjs';
 import {buildIssueReport} from '../lib/issue-report.mjs';
-import {buildDesignerReport} from '../lib/designer-report.mjs';
 import {latestResults} from '../lib/latest-results.mjs';
-import {buildExam} from '../lib/site-exam.mjs';
 import {preparationWidens} from '../ui/automatic-preparation.mjs';
 
 const check=(area,required=true,extra={})=>({id:'auto-security-'+area,kind:'security-baseline',suite:'authz',required,options:{area,...extra}});
@@ -144,19 +142,9 @@ test('issue report maps baseline findings through RULES and counts caution separ
   assert.match(r.html,/不合格 0ケース・注意 1ケース → 修正候補 2項目/);assert.match(r.html,/注意：/);
   const plain=buildIssueReport({current:report([{...sbRow,required:true,level:undefined}]),readEvidence:()=>sbEvidence});assert.match(plain.html,/不合格 1ケース → 修正候補 2項目/);
 });
-test('designer report does not claim no issues when caution rows exist',()=>{
-  const r=buildDesignerReport({current:report([sbRow]),readEvidence:()=>sbEvidence});
-  assert(!r.html.includes('報告対象に不合格はありません'));assert.match(r.html,/注意 1ケース/);
-});
-
 test('latest results keep level and count caution separately',()=>{
   const r=latestResults([{id:'a',title:'A'},{id:'b',title:'B'}],'h',[{runId:'1',startedAt:'1',finishedAt:'1',runStatus:'finished',configHash:'h',rows:[{id:'a',status:'fail',level:'caution'},{id:'b',status:'fail'}]}]);
   assert.equal(r.rows[0].level,'caution');assert.equal(r.counts.caution,1);assert.equal(r.counts.fail,1);
-});
-
-test('customer exam warns about unresolved required auto-security rows',()=>{
-  const e=buildExam({runId:'r',rows:[{id:'check.auto-security-exposure',title:'x',required:true,status:'blocked'},{id:'check.auto-security-transport',title:'t',required:true,status:'pass'},{...sbRow,failures:[{key:'baseline:missing-csp:/',title:'CSP',impact:'i',admin:'a'}]}]});
-  assert.equal(e.unresolvedSecurity,1);assert.match(e.warning,/評価未完了/);assert.match(e.warning,/セキュリティ未解決・未確認 1項目/);
 });
 
 test('automatic preparation may not widen sensitivePaths',()=>{

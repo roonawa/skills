@@ -1,9 +1,7 @@
-import {initSiteExam} from './site-exam.js';
 import {initAiSettings} from './ai-settings.js';
 import {initSettings} from './settings.js';
 import {initExternalAuth} from './external-auth.js';
 import {initRegistration} from './registration.js';
-import {initDesignerReport} from './designer-report.js';
 import {extendedSuites} from './coverage-editor.js';
 import {COVERAGE_REPLACEMENTS} from './case-generator.js';
 const $=selector=>document.querySelector(selector);
@@ -155,8 +153,6 @@ async function handoffProbe(finished){
   try{await api(handoffURL('handoff-compare'),{method:'POST',body:JSON.stringify({uncheckedAddedKeys:[],save:false})});if(handoffCurrent(scope)){$('#handoff-compare').hidden=false;$('#handoff-compare-open').hidden=false;}}catch{}
 }
 $('#handoff-panel').ontoggle=()=>handoffProbe(state.report?.report?.runStatus==='finished'&&state.report.report.runId===state.runId);
-const designerReportUI=initDesignerReport({state,api,render,showError});
-const siteExamUI=initSiteExam({state,api});
 function notify(message){state.notice=message;$('#toast').textContent=message;$('#toast').hidden=!message;}
 function showError(message){$('#error').textContent=message;$('#error').hidden=!message;}
 async function api(url,options={}){
@@ -381,8 +377,6 @@ function renderDetail(){
 }
 function render(){
   if($('#remove-site'))$('#remove-site').disabled=!state.canRemove||!state.project||state.busy||state.requesting;
-  designerReportUI.render();
-  siteExamUI.render();
   renderOperationScope();
   const report=state.report?.report,rows=report?.rows??[],active=state.active?.projectId===state.projectId;
   const live=active&&(!state.runId||state.active.runId===state.runId);
@@ -444,7 +438,7 @@ async function refreshLatest(data){
  const key=JSON.stringify([state.projectId,data.project.configHash,data.runs.map(r=>[r.runId,r.runStatus,r.finishedAt])]);if(key===latestKey)return;latestKey=key;
  const ticket=++latestTicket,projectId=state.projectId,content=latestPanel.querySelector('[data-latest-content]');content.textContent='最新結果を集約しています…';
  try{const result=await api('/api/projects/'+encodeURIComponent(projectId)+'/latest-results');if(ticket!==latestTicket||state.projectId!==projectId)return;
- content.innerHTML='<p>'+Object.entries(result.counts).map(([status,n])=>escape(names[status]??status)+' '+n+'件').join(' ／ ')+'</p><p>現在の設定と一致する実施結果を項目ごとに表示しています。採点・証拠は元の履歴で確認できます。</p>'+(result.unreadableRuns?'<p>読み込めない履歴があります。集約は不完全です。</p>':'')+'<div style="overflow-x:auto"><table><thead><tr><th>検査項目</th><th>結果</th><th>検査日時・証拠</th></tr></thead><tbody>'+result.rows.map(r=>'<tr><td>'+escape(r.title??r.id)+'</td><td>'+escape(names[displayStatus(r)]??r.status)+(r.autoNotApplicable?'・自動判定':'')+'</td><td>'+(r.sourceRunId?'<button type="button" data-source-run="'+escape(r.sourceRunId)+'">'+escape(date(r.checkedAt))+' の結果</button>':'現在の設定での実施結果なし')+'</td></tr>').join('')+'</tbody></table></div>';
+ content.innerHTML='<p>'+Object.entries(result.counts).map(([status,n])=>escape(names[status]??status)+' '+n+'件').join(' ／ ')+'</p><p>現在の設定と一致する実施結果を項目ごとに表示しています。</p>'+(result.unreadableRuns?'<p>読み込めない履歴があります。集約は不完全です。</p>':'')+'<div style="overflow-x:auto"><table><thead><tr><th>検査項目</th><th>結果</th><th>検査日時・証拠</th></tr></thead><tbody>'+result.rows.map(r=>'<tr><td>'+escape(r.title??r.id)+'</td><td>'+escape(names[displayStatus(r)]??r.status)+(r.autoNotApplicable?'・自動判定':'')+'</td><td>'+(r.sourceRunId?'<button type="button" data-source-run="'+escape(r.sourceRunId)+'">'+escape(date(r.checkedAt))+' の結果</button>':'現在の設定での実施結果なし')+'</td></tr>').join('')+'</tbody></table></div>';
  }catch(err){if(ticket===latestTicket){latestKey='';content.textContent=err.message;}}
 }
 latestPanel.addEventListener('click',async event=>{const button=event.target.closest('[data-source-run]');if(!button)return;++refreshTicket;state.runId=button.dataset.sourceRun;state.report=null;state.detail=null;state.follow=false;render();await refresh();});

@@ -1,7 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {calculateRisk,riskMatrix} from '../ui/public/risk-rubric.js';
-import {buildExam,validateExamItems} from '../lib/site-exam.mjs';
 import {AiAssistant,preparationKinds} from '../ui/ai-assistant.mjs';
 const base={name:'secret-name',baseURL:'https://secret.test',environment:'production',pages:[{id:'home',path:'/',canonical:'https://secret.test/',indexable:true}],checks:[]};
 const settings={key:()=> 'synthetic-key',read:()=>({model:'fixture'}),reserve(){}};
@@ -15,24 +13,6 @@ function transport(visit=()=>{}){return async(url,opts)=>{
  const result={cases:[],questions:[],reviews:part.reviewTargets.map(t=>({...t,reason:'登録構造を確認。合否は未検査。'}))};visit(part,result);
  return new Response(JSON.stringify({stop_reason:'end_turn',content:[{type:'text',text:JSON.stringify(result)}]}));
 };}
-test('risk matrix is monotonic, bounded, and severe impact cannot become low risk',()=>{
- for(let i=1;i<=5;i++)for(let l=1;l<=5;l++)for(let s=1;s<=4;s++){
-  const n=calculateRisk([i,l,s]);assert(n>=1&&n<=100);
-  if(i<5)assert(n<calculateRisk([i+1,l,s]));
-  if(l<5)assert(n<calculateRisk([i,l+1,s]));
-  if(s<4)assert(n<calculateRisk([i,l,s+1]));
- }
- assert.equal(calculateRisk(null),null);assert.equal(calculateRisk([5,1,1]),65);assert.equal(calculateRisk([5,5,4]),100);
- assert.equal(riskMatrix.length,5);assert.throws(()=>calculateRisk([0,1,1]));
-});
-test('confirmed assessments require evidence references on every dimension',()=>{
- const report={rows:[{id:'case-one',status:'fail',evidence:['evidence.json']}],runId:'r'};
- const exam=buildExam(report),i=exam.issues[0];const item={id:i.id,scores:[3,4,2],certainty:'confirmed',reasons:['impact','conditions','scope'],impact:'影響',action:'対応',reviewed:true,source:'manual'};
- assert.throws(()=>validateExamItems([item],exam));
- item.reasons=item.reasons.map(r=>'[case-one] '+r);assert.throws(()=>validateExamItems([item],exam));
- report.rows[0].evidence=[];assert.throws(()=>validateExamItems([item],buildExam(report)));
- assert.equal(buildExam(report,{fingerprint:'old-formula',items:[item]}).stale,true);
-});
 test('Claude reviews ALL entries beyond old 80-page and 150-check cutoffs',async()=>{
  const c={...base,pages:Array.from({length:81},(_,i)=>({...base.pages[0],id:'p-'+i,path:'/p'+i})),checks:Array.from({length:151},(_,i)=>({id:'c-'+i,suite:'seo',kind:'unconfigured',options:{instructions:'private instructions'}})),manual:[{id:'m',title:'private title',reason:'private instructions'}]};
  const calls=[];const ai=new AiAssistant(settings,{fetcher:transport(p=>calls.push(p))});
