@@ -48,7 +48,7 @@ try{
   await expect(page.locator('[data-group]')).toHaveCount(25);
   await expect(page.locator('.group-heading .pill').first()).toHaveText('設定が必要');
   await page.locator('[data-group="coverage.pending-0"]').click();
-  await page.locator('[data-row="coverage.pending-0"]').click();
+  await page.locator('#test-rows [data-row="coverage.pending-0"]').click();
   await expect(page.locator('#detail')).toContainText('期待値が未定義です');
   await expect(page.locator('#detail')).toContainText('検査条件を登録');
   await expect(page.locator('#detail')).toContainText('必須条件');
@@ -59,8 +59,8 @@ try{
   await page.locator('[data-filter="not_run"]').click();
   await expect(page.locator('[data-group]')).toHaveCount(1);
   await page.locator('[data-group="page"]').click();
-  await expect(page.locator('[data-row]')).toHaveCount(1);
-  await page.locator('[data-row="page.unselected"]').click();
+  await expect(page.locator('#test-rows [data-row]')).toHaveCount(1);
+  await page.locator('#test-rows [data-row="page.unselected"]').click();
   await expect(page.locator('#execute-case')).toBeVisible();
   await page.locator('[data-filter="attention"]').click();
   await expect(page.locator('[data-group]')).toHaveCount(26);
@@ -71,7 +71,7 @@ try{
   report.runStatus='planned';
   await page.reload();
   await expect(page.locator('#metric-preparation')).toHaveText('25');
-  await expect(page.locator('#run-subtitle')).toContainText('設定が必要 25件は実行対象外');
+  await expect(page.locator('#run-subtitle')).toContainText('設定が必要 25件（実行対象外）');
   await page.locator('[data-filter="preparation"]').click();
   await expect(page.locator('[data-group]')).toHaveCount(25);
   assert.deepEqual(errors,[]);assert.deepEqual(writes,[]);

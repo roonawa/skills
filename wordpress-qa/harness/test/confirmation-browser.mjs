@@ -15,7 +15,7 @@ rows.find(r=>r.manualReview).details={adminFollowup:{registration:'verified',can
 writeReport(run,{runId:'seed',name:'Confirmation UI',baseURL:demo.url,runStatus:'finished',startedAt:new Date().toISOString(),finishedAt:new Date().toISOString(),configHash:ctx.configHash,rows,errors:[]});
 const app=await startUI({configPaths:[file],port:0});const browser=await chromium.launch();const page=await browser.newPage({viewport:{width:1440,height:1000}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
 try{
- await page.goto(app.url);
+ await page.goto(app.url);await page.locator('#auto-download-results').uncheck();
  await page.locator('[data-group="manual.checkout-flow"]').click();await page.locator('[data-row="manual.checkout-flow"]').click();
  await page.getByRole('button',{name:'確認を進める',exact:true}).click();
  await expect(page.locator('[data-step="registration"] select')).toHaveValue('pass');

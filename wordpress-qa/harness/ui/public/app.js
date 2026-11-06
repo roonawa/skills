@@ -353,10 +353,11 @@ function renderDetail(){
 
     const help=document.createElement('section');help.className='blocked-help';help.setAttribute('aria-live','polite');help.textContent='不足している設定を確認しています…';$('#detail .detail-id').after(help);
     const url=runAPI()+'/guidance/'+encodeURIComponent(r.id);
-    api(url).then(g=>{
+    api(url).then(raw=>{
       if(!help.isConnected)return;
+      const g={...raw,missing:Array.isArray(raw?.missing)?raw.missing:[],steps:Array.isArray(raw?.steps)?raw.steps:[],location:raw?.location??''};
       help.innerHTML=`<h4>実行できるようにするには</h4>${g.changed?'<p class="guidance-history">この履歴の実行後に設定が変わっています。以下は現在の設定の案内です。</p>':''}<h5>不足・確認が必要なもの</h5><ul>${g.missing.map(x=>`<li>${escape(x)}</li>`).join('')}</ul><h5>設定する場所</h5><p>${escape(g.location)}</p><h5>対応手順</h5><ol>${g.steps.map(x=>`<li>${escape(x)}</li>`).join('')}</ol><p class="quiet">${escape(g.scope)}</p><button type="button" data-open-settings ${state.busy?'disabled':''}>設定画面を開く</button>`;
-      if(preparing)help.innerHTML=`<h4>不足している設定</h4><ul>${g.missing.map(x=>`<li>${escape(x)}</li>`).join('')}</ul>${g.changed?'<p>現在の設定に合わせて準備します。過去の結果は保存だけでは変わりません。</p>':''}<button type="button" data-open-settings ${state.busy?'disabled':''}>設定を開く</button>`;
+      if(preparing)help.innerHTML=`<h4>不足している設定</h4>${r.required?'<p>必須の検査です。設定して検査するまで、必須条件は満たされません。</p>':''}<ul>${g.missing.map(x=>`<li>${escape(x)}</li>`).join('')}</ul>${g.changed?'<p>現在の設定に合わせて準備します。過去の結果は保存だけでは変わりません。</p>':''}<button type="button" data-open-settings ${state.busy?'disabled':''}>設定を開く</button>`;
       const fields=document.createElement('div');fields.hidden=preparing;fields.innerHTML=`${g.fields?.length?`<h5>入力する欄と内容</h5><dl>${g.fields.map(f=>`<dt>${escape(f.label)}</dt><dd>${escape(f.value)}</dd>`).join('')}</dl>`:''}${g.external?`<p>${escape(g.external)}</p>`:''}`;
       help.querySelector('[data-open-settings]').before(fields);
       help.querySelector('[data-open-settings]').textContent=preparing?'設定を開く':g.target?'該当する検査の設定を開く':'設定画面を開く';
