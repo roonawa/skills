@@ -1,1 +1,1 @@
-export const releaseVersion='2026-11-09-login-check';
+export const releaseVersion='2026-11-09-login-stay';
