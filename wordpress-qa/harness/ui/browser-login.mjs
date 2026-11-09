@@ -58,7 +58,7 @@ export class BrowserLogin {
   }
   async verify(id){
     const s=this.get(id);if(s.phase==='verified')return {id,phase:'verified'};
-    if(s.phase!=='waiting')throw new Error('ログイン確認中です');s.phase='checking';let probe;
+    if(s.phase!=='waiting')throw new Error('ログイン確認中です');s.phase='checking';let probe,probePage;
     // Japanese reason shown to the user. Never include cookie values, URLs with queries or page text.
     let reason='確認中に問題が起きました';
     try{
@@ -69,11 +69,15 @@ export class BrowserLogin {
       probe=await s.browser.newContext({storageState:state,javaScriptEnabled:false,serviceWorkers:'block'});
       await probe.route('**/*',route=>{
         const req=route.request(),u=new URL(req.url());
+        // Any other page load (a server redirect, or a <noscript> meta refresh that some plugins add
+        // for browsers without JavaScript) gets 204 No Content, so the browser stays on the profile.
+        if(req.resourceType()==='document'&&req.frame()===probePage?.mainFrame()&&u.href!==s.profileURL)return route.fulfill({status:204,body:''});
         return req.method()==='GET'&&u.origin===s.baseURL&&(req.resourceType()==='document'?u.href===s.profileURL:['image','stylesheet','font'].includes(req.resourceType()))?route.continue():route.abort();
       });
-      const page=await probe.newPage();
-      reason='管理画面のプロフィール画面を開けませんでした（別のページへ転送された可能性があります）';
+      const page=await probe.newPage();probePage=page;
+      reason='管理画面のプロフィール画面を開けませんでした';
       const response=await page.goto(s.profileURL,{timeout:15000,waitUntil:'domcontentloaded'});
+      if(response?.request().redirectedFrom()){reason='管理画面のプロフィール画面が別のページへ転送されました';throw new Error('redirected');}
       if(response?.status()!==200){reason=`管理画面のプロフィール画面がHTTP ${response?.status()??'応答なし'}でした`;throw new Error('status');}
       if(page.url()!==s.profileURL){reason='管理画面のプロフィール画面から別のページへ移動しました';throw new Error('moved');}
       // The check runs without JavaScript, so look for the elements rather than their visibility:
