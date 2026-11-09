@@ -124,7 +124,7 @@ export function initRegistration({api,onSaved}){
  form.querySelector('.editor-body').append(advancedSettings);
  form.onsubmit=async e=>{e.preventDefault();if(busy)return;if(!validateInputs()){q('#registration-status').textContent='登録は完了していません。赤い項目を修正してください。';return;}busy=true;controls();q('#registration-error').textContent='';try{
  const roleCredentials=await readRoleCredentials();
- await restoreLogin();if(!loginId)throw Error('管理画面にログインしてください。');if(identity()!==loginTargetKey)throw Error('接続先が変更されています。管理画面に再ログインしてください。');q('#registration-status').textContent='認証確認・公開URL取得・検査ケース生成中…';await api(`/api/logins/${loginId}/verify`,{method:'POST',body:'{}'});
+ await restoreLogin();if(!loginId)throw Error('管理画面にログインしてください。');if(identity()!==loginTargetKey)throw Error('接続先が変更されています。管理画面に再ログインしてください。');q('#registration-status').textContent='認証確認・公開URL取得・検査ケース生成中…';const verified=await api(`/api/logins/${loginId}/verify`,{method:'POST',body:'{}'});if(verified?.adminPath)field('adminPath').value=verified.adminPath;
  const target=registrationTarget(field('baseURL').value,field('loginPath').value,field('adminPath').value);const profile={sitePath:target.sitePath,timezone:field('timezone').value,language:field('language').value,indexable:field('indexable').checked,writes:field('writes').checked,sensitivePaths:field('sensitivePaths').checked,adminPath:target.adminPath,maxPages:Number(field('maxPages').value)};
  profile.interactions=interactions.read();profile.automation=automation.read();
  for(const n of ['contactFormId','performanceMs'])if(field(n).value)profile[n]=Number(field(n).value);if(field('permalink').value)profile.permalink=field('permalink').value;

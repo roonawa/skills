@@ -222,6 +222,10 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
     if(logins.busy&&!loginId)reject(409,'進行中のログインを確認・保存するか、キャンセルしてください');
     if(loginId&&auth.browser)reject(400,'ログインとファイル取込みは同時に指定できません');
     const role=auth.browserLoginRole;
+    // Keep the admin path the login check found in the logged-in browser (e.g. WordPress under /wp/).
+    if(loginId){let detected=null;try{detected=logins.adminPathOf?.(loginId)??null;}catch{}
+      const current=data.profile??(projectId?store.record(projectId).profile:undefined);
+      if(detected&&current&&current.adminPath!==detected)data={...data,profile:{...current,adminPath:detected}};}
     const persist=state=> {
       const savedAuth={...auth};
       delete savedAuth.browserLoginId;delete savedAuth.browserLoginRole;
@@ -378,11 +382,13 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
             const record=store.record(p.id);if(data.version!==record.version)reject(409,'設定が更新されています。再読み込み後に保存してください');
             if(access)logins.assertOwner(data.loginId,actor.name);
             // ログインの確認・保存で失敗した理由は利用者向けの文言なので、汎用の失敗に置き換えずに返す。
+            let adminPath;
             try{
-              await logins.verify(data.loginId);
-              logins.save(data.loginId,{baseURL:record.config.baseURL,projectId:p.id,role:data.role},state=>store.save({id:p.id,version:record.version,config:record.config,profile:record.profile,auth:data.role?{roleCredentials:[{name:data.role,browser:state}]}:{browser:state}}));
+              const verified=await logins.verify(data.loginId);adminPath=verified?.adminPath;
+              const profile=adminPath&&record.profile&&record.profile.adminPath!==adminPath?{...record.profile,adminPath}:record.profile;
+              logins.save(data.loginId,{baseURL:record.config.baseURL,projectId:p.id,role:data.role},state=>store.save({id:p.id,version:record.version,config:record.config,profile,auth:data.role?{roleCredentials:[{name:data.role,browser:state}]}:{browser:state}}));
             }catch(e){userFacing(e);}
-            registerManaged(p.id);return json(200,{ok:true,version:store.record(p.id).version});
+            registerManaged(p.id);return json(200,{ok:true,version:store.record(p.id).version,...(adminPath?{adminPath}:{})});
           }
           if(!externalAuth)reject(400,'認証の保存先がありません');
           const c=projectInfo(p).config;

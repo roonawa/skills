@@ -338,10 +338,12 @@ export function initSettings({api,currentProject,onSaved,shared=false}) {
       $('#login-status').textContent=result.baseURL+' の専用ブラウザーでログイン後、「ログインを確認して保存」を押してください（10分以内）。';
     }catch(e){error(e.message);$('#login-status').textContent='ログインを開始できませんでした';}finally{loginBusy=false;loginControls();}
   };
+  // The login check reads the real admin path (e.g. /wp/wp-admin/) from the logged-in browser.
+  const useAdminPath=value=>{if(typeof value!=='string'||!value)return;$('#admin-path').value=value;const f=profileField('adminPath');if(f)f.value=value;};
   $('#login-verify').onclick=async()=>{
     if(!loginId||loginBusy)return;loginBusy=true;error('');loginControls();
     remote?.stop();
-    try{if(editing){const saved=await api('/api/projects/'+encodeURIComponent(editing)+'/auth',{method:'POST',body:JSON.stringify({loginId,version,...(loginRole?{role:loginRole}:{})})});version=saved.version;loginId=null;loginReady=false;$('#login-status').textContent='ログインを確認し、自動検査用の認証を保存しました。設定を再保存する必要はありません。';}else{await api('/api/logins/'+encodeURIComponent(loginId)+'/verify',{method:'POST',body:'{}'});loginReady=true;$('#login-status').textContent='ログイン確認済み。サイト登録時に認証を保存します。';}}
+    try{if(editing){const saved=await api('/api/projects/'+encodeURIComponent(editing)+'/auth',{method:'POST',body:JSON.stringify({loginId,version,...(loginRole?{role:loginRole}:{})})});version=saved.version;useAdminPath(saved.adminPath);loginId=null;loginReady=false;$('#login-status').textContent='ログインを確認し、自動検査用の認証を保存しました。設定を再保存する必要はありません。';}else{const verified=await api('/api/logins/'+encodeURIComponent(loginId)+'/verify',{method:'POST',body:'{}'});useAdminPath(verified.adminPath);loginReady=true;$('#login-status').textContent='ログイン確認済み。サイト登録時に認証を保存します。';}}
     catch(e){error(e.message);remote?.start(loginId);}finally{loginBusy=false;loginControls();}
   };
   $('#login-cancel').onclick=async()=>{if(loginBusy)return;loginBusy=true;try{await cancelLogin();}catch(e){error(e.message);}finally{loginBusy=false;loginControls();}};
