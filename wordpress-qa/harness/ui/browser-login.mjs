@@ -25,6 +25,15 @@ export function adminPathFrom(urls,baseURL){
   }
   return null;
 }
+// Login pages that use Google reCAPTCHA need its scripts and frames. Allow only the /recaptcha/
+// paths on Google's reCAPTCHA hosts, in addition to the site itself; everything else stays blocked.
+const RECAPTCHA_ORIGINS=['https://www.google.com','https://www.gstatic.com','https://www.recaptcha.net'];
+export function remoteLoginAllows(value,baseURL){
+  let u;try{u=new URL(value);}catch{return false;}
+  if(u.username||u.password)return false;
+  if(u.origin===baseURL)return true;
+  return RECAPTCHA_ORIGINS.includes(u.origin)&&u.pathname.startsWith('/recaptcha/');
+}
 export class BrowserLogin {
   constructor({launch=()=>chromium.launch({headless:false}),ttlMs=10*60*1000,resume}={}){
     this.launch=launch;this.ttlMs=ttlMs;this.session=null;
@@ -54,11 +63,10 @@ export class BrowserLogin {
       browser.on('disconnected',()=>{if(this.session===s&&s.phase!=='verified')void this.cancel(s.id);});
       s.context=await browser.newContext({serviceWorkers:'block',acceptDownloads:false,...(options.remote?{viewport:{width:1100,height:760}}:{})});
       if(options.remote){
-        // A login surface, not an unrestricted remote browser. External SSO is
+        // A login surface, not an unrestricted remote browser (the site and reCAPTCHA only). External SSO is
         // deliberately unsupported until explicit trusted origins are configured.
         await s.context.route('**/*',route=>{
-          const u=new URL(route.request().url());
-          return u.origin===s.baseURL&&!u.username&&!u.password?route.continue():route.abort();
+          return remoteLoginAllows(route.request().url(),s.baseURL)?route.continue():route.abort();
         });
         await s.context.routeWebSocket('**/*',socket=>socket.close());
       }

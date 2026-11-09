@@ -31,3 +31,8 @@ test('only target cookies and storage are captured, parent cookies are scoped to
  const s=scopeState({cookies:[{domain:'.example.test',name:'wordpress_logged_in_x',value:'session'},{domain:'idp.test',name:'sso',value:'secret'}],origins:[{origin:'https://www.example.test',localStorage:[]},{origin:'https://idp.test',localStorage:[]}]},'https://www.example.test');
  assert.equal(s.cookies.length,1);assert.equal(s.cookies[0].domain,'www.example.test');assert.equal(s.origins.length,1);assert.ok(!JSON.stringify(s).includes('secret'));
 });
+test('remote login allows the site and only reCAPTCHA paths on Google hosts',async()=>{
+ const {remoteLoginAllows}=await import('../ui/browser-login.mjs');const site='https://example.test';
+ for(const ok of ['https://example.test/login_a1','https://www.google.com/recaptcha/api.js?render=x','https://www.gstatic.com/recaptcha/releases/abc/recaptcha__ja.js','https://www.google.com/recaptcha/api2/anchor?k=x','https://www.recaptcha.net/recaptcha/api.js'])assert.equal(remoteLoginAllows(ok,site),true,ok);
+ for(const bad of ['https://www.google.com/','https://www.google.com/search?q=x','https://accounts.google.com/recaptcha/x','https://www.gstatic.com/charts/loader.js','https://evil.test/recaptcha/api.js','https://user:pw@example.test/','http://www.google.com/recaptcha/api.js','https://www.google.com/recaptcha/../search','https://www.google.com.evil.test/recaptcha/api.js'])assert.equal(remoteLoginAllows(bad,site),false,bad);
+});
