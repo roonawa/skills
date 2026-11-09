@@ -123,7 +123,9 @@ export function lintItems(items,{groups=[]}={}){
         const m=new RegExp(`(?<![A-Za-z0-9_-])${escapeRe(term)}(?![A-Za-z0-9_]|-\\d)`).exec(plain);
         if(!m)continue;
         explained.add(term);
-        if(!/^（[^）]+）/.test(plain.slice(m.index+term.length)))add(groupId,'term',`用語「${term}」の直後に全角括弧の説明がありません`);
+        // 「用語（説明）」と「説明（用語）」のどちらも説明とみなす。
+        const after=plain.slice(m.index+term.length),bracketed=plain.slice(0,m.index).endsWith('（')&&after.startsWith('）')&&m.index>1;
+        if(!bracketed&&!/^（[^）]+）/.test(after))add(groupId,'term',`用語「${term}」の直後に全角括弧の説明がありません`);
       }
     }
 

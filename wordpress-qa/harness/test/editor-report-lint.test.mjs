@@ -86,3 +86,12 @@ test('sentences with facts not given are dropped, titles and given facts are kep
   assert.deepEqual(removed.map(r=>r.groupId),['g1','g1']);assert.ok(removed.some(r=>r.facts.includes('nginx.conf')));assert.ok(removed.some(r=>r.facts.includes('evil.example')));
   assert.deepEqual(lintItems(out,{groups}).filter(p=>p.problem==='unknown-fact'),[]);
 });
+
+test('a term in full-width brackets after its plain explanation counts as explained',async()=>{
+  const {lintItems}=await import('../lib/editor-report/lint.mjs');
+  const it=(title,summary)=>[{groupId:'g1',title,summary,impact:'',steps:[],location:'',urgency:'normal',note:''}];
+  const groups=[{id:'g1',facts:{}}];
+  assert.deepEqual(lintItems(it('一部ページの検索エンジン非公開設定（noindex）について','設定を確認します。'),{groups}).filter(p=>p.problem==='term'),[]);
+  assert.equal(lintItems(it('noindex の設定について','設定を確認します。'),{groups}).filter(p=>p.problem==='term').length,1);
+  assert.equal(lintItems(it('設定（noindex など）について','設定を確認します。'),{groups}).filter(p=>p.problem==='term').length,1);
+});
