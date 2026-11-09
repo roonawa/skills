@@ -22,6 +22,30 @@ const strings=(v,out=[])=>{if(v==null)return out;if(typeof v==='object')for(cons
 const poolOf=group=>strings([group?.facts,group?.verification?.notes]).join('\n');
 const sentences=t=>t.split(/[。！？\n]/).map(s=>({raw:s.trim(),key:s.replace(/[\s、。・「」（）]/g,'')})).filter(s=>s.key.length>=6);
 
+// 同じ文が2回目以降に出たら機械的に取り除く（最初の1回と題名は残す）。読む順（項目順・FIELDS順）で判定する。
+// Claude に書き直させても同じ文を繰り返すことがあるため、確認の前にここで重複をなくす。
+const sentenceKey=t=>t.replace(/[\s、。・「」（）！？]/g,'');
+export function dropRepeatedSentences(items){
+  const seen=new Set();let removed=0;
+  const note=t=>{for(const part of String(t).split(/[。！？\n]/)){const k=sentenceKey(part);if(k.length>=6)seen.add(k);}};
+  const clean=t=>{
+    if(typeof t!=='string')return t;
+    const kept=t.split(/(?<=[。！？\n])/).filter(part=>{const k=sentenceKey(part);if(k.length<6)return true;if(seen.has(k)){removed++;return false;}seen.add(k);return true;});
+    return kept.join('').trim();
+  };
+  const out=(Array.isArray(items)?items:[]).map(it=>{
+    if(!it||typeof it!=='object')return it;
+    const next={...it};
+    if(typeof it.title==='string')note(it.title);
+    for(const f of FIELDS.slice(1)){
+      if(Array.isArray(it[f]))next[f]=it[f].map(clean).filter(x=>typeof x!=='string'||x);
+      else next[f]=clean(it[f]);
+    }
+    return next;
+  });
+  return {items:out,removed};
+}
+
 // 書き直さない項目で使った文。書き直しで同じ文を書かないよう Claude に渡す。
 export const usedSentences=items=>[...new Set((Array.isArray(items)?items:[]).flatMap(texts).flatMap(sentences).map(s=>s.raw))];
 

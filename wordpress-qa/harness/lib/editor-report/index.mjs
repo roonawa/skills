@@ -1,6 +1,6 @@
 import {groupRows} from './causes.mjs';
 import {recheck,defaultClient,publicGateHeaders} from './recheck.mjs';
-import {lintItems,usedSentences} from './lint.mjs';
+import {lintItems,usedSentences,dropRepeatedSentences} from './lint.mjs';
 import {renderEditorReport,renderBasis} from './render.mjs';
 
 // 編集者向け報告書の作成の流れ：事実の整理 → 再確認 → 文章（Claude）→ 機械的な確認（1回だけ書き直し）→ HTML。
@@ -62,7 +62,7 @@ export async function buildEditorReport({report,readEvidence,config,site,environ
   if(written.length){
     onStage('writing');
     const sent=new Set(written.map(g=>g.id));
-    items=(await ai.writeEditorItems(written)).filter(i=>sent.has(i?.groupId));aiCalls+=calls(written);
+    items=dropRepeatedSentences((await ai.writeEditorItems(written)).filter(i=>sent.has(i?.groupId))).items;aiCalls+=calls(written);
     onStage('checking');
     problems=lintItems(items,{groups:written});
     if(problems.length){
@@ -71,7 +71,7 @@ export async function buildEditorReport({report,readEvidence,config,site,environ
       let again=[];
       if(redo.length){again=(await ai.writeEditorItems(redo,{problems,avoid:usedSentences(items.filter(i=>!bad.has(i?.groupId)))})).filter(i=>bad.has(i?.groupId));aiCalls+=calls(redo);}
       const fixed=new Set(again.map(i=>i.groupId));
-      items=[...items.filter(i=>!fixed.has(i.groupId)),...again];
+      items=dropRepeatedSentences([...items.filter(i=>!fixed.has(i.groupId)),...again]).items;
       onStage('checking');
       const left=lintItems(items,{groups:written});
       if(left.length) throw failure(left,items,written);

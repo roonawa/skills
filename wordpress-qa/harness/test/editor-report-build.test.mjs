@@ -169,11 +169,17 @@ test('the foreign-image item is readable',async()=>{
   assertReadable(r.html,r.warnings);
 });
 
-test('a duplicate sentence is rewritten with the other items sentences to avoid',async()=>{
+test('a sentence repeated across items is removed without a rewrite, and rewrites still get the sentences to avoid',async()=>{
   const shared='この項目はサイトの内容の修正は不要です。';
-  const ai=fakeAi((groups,opts,n)=>groups.map((g,i)=>n===1?item(g.id,i,{note:shared}):item(g.id,i+50,{note:(opts.avoid??[]).includes(shared.replace('。',''))?'':shared})));
+  const ai=fakeAi((groups,opts,n)=>groups.map((g,i)=>n===1?item(g.id,i,{note:shared,...(i===1?{summary:'expect(received) が失敗しました。'}:{})}):item(g.id,i+50)));
   const r=await buildEditorReport({...base,client:komoroClient,ai});
-  assert.equal(ai.calls.length,2);
+  assert.equal(ai.calls.length,2);assert.equal(ai.calls[1].problems[0].problem,'code');
   assert.ok(ai.calls[1].avoid.includes(shared.replace('。','')));
   assert.equal(r.html.split(shared.replace('。','')).length-1,1);
+});
+
+test('a summary that repeats its title is cleaned without a rewrite',async()=>{
+  const ai=fakeAi(groups=>groups.map((g,i)=>item(g.id,i,{summary:`${i+1}番目の対応。${i+1}番目の項目の状況をまとめました。`,note:'結果は再検査で確認できます。'})));
+  const r=await buildEditorReport({...base,client:komoroClient,ai});
+  assert.equal(ai.calls.length,1);assert.equal(r.html.split('結果は再検査で確認できます').length-1,1);
 });

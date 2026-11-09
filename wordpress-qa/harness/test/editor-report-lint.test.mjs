@@ -61,3 +61,17 @@ test('internal ids are never allowed even if facts carry them, except pool domai
   assert.equal(lint('page.home を見てください。').length,1);
   assert.equal(lint('admin.other.co.jp に接続します。').length,1);
 });
+
+test('repeated sentences are dropped mechanically, keeping the first and every title',async()=>{
+  const {dropRepeatedSentences,lintItems}=await import('../lib/editor-report/lint.mjs');
+  const title='ソフトウェアのバージョン情報公開に関する検査が完了しませんでした';
+  const items=[
+    {groupId:'g1',title,summary:title+'。公開ページの情報を確認できませんでした。',impact:'放置すると困ることがあります。',steps:['管理画面を開きます。','管理画面を開きます。'],location:'',urgency:'normal',note:'この項目は再検査で確認できます。'},
+    {groupId:'g2',title:'別の項目の題名です',summary:'別の項目の概要を書きました。',impact:'放置すると困ることがあります。',steps:['管理画面を開きます。'],location:'',urgency:'normal',note:'この項目は再検査で確認できます。'}];
+  const {items:out,removed}=dropRepeatedSentences(items);
+  assert.equal(out[0].title,title);assert.equal(out[0].summary,'公開ページの情報を確認できませんでした。');
+  assert.deepEqual(out[0].steps,['管理画面を開きます。']);assert.equal(out[1].impact,'');assert.deepEqual(out[1].steps,[]);assert.equal(out[1].note,'');
+  assert.equal(removed,5);
+  assert.deepEqual(lintItems(out,{groups:[{id:'g1',facts:{}},{id:'g2',facts:{}}]}).filter(p=>p.problem==='duplicate'),[]);
+  assert.equal(items[0].summary.startsWith(title),true);
+});
