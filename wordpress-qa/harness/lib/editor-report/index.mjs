@@ -1,6 +1,6 @@
 import {groupRows} from './causes.mjs';
 import {recheck,defaultClient,publicGateHeaders} from './recheck.mjs';
-import {lintItems,usedSentences,dropRepeatedSentences,dropUnknownFactSentences} from './lint.mjs';
+import {lintItems,usedSentences,dropRepeatedSentences,dropUnknownFactSentences,explainTerms} from './lint.mjs';
 import {renderEditorReport,renderBasis} from './render.mjs';
 
 // 編集者向け報告書の作成の流れ：事実の整理 → 再確認 → 文章（Claude）→ 機械的な確認（1回だけ書き直し）→ HTML。
@@ -61,7 +61,7 @@ export async function buildEditorReport({report,readEvidence,config,site,environ
   const written=groups.filter(g=>WRITTEN.includes(g.category));
   let items=[],aiCalls=0,problems=[];const removed=[];
   // 確認の前に、渡していない事実を含む文と、繰り返しの文を取り除く。取り除いた語は根拠ページに載せる。
-  const tidy=list=>{const facts=dropUnknownFactSentences(list,written);for(const r of facts.removed)removed.push({groupId:r.groupId,problem:'removed-unknown-fact',detail:'渡していない事実を含む文を取り除きました：'+r.facts.join('、')});return dropRepeatedSentences(facts.items).items;};
+  const tidy=list=>{const facts=dropUnknownFactSentences(list,written);for(const r of facts.removed)removed.push({groupId:r.groupId,problem:'removed-unknown-fact',detail:'渡していない事実を含む文を取り除きました：'+r.facts.join('、')});const terms=explainTerms(dropRepeatedSentences(facts.items).items);for(const a of terms.added)removed.push({groupId:a.groupId,problem:'explained-term',detail:`用語「${a.term}」に説明を付けました`});return terms.items;};
   if(written.length){
     onStage('writing');
     const sent=new Set(written.map(g=>g.id));

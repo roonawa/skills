@@ -66,6 +66,36 @@ export function dropUnknownFactSentences(items,groups=[]){
   return {items:out,removed};
 }
 
+// 用語の説明が抜けていたら、報告書で最初に出る箇所の直後に決まった説明を付ける（lint と同じ判定）。
+const GLOSSARY={HSTS:'常に暗号化した通信で接続させる設定',CSP:'読み込んでよい外部ファイルを限定する設定',CVE:'公開されている弱点の識別番号',REST:'外部からサイトの情報を読み書きする仕組み','XML-RPC':'外部から投稿などを操作する古い仕組み',CDATA:'文字をそのまま扱うための書き方',CSRF:'利用者になりすまして操作させる攻撃',XSS:'ページに不正なスクリプトを埋め込む攻撃',egress:'外部への接続',noindex:'検索結果に出さない設定',canonical:'正式なページのアドレスを示す設定',JavaScript:'ページを動かすためのプログラム',HTTP:'ウェブの通信の決まり'};
+const termAt=(term,text)=>{
+  const plain=text.replace(URL_RE,u=>' '.repeat(u.length));
+  const m=new RegExp(`(?<![A-Za-z0-9_-])${escapeRe(term)}(?![A-Za-z0-9_]|-\\d)`).exec(plain);
+  if(!m)return null;
+  const after=plain.slice(m.index+term.length),explained=/^（[^）]+）/.test(after)||(plain.slice(0,m.index).endsWith('（')&&after.startsWith('）')&&m.index>1);
+  return {index:m.index,explained};
+};
+export function explainTerms(items){
+  const done=new Set(),added=[];
+  const out=(Array.isArray(items)?items:[]).map(it=>{
+    if(!it||typeof it!=='object')return it;
+    const next={...it};
+    const fix=t=>{
+      if(typeof t!=='string')return t;
+      for(const term of TERMS){
+        if(done.has(term))continue;
+        const hit=termAt(term,t);if(!hit)continue;
+        done.add(term);
+        if(!hit.explained&&GLOSSARY[term]){const at=hit.index+term.length;t=t.slice(0,at)+'（'+GLOSSARY[term]+'）'+t.slice(at);added.push({groupId:String(it.groupId),term});}
+      }
+      return t;
+    };
+    for(const f of FIELDS){if(Array.isArray(it[f]))next[f]=it[f].map(fix);else next[f]=fix(it[f]);}
+    return next;
+  });
+  return {items:out,added};
+}
+
 // 書き直さない項目で使った文。書き直しで同じ文を書かないよう Claude に渡す。
 export const usedSentences=items=>[...new Set((Array.isArray(items)?items:[]).flatMap(texts).flatMap(sentences).map(s=>s.raw))];
 

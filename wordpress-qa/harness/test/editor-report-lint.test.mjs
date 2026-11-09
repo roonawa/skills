@@ -95,3 +95,16 @@ test('a term in full-width brackets after its plain explanation counts as explai
   assert.equal(lintItems(it('noindex の設定について','設定を確認します。'),{groups}).filter(p=>p.problem==='term').length,1);
   assert.equal(lintItems(it('設定（noindex など）について','設定を確認します。'),{groups}).filter(p=>p.problem==='term').length,1);
 });
+
+test('unexplained terms get a plain explanation at their first appearance only',async()=>{
+  const {explainTerms,lintItems}=await import('../lib/editor-report/lint.mjs');
+  const items=[
+    {groupId:'g1',title:'セキュリティ関連のHTTP応答ヘッダーが設定されていない可能性があります',summary:'HTTP の応答を確認しました。HSTS（常に暗号化で接続させる設定）は設定済みです。',impact:'',steps:['https://example.test/HTTP を開きます。'],location:'',urgency:'normal',note:''},
+    {groupId:'g2',title:'一部ページの検索結果の設定',summary:'noindex が付いています。HSTS は確認済みです。',impact:'',steps:[],location:'',urgency:'normal',note:''}];
+  const {items:out,added}=explainTerms(items);
+  assert.match(out[0].title,/^セキュリティ関連のHTTP（[^）]+）応答ヘッダー/);
+  assert.equal(out[0].summary,items[0].summary);assert.deepEqual(out[0].steps,items[0].steps);
+  assert.match(out[1].summary,/^noindex（[^）]+） が付いています。HSTS は確認済みです。$/);
+  assert.deepEqual(added.map(a=>a.term).sort(),['HTTP','noindex']);
+  assert.deepEqual(lintItems(out,{groups:[{id:'g1',facts:{}},{id:'g2',facts:{}}]}).filter(p=>p.problem==='term'),[]);
+});
