@@ -59,8 +59,11 @@ export class BrowserLogin {
   async verify(id){
     const s=this.get(id);if(s.phase==='verified')return {id,phase:'verified'};
     if(s.phase!=='waiting')throw new Error('ログイン確認中です');s.phase='checking';let probe;
+    // Japanese reason shown to the user. Never include cookie values, URLs with queries or page text.
+    let reason='確認中に問題が起きました';
     try{
       const state=scopeState(await s.context.storageState(),s.baseURL);
+      reason='このサイトのログイン用のクッキーが見つかりません';
       if(!state.cookies.some(isLoggedInCookie))throw new Error('not signed in');
       // Verify that the captured session, rather than the displayed login tab, works.
       probe=await s.browser.newContext({storageState:state,javaScriptEnabled:false,serviceWorkers:'block'});
@@ -68,12 +71,19 @@ export class BrowserLogin {
         const req=route.request(),u=new URL(req.url());
         return req.method()==='GET'&&u.origin===s.baseURL&&(req.resourceType()==='document'?u.href===s.profileURL:['image','stylesheet','font'].includes(req.resourceType()))?route.continue():route.abort();
       });
-      const page=await probe.newPage();const response=await page.goto(s.profileURL,{timeout:15000,waitUntil:'domcontentloaded'});
-      if(response?.status()!==200||page.url()!==s.profileURL||!await page.locator('#wpadminbar').isVisible()||!await page.locator('#your-profile').isVisible())throw new Error('not authenticated');
+      const page=await probe.newPage();
+      reason='管理画面のプロフィール画面を開けませんでした（別のページへ転送された可能性があります）';
+      const response=await page.goto(s.profileURL,{timeout:15000,waitUntil:'domcontentloaded'});
+      if(response?.status()!==200){reason=`管理画面のプロフィール画面がHTTP ${response?.status()??'応答なし'}でした`;throw new Error('status');}
+      if(page.url()!==s.profileURL){reason='管理画面のプロフィール画面から別のページへ移動しました';throw new Error('moved');}
+      // The check runs without JavaScript, so look for the elements rather than their visibility:
+      // some plugins hide the profile form until their scripts run.
+      if(!await page.locator('#wpadminbar').count()||!await page.locator('form#your-profile').count()){reason='管理画面のプロフィール画面として表示されませんでした';throw new Error('not authenticated');}
       if(this.session!==s)throw new Error('cancelled');
+      reason='WordPressのログインの有効期限が切れています';
       const verifiedState=scopeState(await probe.storageState(),s.baseURL);if(wordpressSessionStatus(verifiedState,new URL(s.profileURL).pathname).expired)throw Error('expired');s.state=verifiedState;s.phase='verified';await probe.close();probe=null;await s.browser.close();s.browser=null;
       return {id,phase:'verified'};
-    }catch{if(this.session===s)s.phase='waiting';throw new Error('ログインを確認できません。専用ブラウザーでログイン・追加認証を完了してから、もう一度確認してください');}
+    }catch{if(this.session===s)s.phase='waiting';throw new Error(`ログインを確認できません。専用ブラウザーでログイン・追加認証を完了してから、もう一度確認してください（理由：${reason}）`);}
     finally{await probe?.close().catch(()=>{});}
   }
   save(id,{baseURL,projectId,role},persist){
