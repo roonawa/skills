@@ -46,6 +46,26 @@ export function dropRepeatedSentences(items){
   return {items:out,removed};
 }
 
+// 渡していない事実（URL・CVE・ドメイン名・版番号）を含む文を機械的に取り除く（題名は残す）。
+// 取り除いた文の語は、根拠ページに載せて確認できるようにする。
+export function dropUnknownFactSentences(items,groups=[]){
+  const byId=new Map(groups.map(g=>[g.id,g])),removed=[];
+  const out=(Array.isArray(items)?items:[]).map(it=>{
+    if(!it||typeof it!=='object')return it;
+    const pool=poolOf(byId.get(it.groupId)),next={...it};
+    const clean=t=>{
+      if(typeof t!=='string')return t;
+      return t.split(/(?<=[。！？\n])/).filter(part=>{const facts=unknownFacts(part,pool);if(!facts.length)return true;removed.push({groupId:String(it.groupId),facts});return false;}).join('').trim();
+    };
+    for(const f of FIELDS.slice(1)){
+      if(Array.isArray(it[f]))next[f]=it[f].map(clean).filter(x=>typeof x!=='string'||x);
+      else next[f]=clean(it[f]);
+    }
+    return next;
+  });
+  return {items:out,removed};
+}
+
 // 書き直さない項目で使った文。書き直しで同じ文を書かないよう Claude に渡す。
 export const usedSentences=items=>[...new Set((Array.isArray(items)?items:[]).flatMap(texts).flatMap(sentences).map(s=>s.raw))];
 

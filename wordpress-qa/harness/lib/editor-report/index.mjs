@@ -1,6 +1,6 @@
 import {groupRows} from './causes.mjs';
 import {recheck,defaultClient,publicGateHeaders} from './recheck.mjs';
-import {lintItems,usedSentences,dropRepeatedSentences} from './lint.mjs';
+import {lintItems,usedSentences,dropRepeatedSentences,dropUnknownFactSentences} from './lint.mjs';
 import {renderEditorReport,renderBasis} from './render.mjs';
 
 // 編集者向け報告書の作成の流れ：事実の整理 → 再確認 → 文章（Claude）→ 機械的な確認（1回だけ書き直し）→ HTML。
@@ -40,7 +40,8 @@ function failedImagesOf(report,config,readEvidence){
 
 function failure(problems,items,groups){
   const title=id=>items.find(i=>i.groupId===id)?.title??RULE_NAMES[groups.find(g=>g.id===id)?.rule]??'その他の項目';
-  return Error(`文章の確認に通りませんでした：${problems.map(p=>`${PROBLEM_NAMES[p.problem]??p.problem}（${title(p.groupId)}）`).join('、')}`);
+  const word=p=>p.problem==='unknown-fact'?'：'+String(p.detail).split('：').slice(1).join('：'):'';
+  return Error(`文章の確認に通りませんでした：${problems.map(p=>`${PROBLEM_NAMES[p.problem]??p.problem}（${title(p.groupId)}${word(p)}）`).join('、')}`);
 }
 
 export async function buildEditorReport({report,readEvidence,config,site,environment,sitePath='/',allowedOrigins=[],publicPassword,client,ai,onStage=()=>{},now=()=>new Date().toISOString()}){
@@ -58,11 +59,13 @@ export async function buildEditorReport({report,readEvidence,config,site,environ
   const warnings=[...new Set(groups.filter(g=>g.verification?.result==='unverified').map(g=>reasonOf(g.verification.notes??[])))];
 
   const written=groups.filter(g=>WRITTEN.includes(g.category));
-  let items=[],aiCalls=0,problems=[];
+  let items=[],aiCalls=0,problems=[];const removed=[];
+  // 確認の前に、渡していない事実を含む文と、繰り返しの文を取り除く。取り除いた語は根拠ページに載せる。
+  const tidy=list=>{const facts=dropUnknownFactSentences(list,written);for(const r of facts.removed)removed.push({groupId:r.groupId,problem:'removed-unknown-fact',detail:'渡していない事実を含む文を取り除きました：'+r.facts.join('、')});return dropRepeatedSentences(facts.items).items;};
   if(written.length){
     onStage('writing');
     const sent=new Set(written.map(g=>g.id));
-    items=dropRepeatedSentences((await ai.writeEditorItems(written)).filter(i=>sent.has(i?.groupId))).items;aiCalls+=calls(written);
+    items=tidy((await ai.writeEditorItems(written)).filter(i=>sent.has(i?.groupId)));aiCalls+=calls(written);
     onStage('checking');
     problems=lintItems(items,{groups:written});
     if(problems.length){
@@ -71,7 +74,7 @@ export async function buildEditorReport({report,readEvidence,config,site,environ
       let again=[];
       if(redo.length){again=(await ai.writeEditorItems(redo,{problems,avoid:usedSentences(items.filter(i=>!bad.has(i?.groupId)))})).filter(i=>bad.has(i?.groupId));aiCalls+=calls(redo);}
       const fixed=new Set(again.map(i=>i.groupId));
-      items=dropRepeatedSentences([...items.filter(i=>!fixed.has(i.groupId)),...again]).items;
+      items=tidy([...items.filter(i=>!fixed.has(i.groupId)),...again]);
       onStage('checking');
       const left=lintItems(items,{groups:written});
       if(left.length) throw failure(left,items,written);
@@ -80,5 +83,5 @@ export async function buildEditorReport({report,readEvidence,config,site,environ
 
   onStage('rendering');
   const input={site:shownSite,runId:report.runId,startedAt:report.startedAt,checkedAt,counts:facts.counts,groups,items};
-  return {html:renderEditorReport(input),basisHtml:renderBasis({...input,recheckLog:checked.log,lintResults:problems,aiCalls}),counts:facts.counts,aiCalls,warnings};
+  return {html:renderEditorReport(input),basisHtml:renderBasis({...input,recheckLog:checked.log,lintResults:[...removed,...problems],aiCalls}),counts:facts.counts,aiCalls,warnings};
 }

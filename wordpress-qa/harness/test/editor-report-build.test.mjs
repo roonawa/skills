@@ -183,3 +183,14 @@ test('a summary that repeats its title is cleaned without a rewrite',async()=>{
   const r=await buildEditorReport({...base,client:komoroClient,ai});
   assert.equal(ai.calls.length,1);assert.equal(r.html.split('結果は再検査で確認できます').length-1,1);
 });
+
+test('a sentence with a fact not given is removed without a rewrite and listed on the basis page',async()=>{
+  const ai=fakeAi(groups=>groups.map((g,i)=>item(g.id,i,i===0?{note:'nginx.conf に設定を追加します。'}:{})));
+  const r=await buildEditorReport({...base,client:komoroClient,ai});
+  assert.equal(ai.calls.length,1);assert.doesNotMatch(r.html,/nginx\.conf/);assert.match(r.basisHtml,/nginx\.conf/);
+});
+
+test('a failure names the fact that was not given',async()=>{
+  const ai=fakeAi(groups=>groups.map((g,i)=>item(g.id,i,{title:`${i+1}番目の対応 evil.example`})));
+  await assert.rejects(buildEditorReport({...base,client:komoroClient,ai}),e=>/渡していない事実（[^）]*：evil\.example）/.test(e.message));
+});

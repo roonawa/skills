@@ -75,3 +75,14 @@ test('repeated sentences are dropped mechanically, keeping the first and every t
   assert.deepEqual(lintItems(out,{groups:[{id:'g1',facts:{}},{id:'g2',facts:{}}]}).filter(p=>p.problem==='duplicate'),[]);
   assert.equal(items[0].summary.startsWith(title),true);
 });
+
+test('sentences with facts not given are dropped, titles and given facts are kept',async()=>{
+  const {dropUnknownFactSentences,lintItems}=await import('../lib/editor-report/lint.mjs');
+  const groups=[{id:'g1',facts:{},verification:{notes:['https://example.test/news/ を確認しました']}}];
+  const items=[{groupId:'g1',title:'セキュリティ用の設定を見直す',summary:'応答に必要な設定がありません。nginx.conf か Apache 2.4 の設定で追加します。',impact:'https://example.test/news/ で確認できます。',steps:['サーバー会社に設定を依頼します。','evil.example に問い合わせます。'],location:'',urgency:'normal',note:''}];
+  const {items:out,removed}=dropUnknownFactSentences(items,groups);
+  assert.equal(out[0].title,items[0].title);assert.equal(out[0].summary,'応答に必要な設定がありません。');
+  assert.equal(out[0].impact,items[0].impact);assert.deepEqual(out[0].steps,['サーバー会社に設定を依頼します。']);
+  assert.deepEqual(removed.map(r=>r.groupId),['g1','g1']);assert.ok(removed.some(r=>r.facts.includes('nginx.conf')));assert.ok(removed.some(r=>r.facts.includes('evil.example')));
+  assert.deepEqual(lintItems(out,{groups}).filter(p=>p.problem==='unknown-fact'),[]);
+});
