@@ -380,21 +380,21 @@ Linux共有版はブラウザーから利用する。接続URL、ネットワー
 
 | ファイル | 確認対象 | SHA-256 |
 |---|---|---|
-| ui/server.mjs | UI/API、実行前補完、認証境界、ファイル配信 | 35fe1646da449e642e59301dd5d7121eeea008e0f596379c47a9ad569af3883a |
+| ui/server.mjs | UI/API、実行前補完、認証境界、ファイル配信 | 69c0cdf50581fc57fded1d3b7c6dcf2888b75c1e4d4d21425571759a67dfc8b5 |
 | ui/registration.mjs | 登録条件検証・WordPress情報取得 | ef546d181d802d7d4053ef307f2bc2e5b18632258236368b520320354da3ab67 |
 | ui/automatic-preparation.mjs | 共通補完・既存検査への紐付け・許可維持 | cb02a8507ccea1a282060861ca2b28738c082cece5b0916df64d3243dcb779e5 |
 | ui/automation-discovery.mjs | 観測情報の取得 | f783551c5b9d5212c50a41f2c01d6f6df981c38930f9603d45ee3bc1cf3ff73c |
 | ui/automation-plan.mjs | 実行可能な検査条件の生成 | b278e790b1695db820a85ea3f1f5e1d286868849b06232c505cad5af9aaff6fa |
 | ui/evidence-preparation.mjs | AIへ渡す構造化根拠・参照検証 | b8c523d348e59fc13a33d9ba21f0a0d24c8ea8e686a9f36007fd8d566f71e728 |
-| ui/todo-triage.mjs | 設定が必要の振り分け・次にやることの算出 | 2c803b48247f7756a8d1d7955a4cbc947ee633bd829c04992f46b4383a43f8b5 |
-| ui/ai-assistant.mjs | Claude呼出し・構造化出力・説明支援 | 5949dcbaa905b3427cd724a2f6ab68552382743f53c54182830542a3e5a90e1f |
-| ui/system-settings.mjs | APIキー・モデル・回数・接続先管理 | 1f61c178280ce21c20abf1e908ba5ae39dcb5784612ed9cc5849a6ea0cd4a999 |
+| ui/todo-triage.mjs | 設定が必要の振り分け・次にやることの算出 | fec5632d228c3a465a2409bc70e940a2059a3af6df82811f8d13c2d557134e63 |
+| ui/ai-assistant.mjs | Claude呼出し・構造化出力・説明支援 | 362d8f16ca3fa2d9ba29b1cfd52ab6803b243c7137efe62dbb3ea600926e5134 |
+| ui/system-settings.mjs | APIキー・モデル・回数・接続先管理 | c65fc01714b0b80e77509f73ace511ad6fa55d65bbb1cf757a532a64d7b33dcd |
 | ui/project-store.mjs | 登録サイト・認証の保存 | 9fd41a6efcfb007d33667a63784eda34478bbcbc4bfb29164858314e45772fe0 |
 | ui/secret-codec.mjs | Linux用の暗号化 | 10740ec2e822ec31939d87016a57ec6cad5ee7c72338538b9197835a6ede3622 |
 | ui/shared-access.mjs | 共有版利用者認証・負荷制限 | 3fd4e01cba6765b52442dd59f01f3dff2ba6cb67946cd9769a644c5bb8c1c033 |
 | ui/remote-login.mjs | 共有版の画面内ログイン | 9fcc849a8251576cb53b0c3bb359f4e8cd7ef5b696ad8db1bc1e0fdbe1b2fa19 |
-| ui/public/app.js | 分類・詳細・ステータス・表示操作 | 1eccbd7f5c3d12379e770b794f2ef31a510b596b9dc1a1391b71d2f6a2b178dd |
-| ui/public/case-generator.js | 観点一覧・重要表示の定義 | ae3d3decb8d0530df3b98d2450beed62585411ae73d9df35507f3a3879009a79 |
+| ui/public/app.js | 分類・詳細・ステータス・表示操作 | 170791627e183ceeb7937c9c2ff115d8837cbed2b34c18f85067196f66f24060 |
+| ui/public/case-generator.js | 観点一覧・重要表示の定義 | 43e5b83a15bff121b2235c837856594c0e7de576ce5ca2189a9475ce7bb90b8c |
 | ui/public/interaction-profile.js | 固有操作の条件・許可・入力項目 | 20bd170f960b37e8828f497d69693e987e5e960ea63a04b316ea70b290753fc2 |
 | lib/checks/index.mjs | 検査ハンドラーの登録・設定不足判定 | a3a8fa309552d778f1848871715981e41a8bbddd593ba14e4268f7979004ed6b |
 | lib/checks/security-baseline.mjs | セキュリティ基礎診断の検査（露出・転送・混在・ヘッダー・情報露出） | 653c00ff2c6b2334f00810ddbed009d47218b452ec85eb6235cd30dbeedf0fa5 |
@@ -402,14 +402,14 @@ Linux共有版はブラウザーから利用する。接続URL、ネットワー
 | lib/tls-certificate.mjs | SSL証明書の期限・信頼性・ホスト名の確認 | d4cd3204e78ee5de112601bd1dab3170e111c27c4e94415f86dc496a5dfe2afb |
 | lib/results.mjs | 合否・必須条件の判定 | fb9dcaf31ea1b4bb2c8e03cba4e9424dcdf5193f08bbd6231c3ae48b01a8b510 |
 | lib/auto-not-applicable.mjs | 自動の対象外（注文・会員・本番の投稿と送信）の判定と理由 | ef8064a770d1f63519ba3defaa592c82c6e57c919c50c4b5f1c5dab2980ecaf6 |
-| lib/handoff-issues.mjs | 引き継ぎ対象課題の抽出・担当区分・照合キー | 6b4408ccd4ff2cbcb3c1596adda3ccd7c1704ce535b1f6984163841fd706f8c1 |
-| lib/handoff-text.mjs | C-HUB貼り付け文面・再診断比較の生成 | e7138b541c7fcf05c2f51c636e285061e1a420f2063439773bf9ae32fe793f98 |
+| lib/handoff-issues.mjs | 引き継ぎ対象課題の抽出・担当区分・照合キー | 21aa4dbf89828d51c5b898e2b3f8668b50d7b4be6cbbeda7d5fcfafdd441dc7c |
+| lib/handoff-text.mjs | C-HUB貼り付け文面・再診断比較の生成 | 67f0fb583d8d0b8ce0510ca5a21fcfc77bfef49adec84b71a7187d3f0fc7c36d |
 | lib/handoff-store.mjs | 引き継ぎ記録の保存（サイト別・直近20件） | f3ebe05117d62ce577b5361899fabf9dcde675c8199d2969c5bab80f7d1aaf33 |
 | lib/egress-policy.mjs | 許可origin・IPの検証 | 153e8fbe1d93af0dff087c40767d2bc87adaea17424d1c2aa116ba23de70af83 |
 | lib/network-policy.mjs | 別originへの資格情報分離 | c04ae4442f163a7cff6a5b2f3663b6a6ee84890777c40a990cf9ffd54c6aecac |
 | lib/recovery.mjs | テストデータ回収 | 70bc0005865f66b11c39829d07e2949d9174be710079cd16509b27093f8507bf |
-| deploy/compose.yaml | Linuxサービス・ネットワーク・永続領域 | c8bf5adb7f7ddae3b64b704ff49ba8ae1e6b238dba49bb09573d60e654455e61 |
-| Dockerfile | 配布イメージ | 38418c389f79f84b93943da5f943efae9f595049b0d1f7a00bdbbc4b134c7511 |
+| deploy/compose.yaml | Linuxサービス・ネットワーク・永続領域 | 941d7364572072df1e2cf9f67de70f22c02cea7fd8a7e8ae2d579ff308497d2d |
+| Dockerfile | 配布イメージ | 8a8729dc77a20666755998f2b1b51efeb429021488cde4a32bb65b81576e8e01 |
 | package.json | 依存関係と実行コマンド | d3304fe87dee6b6dc1beaaa39fa3f36ba69c0dd083126f66f8123dda1603738f |
 
 SHA-256はコミットされた内容（改行はLF）を対象に計算した値である（`git show HEAD:<パス>` の出力のハッシュ）。
