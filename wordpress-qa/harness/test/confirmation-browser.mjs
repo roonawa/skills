@@ -15,7 +15,7 @@ rows.find(r=>r.manualReview).details={adminFollowup:{registration:'verified',can
 writeReport(run,{runId:'seed',name:'Confirmation UI',baseURL:demo.url,runStatus:'finished',startedAt:new Date().toISOString(),finishedAt:new Date().toISOString(),configHash:ctx.configHash,rows,errors:[]});
 const app=await startUI({configPaths:[file],port:0});const browser=await chromium.launch();const page=await browser.newPage({viewport:{width:1440,height:1000}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
 try{
- await page.goto(app.url);await page.locator('#auto-download-results').uncheck();
+ await page.goto(app.url);
  await page.locator('[data-group="manual.checkout-flow"]').click();await page.locator('[data-row="manual.checkout-flow"]').click();
  await page.getByRole('button',{name:'確認を進める',exact:true}).click();
  await expect(page.locator('[data-step="registration"] select')).toHaveValue('pass');
@@ -29,11 +29,11 @@ try{
  await page.getByRole('button',{name:'確認を完了',exact:true}).click();await expect(page.locator('#toast')).toHaveText('確認結果を保存しました');
  assert.equal(JSON.parse(fs.readFileSync(path.join(run,'results.json'))).rows.find(r=>r.manualReview).status,'pass');
  assert.equal(JSON.parse(fs.readFileSync(path.join(run,'automated-results.json'))).rows.find(r=>r.manualReview).status,'review');
- await page.locator('[data-group="snapshot"]').click();await page.locator('[data-row="snapshot.home"]').click();await page.locator('#execute-case').click();
+ await page.locator('[data-group="javascript"]').click();await page.locator('#test-rows [data-row="javascript.home"]').click();await page.locator('#execute-case').click();
  await expect(page.locator('#toast')).toHaveText('実行が完了しました',{timeout:60000});
  const runs=fs.readdirSync(path.join(dir,'runs'),{withFileTypes:true}).filter(x=>x.isDirectory()&&x.name!=='seed').map(x=>x.name);assert.equal(runs.length,1);
  const result=JSON.parse(fs.readFileSync(path.join(dir,'runs',runs[0],'results.json')));
- assert.deepEqual(result.rows.filter(r=>r.selected).map(r=>r.id),['snapshot.home']);
- assert.equal(result.rows.find(r=>r.id==='snapshot.home').status,'review');
- assert.deepEqual(errors,[]);await page.screenshot({path:path.join(dir,'ui.png')});console.log(JSON.stringify({ok:true,dir,selected:['snapshot.home']}));
+ assert.deepEqual(result.rows.filter(r=>r.selected).map(r=>r.id),['javascript.home']);
+ assert.equal(result.rows.find(r=>r.id==='javascript.home').status,'pass');
+ assert.deepEqual(errors,[]);await page.screenshot({path:path.join(dir,'ui.png')});console.log(JSON.stringify({ok:true,dir,selected:['javascript.home']}));
 }finally{await browser.close();await app.close();await demo.close();}

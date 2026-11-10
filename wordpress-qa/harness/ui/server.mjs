@@ -27,7 +27,6 @@ import {generateCases,linkRegistrationCoverage,addSecurityChecks,syncPerformance
 import { loadConfig,catalog } from '../lib/config.mjs';
 import {writeReport} from '../lib/results.mjs';
 import {enrichFailures} from '../lib/failure-explanations.mjs';
-import {resultDownload} from '../lib/result-download.mjs';
 import {summarizeRecovery} from '../lib/recovery.mjs';
 import {preflight} from '../lib/preflight.mjs';
 import {guidance} from '../lib/guidance.mjs';
@@ -35,10 +34,8 @@ import {confirmationPlan,validateConfirmation,selectSingleTest,selectTests} from
 import {triage} from './todo-triage.mjs';
 import {storedNotApplicable} from '../lib/auto-not-applicable.mjs';
 import {operationRequest} from '../lib/operations.mjs';
-import {buildIssueReport} from '../lib/issue-report.mjs';
 import {buildEditorReport} from '../lib/editor-report/index.mjs';
 import {groupRows} from '../lib/editor-report/causes.mjs';
-import {autoReport} from '../lib/auto-report.mjs';
 import {projectIsAlive,runIsAlive} from '../lib/run-lock.mjs';
 import {redactor} from '../lib/evidence.mjs';
 import {collectIssues,unconfirmedCount} from '../lib/handoff-issues.mjs';
@@ -180,7 +177,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
     });
     const done=new Promise(resolve=>{
       let ended=false;
-      const finish=async(code,error)=>{if(ended)return;ended=true;clearInterval(capacityTimer);if(error)append(error.message);if(kind==='run'&&job.runId)try{const directory=runPath(p,job.runId),generated=autoReport(directory),report=readRun(p,job.runId);report.autoReport=generated;if(report.rows[0])report.rows[0].evidence=[...new Set([...(report.rows[0].evidence??[]),'issue-report.html'])];writeReport(directory,report);append('\n報告書を自動生成しました: issue-report.html\n');}catch(e){append('\n報告書の自動生成に失敗: '+e.message+'\n');}job.exitCode=code;job.state='finished';if(active===job)active=null;resolve(jobState(job));};
+      const finish=async(code,error)=>{if(ended)return;ended=true;clearInterval(capacityTimer);if(error)append(error.message);job.exitCode=code;job.state='finished';if(active===job)active=null;resolve(jobState(job));};
       child.once('error',e=>finish(2,e));child.once('close',code=>finish(code??2));
     });
     jobs.add(done);done.finally(()=>jobs.delete(done));return {job,done};
@@ -573,46 +570,6 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
             const {scopeGap,...lists}=comparison;
             return json(200,{handoffId,baseline:{handoffId:record.handoffId,sourceRunId:record.sourceRunId,createdAt:record.createdAt},comparison:Object.fromEntries(Object.entries(lists).map(([k,v])=>[k,v.map(brief)])),scopeGap,body:text.body,truncated:text.truncated});
           }
-          if(segments[5]==='issue-report'&&segments.length===6&&req.method==='POST'){
-            if(report.runStatus!=='finished'||!report.finishedAt||runIsAlive(directory))reject(409,'完了した実行を選択してください');
-            const data=await body(req);
-            if(typeof data.includeHistory!=='boolean'||typeof (data.notes??'')!=='string'||(data.notes??'').length>10000)reject(400,'報告書の指定が不正です');
-            const previous=data.includeHistory?history(p,10000).filter(r=>r.runId!==id).map(r=>readRun(p,r.runId)):[];
-            const outputName='issue-report.html';
-            const output=path.join(directory,outputName);
-            if(fs.existsSync(output)&&fs.lstatSync(output).isSymbolicLink())reject(403,'報告書の保存先を確認してください');
-            let bytesRead=0;
-            const cached=new Map(),limitedRead=(file,limit)=>{
-              if(cached.has(file))return cached.get(file);
-              const stat=fs.statSync(file);
-              if(!stat.isFile()||stat.size>limit||bytesRead+stat.size>64*1024*1024)throw new Error('Report evidence too large');
-              const buffer=fs.readFileSync(file);bytesRead+=buffer.length;
-              if(buffer.length>limit||bytesRead>64*1024*1024)throw new Error('Report evidence too large');
-              cached.set(file,buffer);return buffer;
-            };
-            const generated=buildIssueReport({current:report,previous,includeHistory:data.includeHistory,notes:data.notes??'',readImage:(runId,file)=>{
-              const source=runId===id?report:previous.find(r=>r.runId===runId);
-              if(!file.endsWith('.png')||!source?.rows.some(r=>(r.evidence??[]).includes(file)))throw new Error('Unregistered image');
-              const image=boundedPath(runPath(p,runId),file);
-              const buffer=limitedRead(image,12*1024*1024);
-              if(buffer.subarray(0,8).toString('hex')!=='89504e470d0a1a0a')throw new Error('Invalid PNG');
-              return `data:image/png;base64,${buffer.toString('base64')}`;
-            },readConfig:runId=>{
-              const context=JSON.parse(limitedRead(boundedPath(runPath(p,runId),'context.json'),16*1024*1024).toString('utf8'));
-              const source=runId===id?report:previous.find(r=>r.runId===runId);
-              if(context.configHash!==source?.configHash)throw new Error('Config mismatch');
-              const {pages,visuals,policies}=context.config;return {pages,visuals,policies};
-            },readEvidence:(runId,file)=>{
-              const source=runId===id?report:previous.find(r=>r.runId===runId);
-              if(!source?.rows.some(r=>(r.evidence??[]).includes(file)))reject(403,'未登録の証拠です');
-              const evidence=boundedPath(runPath(p,runId),file);
-              return JSON.parse(limitedRead(evidence,16*1024*1024).toString('utf8'));
-            }});
-            if(Buffer.byteLength(generated.html)>64*1024*1024)reject(413,'報告書が大きすぎます。履歴補完を外して再生成してください');
-            const temporary=output+'.'+randomUUID()+'.tmp';
-            try{fs.writeFileSync(temporary,generated.html,{flag:'wx'});fs.renameSync(temporary,output);}finally{if(fs.existsSync(temporary))fs.unlinkSync(temporary);}
-            return json(200,{file:outputName,issueCount:generated.issueCount,failedCases:generated.failedCases,warnings:generated.warnings});
-          }
           if(segments[5]==='editor-report'&&segments.length===6&&['GET','POST'].includes(req.method)){
             // 編集者向け報告書：登録済みサイトの完了した実行だけ。AI の条件と残り回数を確かめてから、取得も Claude も始める。
             const files={editor:'editor-report.html',basis:'editor-report-basis.html'},exists=name=>fs.existsSync(path.join(directory,name));
@@ -669,8 +626,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
             Object.assign(report,enrichFailures(report,evidenceJSON(directory)));
             let log='';try{log=fs.readFileSync(path.join(directory,'ui.log'),'utf8');}catch{}
             const {configHash}=projectInfo(p);
-            const candidates=report.rows.filter(r=>r.id.startsWith('snapshot.')&&fs.existsSync(path.join(directory,'candidates',`${r.id}.png`))).map(r=>r.id);
-            return json(200,{report,log,candidates,recovery:summarizeRecovery(directory),canApprove:report.configHash===configHash&&!active&&!runIsAlive(directory),orphaned:['running','starting'].includes(report.runStatus)&&active?.runId!==id&&!runIsAlive(directory)});
+            return json(200,{report,log,recovery:summarizeRecovery(directory),canApprove:report.configHash===configHash&&!active&&!runIsAlive(directory),orphaned:['running','starting'].includes(report.runStatus)&&active?.runId!==id&&!runIsAlive(directory)});
           }
           if(segments[5]==='guidance'&&segments.length===7&&req.method==='GET'){
             const row=report.rows.find(r=>r.id===segments[6]);if(!row)reject(404,'検査項目が見つかりません');
@@ -686,12 +642,6 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
               writeReport(directory,report);
             }
             const {done}=launch(p,['recover','--config',p.file,'--run',directory],'recover');
-            const outcome=await done;return json(outcome.exitCode===0?200:409,{ok:outcome.exitCode===0,message:outcome.log});
-          }
-          if(segments[5]==='approve'&&segments.length===6&&req.method==='POST') {
-            const data=await body(req);if(data.confirmed!==true)reject(400,'画像の確認が必要です');
-            if(typeof data.id!=='string'||!/^snapshot\.[a-z][a-z0-9-]{0,63}$/.test(data.id))reject(400,'画像IDが不正です');
-            projectInfo(p);const {done}=launch(p,['approve-baseline','--config',p.file,'--run',directory,'--id',data.id],'approve');
             const outcome=await done;return json(outcome.exitCode===0?200:409,{ok:outcome.exitCode===0,message:outcome.log});
           }
           if(segments[5]==='review'&&segments.length===6&&req.method==='POST') {
@@ -715,15 +665,9 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
             writeReport(directory,report);
             return json(200,{ok:true,report});
           }
-          if(segments.length===6&&segments[5]==='download'&&req.method==='GET'){
-            if(['running','starting','planned'].includes(report.runStatus)||runIsAlive(directory))reject(409,'検査の終了後にダウンロードしてください');
-            const zip=resultDownload(report,name=>{const file=boundedPath(directory,name);if(fs.statSync(file).size>128*1024*1024)throw Error('File too large');return fs.readFileSync(file);});
-            res.setHeader('Content-Type','application/zip');res.setHeader('Cache-Control','no-store');res.setHeader('Content-Disposition',`attachment; filename="qa-results-${id.replace(/[^a-zA-Z0-9_-]/g,'_')}.zip"`);return res.end(zip);
-          }
           if(segments.length>=6&&req.method==='GET') {
             const relative=segments[5]==='files'&&segments.length===6?target.searchParams.get('path'):segments.slice(5).join('/');
-            const allowed=new Set(['report.html','issue-report.html','editor-report.html','editor-report-basis.html','results.json','ui.log',...report.rows.flatMap(r=>r.evidence??[])]);
-            for(const row of report.rows) if(/^snapshot\.[a-z][a-z0-9-]{0,63}$/.test(row.id))allowed.add(`candidates/${row.id}.png`);
+            const allowed=new Set(['report.html','editor-report.html','editor-report-basis.html','results.json','ui.log',...report.rows.flatMap(r=>r.evidence??[])]);
             if(!allowed.has(relative))reject(403,'台帳に登録されていないファイルです');
             let file;try{file=boundedPath(directory,relative);}catch(e){if(e.status)throw e;reject(404,'証拠ファイルがありません');}
             const ext=path.extname(file).toLowerCase();const type=({'.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.html':'text/html; charset=utf-8','.zip':'application/zip'})[ext]??'text/plain; charset=utf-8';

@@ -16,8 +16,8 @@ export function initAiPreparation({container,api,readConfig,applyConfig,openChec
     pending.proposal.cases.forEach((c,i)=>{
       const label=document.createElement('label'),check=document.createElement('input'),copy=document.createElement('span'),title=document.createElement('strong'),target=document.createElement('small'),reason=document.createElement('small');
       check.type='checkbox';check.checked=true;check.dataset.choice=i;copy.className='checkbox-copy';
-      title.textContent=({layout:'横はみ出し',performance:'読込時間',canonical:'正規URL',metadata:'メタ情報',navigation:'ページ内リンク',forms:'フォーム構造',keyboard:'キーボード',integrations:'外部連携タグ',multilingual:'多言語宣言',crawl:'未知URLの応答'})[c.kind];
-      target.textContent='対象：'+config.pages[c.pageIndex].path+(c.kind==='layout'?' ／ '+(c.viewport==='mobile'?'スマホ':'PC'):'');
+      title.textContent=({performance:'読込時間',canonical:'正規URL',metadata:'メタ情報',navigation:'ページ内リンク',forms:'フォーム構造',keyboard:'キーボード',integrations:'外部連携タグ',multilingual:'多言語宣言',crawl:'未知URLの応答'})[c.kind];
+      target.textContent='対象：'+config.pages[c.pageIndex].path;
       reason.textContent='追加理由：'+c.reason;copy.append(title,target,reason);label.append(check,copy);q('[data-output]').append(label);
     });
     pending.proposal.questions.forEach(question=>{const box=document.createElement('div'),p=document.createElement('p');p.textContent=`${config.checks[question.checkIndex].title??config.checks[question.checkIndex].id}：${question.question}（${question.reason}）`;const b=document.createElement('button');b.type='button';b.textContent='この項目を設定する';b.onclick=()=>openCheck(config.checks[question.checkIndex].id);box.append(p,b);q('[data-output]').append(box);});

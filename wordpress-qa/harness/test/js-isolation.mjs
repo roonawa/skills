@@ -14,12 +14,12 @@ const file=path.join(dir,'site.json');fs.writeFileSync(file,JSON.stringify(confi
 async function cli(args){return new Promise((resolve,reject)=>{const p=spawn(process.execPath,['bin/qa.mjs',...args],{cwd:root});let log='';p.stdout.on('data',x=>log+=x);p.stderr.on('data',x=>log+=x);p.on('error',reject);p.on('exit',code=>resolve({code,log}));});}
 async function run(){const outcome=await cli(['run','--config',file,'--suite','visual']);const latest=fs.readdirSync(path.join(dir,'runs'),{withFileTypes:true}).filter(e=>e.isDirectory()).map(e=>e.name).sort().at(-1);const runDir=path.join(dir,'runs',latest);const report=JSON.parse(fs.readFileSync(path.join(runDir,'results.json')));return {...outcome,runDir,report,status:id=>report.rows.find(r=>r.id===id)?.status};}
 try{
- let r=await run();assert.equal(r.status('javascript.home-pc'),'pass',r.log);assert.equal(r.status('snapshot.home-pc'),'review',r.log);
- const approved=await cli(['approve-baseline','--config',file,'--run',r.runDir,'--id','snapshot.home-pc']);assert.equal(approved.code,0,approved.log);
+ let r=await run();assert.equal(r.status('javascript.home-pc'),'pass',r.log);for(const type of ['layout','snapshot'])assert.equal(r.report.rows.some(x=>x.id===`${type}.home-pc`),false,'removed check '+type);
+ 
  jsFault=true;r=await run();assert.equal(r.status('javascript.home-pc'),'fail',r.log);
- for(const type of ['layout','axe','snapshot'])assert.equal(r.status(`${type}.home-pc`),'pass',r.log);
+ assert.equal(r.status('axe.home-pc'),'pass',r.log);
  const jsRow=r.report.rows.find(r=>r.id==='javascript.home-pc');assert.ok(jsRow.evidence.some(e=>e.includes('javascript')));
  assert.equal(r.report.gatePassed,false);assert.equal(r.code,1);
- layoutFault=true;r=await run();assert.equal(r.status('javascript.home-pc'),'fail');assert.equal(r.status('layout.home-pc'),'fail');assert.equal(r.status('snapshot.home-pc'),'fail');
- console.log('PASS: JS errors fail independently; layout/axe/snapshot continue; real layout regression still fails. '+dir);
+ 
+ console.log('PASS: JS errors fail independently; the accessibility check continues. '+dir);
 }finally{await new Promise(r=>server.close(r));}

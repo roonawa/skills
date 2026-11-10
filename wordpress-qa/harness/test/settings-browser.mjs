@@ -22,7 +22,7 @@ const stateFile=path.join(scratch,'session.json');fs.writeFileSync(stateFile,JSO
 const storeDir=path.join(scratch,'projects');let app=await startUI({storeDir,port:0});
 const browser=await chromium.launch();const page=await browser.newPage({viewport:{width:1440,height:1000}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
 try{
- await page.goto(app.url);await page.locator('#auto-download-results').uncheck();await page.getByRole('button',{name:'＋ サイトを登録'}).click();await page.locator('#registration-advanced-settings>summary').click();
+ await page.goto(app.url);await page.getByRole('button',{name:'＋ サイトを登録'}).click();await page.locator('#registration-advanced-settings>summary').click();
  await page.locator('#registration-advanced').click();const dialog=page.locator('dialog:has(#site-editor)'),site=dialog.locator('#site-fields');await dialog.locator('#settings-advanced-settings>summary').click();
  // このサイトは標準操作テストなしで登録する（後半で操作テスト未登録のサイトの動きを確かめる）。
  await dialog.locator('#enable-operation-profile').uncheck();

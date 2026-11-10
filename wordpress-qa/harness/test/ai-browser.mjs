@@ -10,7 +10,7 @@ import {hashPassword} from '../ui/shared-access.mjs';
 // Loopback-only transport fixture models TLS termination; it does not verify TLS/Caddy.
 const dir=path.resolve('.selftest','shared-pilot-'+Date.now());fs.mkdirSync(dir,{recursive:true});
 const origin='https://qa.example.test';
-const app=await startUI({port:0,storeDir:path.join(dir,'projects'),credentialCodec:createSecretCodec(randomBytes(32)),systemOptions:{admins:['tester']},aiOptions:{fetcher:async(url,options)=>{const part=JSON.parse(JSON.parse(options.body).messages[0].content);return new Response(JSON.stringify({stop_reason:'end_turn',content:[{type:'text',text:JSON.stringify({cases:part.pages.slice(0,1).map(p=>({pageIndex:p.index,targetIndex:-1,kind:'layout',viewport:'mobile',reason:'スマホの横はみ出し'})),questions:[],reviews:part.reviewTargets.map(x=>({...x,reason:'構造確認'}))})}]}));}},shared:{origin,users:[{name:'tester',...hashPassword('long-fixture-password-1234')}]}});
+const app=await startUI({port:0,storeDir:path.join(dir,'projects'),credentialCodec:createSecretCodec(randomBytes(32)),systemOptions:{admins:['tester']},aiOptions:{fetcher:async(url,options)=>{const part=JSON.parse(JSON.parse(options.body).messages[0].content);return new Response(JSON.stringify({stop_reason:'end_turn',content:[{type:'text',text:JSON.stringify({cases:part.pages.slice(0,1).map(p=>({pageIndex:p.index,targetIndex:-1,kind:'metadata',viewport:'mobile',reason:'メタ情報の構造検査'})),questions:[],reviews:part.reviewTargets.map(x=>({...x,reason:'構造確認'}))})}]}));}},shared:{origin,users:[{name:'tester',...hashPassword('long-fixture-password-1234')}]}});
 let fixtureURL,browser;
 const proxy=http.createServer((req,res)=>{
  const headers={...req.headers,host:'qa.example.test'};
@@ -33,7 +33,7 @@ try{
  await form.locator('[data-propose]').click();await expect(form.locator('[data-status]')).toContainText('候補1件');await form.locator('[data-choice]').check();await form.locator('[data-apply]').click();await expect(form.locator('[data-status]')).toContainText('反映しました');await expect(form.locator('#auth-password')).toHaveValue('input-must-survive');await form.locator('#auth-password').fill('');
  await form.locator('#editor-save').click();await expect(form).not.toBeVisible();await expect(page.locator('#project-name')).toContainText('社内試用テスト');
  await page.reload();await expect(page.locator('#project-name')).toContainText('社内試用テスト');
- await page.locator('#edit-site').click();await expect(page.locator('[data-c=id][value=ai-layout-0-mobile]')).toHaveCount(1);await page.locator('#editor-cancel').click();
+ await page.locator('#edit-site').click();await expect(page.locator('[data-c=id][value=ai-metadata-0-mobile]')).toHaveCount(1);await page.locator('#editor-cancel').click();
  if(errors.length)throw Error(errors.join('\n'));
  await page.screenshot({path:path.join(dir,'shared-pilot-ui.png'),fullPage:true});
  console.log('PASS AI settings, synthetic API proposal, apply, input preservation, save and reload. '+dir);

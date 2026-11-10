@@ -31,7 +31,7 @@ test('long input is truncated within limit',()=>{
   const big='長い説明。'.repeat(50),opt={actual:big,admin:big,code:big,verify:big};
   const issues=[...Array.from({length:300},(_,i)=>mk('c'+i,'caution',i%2?'admin':'unknown',opt)),...Array.from({length:50},(_,i)=>mk('f'+i,'fail','theme',opt))];
   const r=build(issues);
-  assert.ok(r.body.length<=20000);assert.equal(r.truncated,true);assert.ok(r.body.includes('全文はSITE EXAMの不具合報告書を参照'));assert.ok(r.body.includes('比較結果をこのタスクに追記してください。'));
+  assert.ok(r.body.length<=20000);assert.equal(r.truncated,true);assert.ok(r.body.includes('全文はSITE EXAMの結果画面を参照'));assert.ok(r.body.includes('比較結果をこのタスクに追記してください。'));
   for(let i=0;i<50;i++)assert.ok(r.body.includes('［不合格］課題f'+i));
 });
 test('short input is not truncated',()=>{const r=build([mk('a','fail','admin')]);assert.equal(r.truncated,false);assert.ok(!r.body.includes('全文は'));});

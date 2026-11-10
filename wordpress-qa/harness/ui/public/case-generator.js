@@ -239,7 +239,7 @@ export function linkRegistrationCoverage(input,profile={}){
   multilingual:'宣言済みhreflangは自動検査します。多言語機能の要否、翻訳の意味と切替先は確認してください。',
   performance:'参考測定は自動実行します。性能の合否には登録画面で合意した上限msを指定してください。',
   crawl:'存在しないURLの404は自動検査します。robotsのbot別方針・サイトマップ掲載範囲・旧URL転送は期待値を設定してください。',
-  'visual-selection':'代表ページ最大5件のPC・スマホ表示、画像読込、横はみ出し、axeは自動検査します。重要テンプレートや例外の選定漏れは確認してください。'
+  'visual-selection':'代表ページ最大5件のPC・スマホ表示、画像読込、JavaScriptエラー、axeは自動検査します。重要テンプレートや例外の選定漏れは確認してください。'
  };
  c.checks=c.checks.filter(row=>{
   if(row.kind==='unconfigured'&&row.id.startsWith('coverage-')&&covered.has(row.id.slice(9)))return false;

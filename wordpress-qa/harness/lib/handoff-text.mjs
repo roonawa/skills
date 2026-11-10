@@ -1,7 +1,7 @@
 import {isConfirmed} from './handoff-issues.mjs';
 const OWNERS=[['admin','管理画面・プラグイン'],['server','サーバー・ホスティング'],['theme','テーマ・開発'],['unknown','担当区分の確認が必要']];
 const LEVEL={fail:'不合格',caution:'注意'};
-const CLOSING='修正後はSITE EXAMで同じ範囲を再診断し、比較結果をこのタスクに追記してください。',TRUNC_NOTE='全文はSITE EXAMの不具合報告書を参照';
+const CLOSING='修正後はSITE EXAMで同じ範囲を再診断し、比較結果をこのタスクに追記してください。',TRUNC_NOTE='全文はSITE EXAMの結果画面を参照';
 const first=s=>String(s??'').trim().split(/(?<=。)|\n/)[0].trim();
 const indent=s=>String(s).trim().replace(/\n/g,'\n　');
 const jst=iso=>{const t=Date.parse(iso);return Number.isFinite(t)?new Date(t+9*36e5).toISOString().slice(0,16).replace('T',' '):'未記録';};

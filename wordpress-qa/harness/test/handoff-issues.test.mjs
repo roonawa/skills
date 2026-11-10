@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {normalizeKey,issueKey,isConfirmed,collectIssues,unconfirmedCount} from '../lib/handoff-issues.mjs';
-import {evidenceUrls} from '../lib/issue-report.mjs';
+import {evidenceUrls} from '../lib/handoff-issues.mjs';
 const report=rows=>({runId:'r1',baseURL:'https://example.test',rows});
 const f=(key,extra={})=>({key,title:'T '+key,actual:'a',admin:'ad',code:'c',verify:'v',...extra});
 test('normalizeKey strips volatile parts',()=>{

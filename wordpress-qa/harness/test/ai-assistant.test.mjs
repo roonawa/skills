@@ -9,19 +9,19 @@ import {AiAssistant,aiProjection,validateProposal} from '../ui/ai-assistant.mjs'
 import {createSecretCodec} from '../ui/secret-codec.mjs';
 import {resolveDestination,addressClass,validateDestinations} from '../lib/egress-policy.mjs';
 const config={name:'private-name',baseURL:'https://private.example.test',environment:'staging',pages:[{id:'home',path:'/',canonical:'https://private.example.test/',indexable:false}],checks:[]};
-const candidate={cases:[{pageIndex:0,targetIndex:-1,kind:'layout',viewport:'mobile',reason:'スマホの横はみ出し検査を追加します'}],questions:[]};
+const candidate={cases:[{pageIndex:0,targetIndex:-1,kind:'metadata',viewport:'mobile',reason:'メタ情報の構造検査を追加します'}],questions:[]};
 function fixture(){const dir=fs.mkdtempSync(path.join(os.tmpdir(),'qa-ai-'));const settings=new SystemSettings({directory:dir,policyFile:path.join(dir,'policy.json'),codec:createSecretCodec(randomBytes(32))});settings.save({apiKey:'sk-ant-fixture-only',enabled:true,approved:true,dailyLimit:2,destinations:[]});return {dir,settings};}
 test('AI sends only structural data, fixed endpoint, Claude Messages protocol; compiles read-only candidates',async()=>{
  const {dir,settings}=fixture();try{
   assert(!fs.readFileSync(settings.file,'utf8').includes('sk-ant-fixture-only'));assert(!JSON.stringify(settings.view()).includes('sk-ant-fixture-only'));
   const ai=new AiAssistant(settings,{fetcher:async(url,options)=>{assert.equal(url,'https://api.anthropic.com/v1/messages');assert.equal(options.redirect,'error');const b=JSON.parse(options.body);assert.equal(options.headers['x-api-key'],'sk-ant-fixture-only');assert.equal(options.headers['anthropic-version'],'2023-06-01');assert.equal(options.headers.Authorization,undefined);assert.equal(b.store,undefined);assert.equal(b.output_config.format.type,'json_schema');assert(!b.messages[0].content.includes('private'));return new Response(JSON.stringify({stop_reason:'end_turn',content:[{type:'text',text:JSON.stringify({...candidate,reviews:JSON.parse(b.messages[0].content).reviewTargets.map(x=>({...x,reason:"構造確認。期待値の妥当性は別途照合"}))})}]}));}});
   const p=await ai.propose(config,{},'alice');assert.throws(()=>ai.apply(p.id,config,[0],'bob'));assert.throws(()=>ai.apply(p.id,{...config,name:'changed'},[0],'alice'));
-  const result=ai.apply(p.id,config,[0],'alice');assert.equal(result.config.checks[0].kind,'compatibility-screen');assert.equal(result.config.checks[0].options.viewport.width,390);assert.equal(result.config.allowTestWrites,false);assert.throws(()=>ai.apply(p.id,config,[0],'alice'));
+  const result=ai.apply(p.id,config,[0],'alice');assert.equal(result.config.checks[0].kind,'standard-public');assert.equal(result.config.checks[0].options.area,'metadata');assert.equal(result.config.allowTestWrites,false);assert.throws(()=>ai.apply(p.id,config,[0],'alice'));
   await ai.propose(config);await assert.rejects(()=>ai.propose(config));
  }finally{fs.rmSync(dir,{recursive:true,force:true});}
 });
 test('AI rejects executable operations, unknown fields and absent expectations',()=>{
- assert.throws(()=>validateProposal({...candidate,script:'code'},config));assert.throws(()=>validateProposal({cases:[{...candidate.cases[0],kind:'order'}],questions:[]},config));
+ assert.throws(()=>validateProposal({...candidate,script:'code'},config));assert.throws(()=>validateProposal({cases:[{...candidate.cases[0],kind:'order'}],questions:[]},config));assert.throws(()=>validateProposal({cases:[{...candidate.cases[0],kind:'layout'}],questions:[]},config));
  assert.throws(()=>aiProjection(config,{maxLoadMs:-1}));
  assert.throws(()=>validateProposal({cases:[{...candidate.cases[0],kind:'canonical'}],questions:[]},{...config,pages:[{path:'/'}]}));
 });

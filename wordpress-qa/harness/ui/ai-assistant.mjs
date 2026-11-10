@@ -6,7 +6,7 @@ const topics=new Map(viewpoints.map(([,id,title])=>['coverage-'+id,title]));
 const hash=c=>createHash('sha256').update(JSON.stringify(c)).digest('hex');
 const obj=properties=>({type:'object',properties,required:Object.keys(properties),additionalProperties:false});
 const str={type:'string'},integer={type:'integer'};
-export const preparationKinds=['layout','performance','canonical','metadata','navigation','forms','keyboard','integrations','multilingual','crawl'];
+export const preparationKinds=['performance','canonical','metadata','navigation','forms','keyboard','integrations','multilingual','crawl'];
 const standardSuites={metadata:'seo',navigation:'delivery',forms:'delivery',keyboard:'accessibility',integrations:'delivery',multilingual:'multilingual',crawl:'seo'};
 export const proposalSchema=obj({cases:{type:'array',items:obj({pageIndex:integer,targetIndex:{type:'integer',enum:[-1]},kind:{type:'string',enum:preparationKinds},viewport:{type:'string',enum:['mobile','desktop']},reason:str})},questions:{type:'array',items:obj({checkIndex:integer,question:str,reason:str})}});
 export function aiProjection(config,answers={}){
@@ -150,8 +150,7 @@ export class AiAssistant {
     if(!Array.isArray(indices)||new Set(indices).size!==indices.length||indices.some(i=>!Number.isInteger(i)||!entry.p.cases[i]))throw Error('適用する提案を選んでください');
     const notes=[];
     for(const i of indices){const x=entry.p.cases[i],page=c.pages[x.pageIndex],old=x.targetIndex>=0?c.checks[x.targetIndex]:null;
-      const suffix=`${x.kind}-${x.pageIndex}-${x.viewport}`,check={id:old?.id??'ai-'+suffix,title:old?.title??`AI補完：${x.kind==='layout'?'横はみ出し':x.kind==='performance'?'読込時間':x.kind==='canonical'?'正規URL':({metadata:'メタ情報',navigation:'ページ内リンク',forms:'フォーム構造',keyboard:'キーボード',integrations:'外部連携タグ',multilingual:'多言語宣言',crawl:'巡回情報'})[x.kind]}（${page.id}）`,required:old?.required??false};
-      if(x.kind==='layout')Object.assign(check,{suite:'compatibility',kind:'compatibility-screen',options:{path:page.path,engine:'chromium',viewport:{width:x.viewport==='mobile'?390:1280,height:800},visible:['body'],noOverflow:true}});
+      const suffix=`${x.kind}-${x.pageIndex}-${x.viewport}`,check={id:old?.id??'ai-'+suffix,title:old?.title??`AI補完：${x.kind==='performance'?'読込時間':x.kind==='canonical'?'正規URL':({metadata:'メタ情報',navigation:'ページ内リンク',forms:'フォーム構造',keyboard:'キーボード',integrations:'外部連携タグ',multilingual:'多言語宣言',crawl:'巡回情報'})[x.kind]}（${page.id}）`,required:old?.required??false};
       if(standardSuites[x.kind])Object.assign(check,{suite:standardSuites[x.kind],kind:'standard-public',options:{area:x.kind,paths:[page.path]}});
       if(x.kind==='canonical')Object.assign(check,{suite:'seo',kind:'seo-page',options:{path:page.path,canonical:page.canonical}});
       if(x.kind==='performance'){if(!entry.answers.maxLoadMs){notes.push('読込時間の期待値が未入力のため、性能検査は追加しませんでした');continue;}Object.assign(check,{suite:'performance',kind:'performance-navigation',options:{path:page.path,samples:3,cache:'cold',budgets:{durationMs:entry.answers.maxLoadMs}}});}

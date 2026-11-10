@@ -17,7 +17,6 @@ const file=path.join(scratch,'site.json');fs.writeFileSync(file,JSON.stringify(c
 const app=await startUI({configPaths:[file],port:0});
 const browser=await chromium.launch();const page=await browser.newPage({viewport:{width:1440,height:1000}});
 const errors=[];page.on('pageerror',e=>errors.push(e.message));
-// The completion toast is replaced at once by the automatic-download toast, so accept either.
 const finished=()=>page.getByText(/^(実行が完了しました|結果のダウンロードを開始しました.*)$/).first().waitFor({timeout:90000});
 try {
   await page.goto(app.url);
@@ -25,13 +24,10 @@ try {
   await page.getByRole('button',{name:'検査を実行',exact:true}).click();
   await page.getByText('実行中',{exact:true}).first().waitFor();
   await finished();
-  await expect(page.locator('#cinema-verdict')).toContainText('ACCESS PENDING');
+  // 画像比較を廃止したので、初回の実行で必須条件を満たす。
+  await expect(page.locator('#cinema-verdict')).toContainText('ACCESS GRANTED');
   await page.locator('#cinema-verdict button').click();
-  await page.locator('[data-group="snapshot"]').click();
-  await page.getByRole('button',{name:'snapshot.home-mobile',exact:false}).click();
-  await page.getByLabel('候補画像を確認し、意図した表示であることを確認しました').check();
-  await page.getByRole('button',{name:'この画像を基準として承認',exact:true}).click();
-  await page.getByText('基準画像を承認しました。再実行して比較してください。',{exact:true}).waitFor();
+  assert.equal(await page.locator('[data-group="snapshot"],[data-group="layout"]').count(),0,'removed checks are not listed');
   await page.getByRole('button',{name:'検査を実行',exact:true}).click();
   await page.getByText('実行中',{exact:true}).first().waitFor();
   await page.getByText('必須条件を満たしています',{exact:true}).waitFor({timeout:90000});
@@ -42,15 +38,11 @@ try {
   const runIds=await page.locator('[data-run]').evaluateAll(items=>items.map(x=>x.dataset.run));
   await page.locator(`[data-run="${runIds[1]}"]`).click();
   await expect(page.locator('#metadata')).toContainText(runIds[1]);
-  await page.locator('[data-group="snapshot"]').click();
-  await page.getByRole('button',{name:'snapshot.home-mobile',exact:false}).click();
-  await page.getByLabel('候補画像を確認し、意図した表示であることを確認しました').check();
   let releaseLatest;
   const holdLatest=new Promise(r=>releaseLatest=r);
   await page.route(`**/api/projects/*/runs/${runIds[0]}`,async route=>{await holdLatest;await route.continue();});
   await page.locator(`[data-run="${runIds[0]}"]`).click();
-  try {assert.equal(await page.locator('#approve-button').count(),0,'selection change must remove the previous approval control immediately');}
-  finally{releaseLatest();}
+  releaseLatest();
   await expect(page.locator('#metadata')).toContainText(runIds[0]);
   await page.unroute(`**/api/projects/*/runs/${runIds[0]}`);
   demo.faults.add('canonical');

@@ -29,7 +29,7 @@ test('all bounded read-only preparation types compile without replacing obligati
  const c={...base,checks:[{id:'coverage-contact-success',suite:'delivery',kind:'unconfigured',options:{instructions:'送信許可が必要'}}]};
  const ai=new AiAssistant(settings,{fetcher:transport((p,r)=>{r.cases=preparationKinds.map(kind=>({pageIndex:0,targetIndex:-1,kind,viewport:'mobile',reason:'追加'}));})});
  const result=await ai.propose(c,{maxLoadMs:3000});const applied=ai.apply(result.id,c,preparationKinds.map((_,i)=>i)).config;
- assert.equal(applied.checks.length,11);assert.equal(applied.checks[0].kind,'unconfigured');assert.equal(applied.allowTestWrites,false);assert.equal(applied.journeys.length,0);
+ assert.equal(applied.checks.length,10);assert(!preparationKinds.includes('layout'));assert.equal(applied.checks[0].kind,'unconfigured');assert.equal(applied.allowTestWrites,false);assert.equal(applied.journeys.length,0);
 });
 test('quota exhaustion in a later batch does not expose partially applicable output',async()=>{
  let calls=0;const limited={...settings,reserve(){if(++calls>1)throw Error('quota');}};
