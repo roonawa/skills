@@ -17,7 +17,7 @@ for(const mode of ['normal','failure','evidence'])test(`registration auto-comple
   calls++;if(unavailable)throw Error('service unavailable');
   const p=JSON.parse(JSON.parse(opts.body).messages[0].content);assert(!JSON.stringify(p).includes('secret-cookie'));
   if(p.version===1)return new Response(JSON.stringify({stop_reason:'end_turn',content:[{type:'text',text:JSON.stringify({bindings:[{key:'contactNameField',formRef:'form-0',fieldRef:'field-1'}],selections:[]})}]}));
-  return new Response(JSON.stringify({stop_reason:'end_turn',content:[{type:'text',text:JSON.stringify({cases:p.pages.length?[{pageIndex:p.pages[0].index,targetIndex:-1,kind:'layout',viewport:'mobile',reason:'構造検査の追加'}]:[],questions:[],reviews:p.reviewTargets.map(t=>({...t,reason:'構造確認'}))})}]}));
+  return new Response(JSON.stringify({stop_reason:'end_turn',content:[{type:'text',text:JSON.stringify({cases:p.pages.length?[{pageIndex:p.pages[0].index,targetIndex:-1,kind:'canonical',viewport:'mobile',reason:'構造検査の追加'}]:[],questions:[],reviews:p.reviewTargets.map(t=>({...t,reason:'構造確認'}))})}]}));
  }}});
  try{
   const boot=await(await fetch(app.url+'/api/bootstrap')).json();
@@ -28,6 +28,6 @@ for(const mode of ['normal','failure','evidence'])test(`registration auto-comple
   const saved=await(await fetch(app.url+`/api/projects/${result.id}/settings`)).json();assert.equal(saved.config.allowTestWrites,false);assert.equal(saved.credentials.browser,true);
   if(mode==='evidence'){assert.equal(saved.profile.contactNameField,'person');assert.equal(result.preparation.mode,'claude');assert.equal(result.preparation.bindings,1);}
   if(unavailable){assert.equal(result.aiPreparation,null);assert(result.warnings.some(w=>w.includes('完了しませんでした')));}
-  else{assert(result.aiPreparation.reviewed>0);assert.equal(result.aiPreparation.added,1);assert(saved.profile.automation.additionalChecks.some(c=>c.id==='ai-layout-0-mobile'));}
+  else{assert(result.aiPreparation.reviewed>0);assert.equal(result.aiPreparation.added,1);assert(saved.profile.automation.additionalChecks.some(c=>c.id==='ai-canonical-0-mobile'));}
  }finally{await app.close();fs.rmSync(dir,{recursive:true,force:true});}
 });

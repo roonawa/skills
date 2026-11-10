@@ -11,7 +11,6 @@ import {RULES} from '../lib/security-baseline-rules.mjs';
 import {catalog,validateConfig} from '../lib/config.mjs';
 import {addSecurityChecks} from '../ui/public/case-generator.js';
 import {ProjectStore} from '../ui/project-store.mjs';
-import {buildIssueReport} from '../lib/issue-report.mjs';
 import {latestResults} from '../lib/latest-results.mjs';
 import {preparationWidens} from '../ui/automatic-preparation.mjs';
 
@@ -135,13 +134,6 @@ test('profile-less saves moving to production drop allowSensitivePaths unless ex
 const sbRow={id:'check.auto-security-headers',title:'セキュリティヘッダー',required:false,level:'caution',status:'fail',reason:'AssertionError: missing-csp\nmissing-hsts',evidence:['check-x/security-baseline.json']};
 const sbEvidence={schema:'security-baseline-v1',area:'headers',findings:[{rule:'missing-csp',level:'caution',path:'/',observation:'Content-Security-Policy ヘッダーがありません'},{rule:'missing-hsts',level:'caution',path:'/',observation:'HSTSなし'}],unchecked:[],requests:[]};
 const report=rows=>({runId:'r',startedAt:'2026-01-01',finishedAt:'2026-01-01',runStatus:'finished',configHash:'h',baseURL:'https://example.test',environment:'production',name:'QA',rows});
-test('issue report maps baseline findings through RULES and counts caution separately',()=>{
-  const r=buildIssueReport({current:report([sbRow]),readEvidence:()=>sbEvidence});
-  for(const rule of ['missing-csp','missing-hsts'])for(const k of ['title','impact','admin','code','verify'])assert(r.html.includes(RULES[rule][k]),rule+' '+k);
-  assert(!r.html.includes('この検査の期待条件を満たしていません'));assert.equal(r.issueCount,2);
-  assert.match(r.html,/不合格 0ケース・注意 1ケース → 修正候補 2項目/);assert.match(r.html,/注意：/);
-  const plain=buildIssueReport({current:report([{...sbRow,required:true,level:undefined}]),readEvidence:()=>sbEvidence});assert.match(plain.html,/不合格 1ケース → 修正候補 2項目/);
-});
 test('latest results keep level and count caution separately',()=>{
   const r=latestResults([{id:'a',title:'A'},{id:'b',title:'B'}],'h',[{runId:'1',startedAt:'1',finishedAt:'1',runStatus:'finished',configHash:'h',rows:[{id:'a',status:'fail',level:'caution'},{id:'b',status:'fail'}]}]);
   assert.equal(r.rows[0].level,'caution');assert.equal(r.counts.caution,1);assert.equal(r.counts.fail,1);

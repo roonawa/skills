@@ -1,6 +1,5 @@
 import {impactAssessments} from './impact-probes.mjs';
 import {contactImpactObservations,blockedRetryObservations} from './automatic-assessment.mjs';
-import {advice} from './issue-report.mjs';
 import {RULES} from './security-baseline-rules.mjs';
 
 // Group observed mismatches, never infer a shared root cause from a test title.
@@ -47,4 +46,14 @@ export function enrichFailures(report,readEvidence){
     for(const file of row.evidence??[])if(/(?:^|\/)(?:impact|security|audit|axe|javascript|policy|layout|links|.*discovered-json|.*discovered)(?:-[^/]*)?\.(?:json|txt)$/.test(file))try{evidence.push(readEvidence(file));}catch{}
     return {...row,...(evidence.find(d=>d?.schema==='software-security-v1')?{softwareSecurity:evidence.find(d=>d?.schema==='software-security-v1')}:{}),...(row.status==='fail'?{failures:explainFailure(row,evidence)}:{})};
   })};
+}
+
+// 不合格の種類ごとの影響と対応の説明（もとは不具合報告書の一部）。
+export function advice(kind,signature=''){
+  if(kind==='security-baseline'&&Object.hasOwn(RULES,signature)){const r=RULES[signature];return {title:r.title,impact:r.impact,admin:r.admin,code:r.code,verify:r.verify};}
+  if(kind==='color-contrast')return {title:`文字と背景のコントラスト不足：${signature}`,impact:'弱視の方や明るい場所で閲覧する方が、文字や案内を読み取りにくくなります。',admin:'テーマのカスタマイザーまたは対象ブロックの文字色・背景色を先に調整します。フッターなら「外観 → カスタマイズ → フッター」を確認。設定項目の有無はテーマによります。',code:'設定が反映されない場合は追加CSSまたは子テーマで対象要素に限定して調整。親要素の透過、重なり、hover・focus時も調べます。',verify:'証拠に記載された文字サイズ・太さに対応する比率を満たすことをPC・スマホで再測定します。'};
+  if(kind==='link-name')return {title:`リンクの読み上げ名がない：${signature}`,impact:'スクリーンリーダー利用者がリンク先の目的を判別できません。通常クリックができないこととは別の問題です。',admin:'該当リンクを設置したブロック・ウィジェット・カスタムHTMLで目的が分かるリンク文言を設定。メインビジュアルの場合はテーマのスライド設定のボタンテキストを確認します。',code:'空のリンクが残る場合は、出力元でリンク自体にテキストまたはaria-labelを付けます。リンクの外側の画像altだけでは解消しません。',verify:'axeの再実行に加え、Tab移動と読み上げを確認。スライド複製、外部埋込みの読込み前後・失敗時も確認します。'};
+  if(kind==='javascript')return {title:`JavaScript例外：${signature}`,impact:/jQuery/.test(signature)?'依存する処理の初期化が中断する可能性があります。カート等の実操作への影響は別途確認が必要です。':'例外が発生した処理の後続部分が中断します。サイト全体のJavaScript停止やレイアウト崩れとは断定できません。',admin:/jQuery/.test(signature)?'導入済みの高速化機能でjQueryの遅延・フッター移動設定があれば、テスト環境で一つずつ解除して読込み順を確認します。有効設定・原因プラグインは未確認です。':'管理画面の独自JS登録欄やコード挿入機能で対象処理を登録している場合、実行ページの条件を確認します。登録先は未確認です。',code:/jQuery/.test(signature)?'実際の出力順・通信結果・依存関係を調べ、依存ライブラリを先に実行。ライブラリを重複追加しません。':'スタックの出力元と対象DOM・実行時期を調べ、必要な要素の存在確認後に処理を開始します。存在しない要素や不適切なタイマーを修正します。',verify:'同じページ・画面幅・操作で例外が解消すること、関連する利用者操作が正常完了することを確認します。'};
+  if(kind==='policy')return {title:`公開応答・転送方針の不一致：${signature}`,impact:'期待する公開・転送方針と応答が異なります。存在しないページのトップ転送では利用者がリンク切れを認識しにくくなります。',admin:'導入済みの公開制御・転送機能で該当パスのルールを確認します。存在しないURLの一括転送が原因ならそのルールを修正。観測値だけに合わせて期待値を変更しません。',code:'設定に原因がなければテーマ・プラグイン・サーバーの応答処理を確認。404の場合は案内ページだけでなくHTTPステータスも修正します。',verify:'証拠のパスで期待する応答を再検査し、正常ページと正当な転送が維持されることを確認します。'};
+  return {title:`${kind}：${signature}`,impact:'この検査の期待条件を満たしていません。具体的な利用者影響は証拠と再現操作から追加確認が必要です。',admin:'対象ページ・ブロック・導入済み機能の設定で対応できるか確認。編集場所や原因設定は未特定です。',code:'設定で対応できない場合は失敗箇所を再現し、実装・テスト期待値・実行環境を切り分けます。',verify:'該当ケースを再実行し、関連ページ・画面幅・操作に副作用がないことを確認します。'};
 }

@@ -9,7 +9,6 @@ import {catalog,validateConfig} from '../lib/config.mjs';
 import {releaseGate} from '../lib/results.mjs';
 import {latestResults} from '../lib/latest-results.mjs';
 import {selectSingleTest} from '../lib/confirmation.mjs';
-import {buildIssueReport} from '../lib/issue-report.mjs';
 const orders=['coverage-order','coverage-order-record','coverage-order-cleanup','coverage-order-notification'],why='有効なプラグインに通販機能が見つからないため対象外（登録時の取得）';
 const profile=(automation={pluginInventory:{observed:true,slugs:['contact-form-7']}})=>({timezone:'Asia/Tokyo',language:'ja',indexable:false,writes:false,automation});
 function saved(t,p=profile(),environment='staging'){
@@ -64,11 +63,6 @@ test('results.json rows keep not_applicable after a run',async t=>{
  assert.equal(find('check.auto-security-transport').status,'pass');
  for(const id of [...orders,'coverage-membership']){const r=find('check.'+id);assert.equal(r.status,'not_applicable',id);assert.equal(r.autoNotApplicable,true);assert.equal(r.selected,false);assert(r.reason.includes('対象外'));}
  assert.equal(written.summary.not_applicable,5);
-});
-test('issue report shows 自動判定 for auto not_applicable rows',()=>{
- const current={runId:'now',startedAt:'2026-11-02',finishedAt:'2026-11-02',runStatus:'finished',configHash:'h',baseURL:'https://example.test',environment:'staging',name:'QA',rows:[{id:'check.coverage-order',title:'注文',status:'not_applicable',autoNotApplicable:true,selected:false,reason:why},{id:'manual.x',title:'手動',status:'not_applicable',reason:'手で対象外'}]};
- const {html}=buildIssueReport({current,readEvidence:()=>({})});
- assert.match(html,/注文 — check\.coverage-order（対象外・自動判定）/);assert(html.includes(why));assert(!html.includes('手動 — manual.x（対象外・自動判定）'));
 });
 test('only the tool own judgements can be auto not_applicable',t=>{
  const {config}=saved(t),prod=saved(t,profile(),'production').config;

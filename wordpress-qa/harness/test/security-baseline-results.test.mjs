@@ -6,7 +6,6 @@ import path from 'node:path';
 import {writeReport,releaseGate,displayStatus} from '../lib/results.mjs';
 import {catalog} from '../lib/config.mjs';
 import {explainFailure,enrichFailures} from '../lib/failure-explanations.mjs';
-import {buildIssueReport} from '../lib/issue-report.mjs';
 import {RULES} from '../lib/security-baseline-rules.mjs';
 const caution=(id,status='fail')=>({id,title:id,required:false,level:'caution',status,reason:'x'});
 test('caution rows are counted separately',()=>{
@@ -32,9 +31,4 @@ test('baseline findings become explained failures',()=>{
     assert.equal(f.key,`baseline:${rule}:${ev.findings[i].path}`);assert.equal(f.title,r.title);assert.equal(f.impact,r.impact);assert.equal(f.admin,r.admin);assert.equal(f.code,r.code);assert.equal(f.verify,r.verify);assert.equal(f.actual,ev.findings[i].observation);}
   const enriched=enrichFailures({rows:[{id:'check.x',status:'fail',evidence:['a/security-baseline.json']}]},()=>ev);
   assert.equal(enriched.rows[0].failures[0].key,'baseline:git-head:/.git/HEAD');
-});
-test('issue report labels caution',()=>{
-  const current={runId:'r',startedAt:'2026-01-01',finishedAt:'2026-01-01',runStatus:'finished',configHash:'h',baseURL:'https://example.test',environment:'production',name:'QA',rows:[{id:'check.x',title:'基礎診断',required:false,level:'caution',status:'fail',evidence:[]}]};
-  const html=buildIssueReport({current,readEvidence:()=>({})}).html;
-  assert.match(html,/基礎診断 — check\.x（注意）/);
 });

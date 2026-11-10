@@ -4,7 +4,6 @@ import AxeBuilder from '@axe-core/playwright';
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { createHash } from 'node:crypto';
 import { inspectHTML,checkPolicy,fetchPage,internalLinks } from '../lib/audit.mjs';
 import { waitForMail,envHeaders } from '../lib/mailpit.mjs';
 import { scopedHeaders } from '../lib/headers.mjs';
@@ -99,11 +98,6 @@ for(const v of c.visuals) {
     await evidence(info,'javascript',{observation:'Navigation, readiness and visible-image scrolling; not a full interaction journey',jsErrors});
     expect(jsErrors).toEqual([]);
   });
-  if(enabled(`layout.${v.id}`)) test(title(`layout.${v.id}`),async({page},info)=>{
-    await ready(page,v,info);
-    const width=await page.evaluate(()=>({content:document.documentElement.scrollWidth,viewport:window.innerWidth}));
-    await evidence(info,'layout',width);expect(width.content).toBeLessThanOrEqual(width.viewport+1);
-  });
   if(enabled(`axe.${v.id}`)) test(title(`axe.${v.id}`),async({page},info)=>{
     await ready(page,v,info);const result=await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21a','wcag21aa']).analyze();
     await evidence(info,'axe',result);
@@ -116,21 +110,5 @@ for(const v of c.visuals) {
       await evidence(info,'marked-screenshots',{shots});
     }
     expect(result.violations.map(v=>({id:v.id,impact:v.impact,nodes:v.nodes.map(n=>n.target)}))).toEqual([]);
-  });
-  if(enabled(`snapshot.${v.id}`)) test(title(`snapshot.${v.id}`),async({page,browser},info)=>{
-    await ready(page,v,info);
-    const id=`snapshot.${v.id}`;
-    const fingerprint=createHash('sha256').update(JSON.stringify({platform:process.platform,browser:browser.version(),visual:v,path:c.pages.find(p=>p.id===v.pageId).path})).digest('hex');
-    const baseline=info.snapshotPath(`${id}.png`), metaFile=path.join(ctx.baselineDir,`${id}.json`);
-    const masks=v.mask.map(s=>page.locator(s));
-    for(const mask of masks) await expect(mask.first()).toBeVisible();
-    const candidate=path.join(ctx.runDir,'candidates',`${id}.png`);fs.mkdirSync(path.dirname(candidate),{recursive:true});
-    await page.screenshot({path:candidate,fullPage:true,animations:'disabled',mask:masks});
-    fs.writeFileSync(path.join(ctx.runDir,'candidates',`${id}.json`),JSON.stringify({id,fingerprint,configHash:ctx.configHash,browser:browser.version(),platform:process.platform,visual:v},null,2));
-    await info.attach('baseline-candidate',{path:candidate,contentType:'image/png'});
-    if(!fs.existsSync(baseline)||!fs.existsSync(metaFile)||JSON.parse(fs.readFileSync(metaFile,'utf8')).fingerprint!==fingerprint) {
-      info.annotations.push({type:'qa-review',description:'基準画像が未承認、または実行環境が変更。候補画像をレビューしてください。'});test.skip();
-    }
-    await expect(page).toHaveScreenshot(`${id}.png`,{fullPage:true,animations:'disabled',mask:masks,maxDiffPixels:v.maxDiffPixels});
   });
 }

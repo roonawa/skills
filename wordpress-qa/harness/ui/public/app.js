@@ -31,10 +31,6 @@ const duration=ms=>typeof ms==='number'?`${(ms/1000).toFixed(1)}s`:'—';
 const projectAPI=()=>`/api/projects/${encodeURIComponent(state.projectId)}`;
 const runAPI=()=>`${projectAPI()}/runs/${encodeURIComponent(state.runId)}`;
 const fileURL=file=>`${runAPI()}/files?path=${encodeURIComponent(file)}`;
-$('#report-link').insertAdjacentHTML('afterend','<a id="results-download" class="text-link" download hidden>結果をPCに保存（ZIP）</a><label><input id="auto-download-results" type="checkbox">実行完了後にPCへダウンロード</label>');
-$('#auto-download-results').checked=localStorage.getItem('wpqa-auto-download')!=='off';
-$('#auto-download-results').onchange=e=>localStorage.setItem('wpqa-auto-download',e.target.checked?'on':'off');
-const downloadedRuns=new Set();
 $('#filters').insertAdjacentHTML('beforeend','<button data-filter="review" aria-pressed="false">直接確認</button>');
 $('.page-heading').insertAdjacentHTML('afterend','<details class="confirmation-panel" id="standard-operation-settings"><summary>注文・問い合わせの実行設定</summary><p>「すべての検査」「操作・メール」では、登録済みの注文・問い合わせテストも実行します。</p><label>実行範囲<select id="standard-operation-mode"><option value="preview">入力・確認画面まで（送信なし）</option><option value="submit">注文確定・問い合わせ送信まで</option></select></label><label>サイト閲覧パスワード<input id="standard-operation-password" type="password" autocomplete="off"></label><label><input type="checkbox" id="standard-operation-confirmed"> 注文と問い合わせをそれぞれ新規1件送信することを確認しました</label></details>');
 $('#standard-operation-settings').insertAdjacentHTML('afterend','<section id="profile-operation-scope" class="confirmation-panel" hidden></section>');
@@ -56,26 +52,9 @@ function renderOperationScope(){
 $('#standard-operation-mode').onchange=()=>{$('#standard-operation-confirmed').checked=false;};
 $('#run-button').insertAdjacentHTML('beforebegin','<button id="stop-button" hidden>検査を停止</button>');
 $('#metadata').insertAdjacentHTML('afterend','<div id="recovery-info"></div><button id="recover-button" hidden>残ったテストデータを回収</button>');
-$('#report-link').insertAdjacentHTML('afterend','<details id="issue-report-panel"><summary>不具合報告書を作成</summary><p>選択した実行の証拠を集約し、影響・管理画面での修正候補・再確認項目をHTMLにまとめます。</p><label><input type="checkbox" id="issue-report-history" checked> 未実施の項目を同じ設定の過去結果で補う（出典を明記）</label><label for="issue-report-notes">追加調査・担当者の補足（任意）</label><textarea id="issue-report-notes" maxlength="10000" rows="4" placeholder="確認者・確認日・原因を確定した根拠など。認証情報は記載しないでください。"></textarea><button id="issue-report-generate" type="button">報告書を生成</button><a id="issue-report-open" target="_blank" rel="noopener" hidden>生成した報告書を開く ↗</a><p id="issue-report-status" role="status"></p></details>');
-$('#report-link').parentElement.after($('#issue-report-panel'));
-$('#issue-report-panel p').innerHTML='保存済みの証拠から生成します。 <a href="/help/user-manual.html#results-guide" target="_blank" rel="noopener">報告書の使い方 ↗</a>';
-let issueReportScope='';
-$('#issue-report-generate').onclick=async()=>{
-  if(state.requesting||!state.runId)return;
-  const scope=`${state.projectId}/${state.runId}`,endpoint=runAPI();
-  state.requesting=true;render();showError('');
-  $('#issue-report-open').hidden=true;
-  $('#issue-report-status').textContent='証拠から報告書を生成しています…';
-  try{
-    const data=await api(`${endpoint}/issue-report`,{method:'POST',body:JSON.stringify({includeHistory:$('#issue-report-history').checked,notes:$('#issue-report-notes').value})});
-    if(scope!==`${state.projectId}/${state.runId}`)return;
-    $('#issue-report-open').href=`${endpoint}/files?path=${encodeURIComponent(data.file)}`;
-    $('#issue-report-open').hidden=false;
-    $('#issue-report-status').textContent=`不合格${data.failedCases}ケースを修正候補${data.issueCount}項目に整理しました。${data.warnings.length?'証拠の読取りに関する注意があります。':''}`;
-  }catch(error){if(scope===`${state.projectId}/${state.runId}`){showError(error.message);$('#issue-report-status').textContent='生成できませんでした。';}}
-  finally{state.requesting=false;render();}
-};
-$('#issue-report-panel').insertAdjacentHTML('afterend','<details id="editor-report-panel"><summary>編集者向け報告書を作成</summary><p>不合格・注意の項目を原因ごとにまとめ、公開ページを読み取りだけで再確認したうえで、Claudeが編集者向けの対応手順を書きます。分類と件数はプログラムが決め、根拠のページも一緒に作成します。</p><p id="editor-report-calls"></p><button id="editor-report-generate" type="button">編集者向け報告書を作成</button><a id="editor-report-open" target="_blank" rel="noopener" hidden>編集者向け報告書を開く ↗</a><a id="editor-report-basis" target="_blank" rel="noopener" hidden>根拠を開く ↗</a><p id="editor-report-status" role="status"></p></details>');
+// 報告書の操作は、結果一覧の見出しのすぐ下に置く（編集者向け報告書と開発担当への引き継ぎ）。
+const reportAnchor=document.querySelector('.results-panel .panel-heading');
+reportAnchor.insertAdjacentHTML('afterend','<details id="editor-report-panel"><summary>編集者向け報告書を作成</summary><p>不合格・注意の項目を原因ごとにまとめ、公開ページを読み取りだけで再確認したうえで、Claudeが編集者向けの対応手順を書きます。分類と件数はプログラムが決め、根拠のページも一緒に作成します。</p><p id="editor-report-calls"></p><button id="editor-report-generate" type="button">編集者向け報告書を作成</button><a id="editor-report-open" target="_blank" rel="noopener" hidden>編集者向け報告書を開く ↗</a><a id="editor-report-basis" target="_blank" rel="noopener" hidden>根拠を開く ↗</a><p id="editor-report-status" role="status"></p></details>');
 const editorStages={facts:'結果を整理しています',recheck:'公開ページを再確認しています',writing:'Claudeが文章を書いています',checking:'文章を機械的に確認しています',rendering:'報告書をまとめています'};
 const editorReport={scope:'',info:null,creating:false,ticket:0,done:null};
 function editorReportShow(){
@@ -106,7 +85,7 @@ $('#editor-report-generate').onclick=async()=>{
   finally{clearInterval(timer);editorReport.creating=false;state.requesting=false;editorReport.ticket++;const current=scope===`${state.projectId}/${state.runId}`,status=$('#editor-report-status').textContent;await editorReportLoad();if(current){editorReport.done=status;$('#editor-report-status').textContent=status;}render();}
 };
 $('#editor-report-panel').ontoggle=()=>{if($('#editor-report-panel').open&&state.runId)editorReportLoad();};
-$('#issue-report-panel').insertAdjacentHTML('afterend','<details id="handoff-panel"><summary>開発担当への引き継ぎ（C-HUB）</summary><p>不合格・注意の課題を、開発担当に渡す文面にまとめます。コピーした時点の内容が引き継ぎ記録として保存されます。</p><button id="handoff-make" type="button">文面を作成</button><div id="handoff-result" hidden><p>引き継ぐ課題（外すと文面から消えます）</p><div id="handoff-issues"></div><label for="handoff-subject">件名</label><input id="handoff-subject" readonly><label for="handoff-body">本文</label><textarea id="handoff-body" readonly rows="14"></textarea><button id="handoff-copy-subject" type="button">件名をコピー</button><button id="handoff-copy-body" type="button">本文をコピー</button></div><div id="handoff-compare" hidden><button id="handoff-compare-open" type="button" hidden>前回の引き継ぎと比較</button><div id="handoff-compare-result" hidden><p id="handoff-compare-counts"></p><p>新たに発生した課題（外すと比較文面から消えます）</p><div id="handoff-compare-added"></div><label for="handoff-compare-body">比較文面</label><textarea id="handoff-compare-body" readonly rows="12"></textarea><button id="handoff-compare-copy" type="button">比較結果をコピー</button></div></div><p id="handoff-status" role="status"></p></details>');
+reportAnchor.insertAdjacentHTML('afterend','<details id="handoff-panel"><summary>開発担当への引き継ぎ（C-HUB）</summary><p>不合格・注意の課題を、開発担当に渡す文面にまとめます。コピーした時点の内容が引き継ぎ記録として保存されます。</p><button id="handoff-make" type="button">文面を作成</button><div id="handoff-result" hidden><p>引き継ぐ課題（外すと文面から消えます）</p><div id="handoff-issues"></div><label for="handoff-subject">件名</label><input id="handoff-subject" readonly><label for="handoff-body">本文</label><textarea id="handoff-body" readonly rows="14"></textarea><button id="handoff-copy-subject" type="button">件名をコピー</button><button id="handoff-copy-body" type="button">本文をコピー</button></div><div id="handoff-compare" hidden><button id="handoff-compare-open" type="button" hidden>前回の引き継ぎと比較</button><div id="handoff-compare-result" hidden><p id="handoff-compare-counts"></p><p>新たに発生した課題（外すと比較文面から消えます）</p><div id="handoff-compare-added"></div><label for="handoff-compare-body">比較文面</label><textarea id="handoff-compare-body" readonly rows="12"></textarea><button id="handoff-compare-copy" type="button">比較結果をコピー</button></div></div><p id="handoff-status" role="status"></p></details>');
 const handoff={scope:'',id:'',cmpId:'',ticket:0};
 const handoffURL=kind=>`${runAPI()}/${kind}`,handoffKeys=box=>[...box.querySelectorAll('input:not(:checked)')].map(i=>i.dataset.key);
 const handoffList=(box,items)=>{box.innerHTML=items.map(i=>`<label><input type="checkbox" data-key="${escape(i.key)}" checked> <span>${escape(i.level==='caution'?'注意':'不合格')}：${escape(i.rowTitle)} — ${escape(i.title)}</span></label>`).join('')||'<p class="quiet">該当する課題はありません。</p>';};
@@ -184,6 +163,7 @@ function classifyRow(r){
     javascript:['JavaScriptエラー','ページ表示・表示準備・画像スクロール中の未捕捉例外を検査。他の表示検査は続行。'],
     page:['HTTP・メタ情報','HTTP 200、HTML形式、タイトル、canonical、noindexの期待値を確認。'],
     links:['内部リンク','ページ内の内部リンク先にアクセスでき、HTTPエラーにならないことを確認。'],
+    // layout・snapshot は廃止した検査。過去の実行結果を表示するためだけに名前を残す。
     layout:['レイアウト','画面幅からの横はみ出しを確認。'+displayReadiness],
     axe:['アクセシビリティ','axeによるWCAG 2.0・2.1 A／AAの自動検査。'+displayReadiness],
     snapshot:['画像比較','承認済み基準画像と比較。未承認時は直接確認。'+displayReadiness],
@@ -342,11 +322,11 @@ $('#unconfirmed-body').addEventListener('click',e=>{const button=e.target.closes
 function failureHTML(f){return `<dl><dt>不合格の理由・取得結果</dt><dd>${escape(f.actual)}</dd><dt>利用者への影響</dt><dd>${escape(f.impact)}</dd><dt>管理画面での対応・確認方法</dt><dd>${escape(f.admin)}</dd><dt>設定で直らない場合</dt><dd>${escape(f.code)}</dd><dt>修正後の確認</dt><dd>${escape(f.verify)}</dd></dl>`;}
 function renderDetail(){
   const r=state.report?.report?.rows.find(r=>r.id===state.detail);
-  const key=JSON.stringify([state.runId,r,state.report?.canApprove,state.report?.candidates,state.busy]);if(key===state.detailKey)return;state.detailKey=key;
+  const key=JSON.stringify([state.runId,r,state.report?.canApprove,state.busy]);if(key===state.detailKey)return;state.detailKey=key;
   if(!r){$('#detail').innerHTML='<div class="detail-placeholder"><span aria-hidden="true">↖</span><h3>確認したい項目を選択</h3></div>';return;}
-  const preparing=needsPreparation(r),files=r.evidence??[],candidate=!preparing&&state.report.candidates.includes(r.id),canApprove=state.report.canApprove&&!state.busy;
+  const preparing=needsPreparation(r),files=r.evidence??[],canApprove=state.report.canApprove&&!state.busy;
   const descriptions={preparation:'検査条件や期待値が未定義のため、実行対象に含めていません。設定を登録してから検査してください。',pass:'この検査は期待した結果に一致しました。',not_run:'この実行では確認していません。対象の検査範囲を選んで実行してください。',review:'人による確認が必要です。証拠と期待する状態を照合してください。',caution:'参考検査で兆候が見つかりました。必須条件には影響しません。内容を確認し、必要に応じて対応してください。',blocked:'前提条件や実行環境を確認してから再実行してください。',not_applicable:'このサイトでは適用外として登録されています。',fail:'期待結果との違いがあります。証拠から原因を確認してください。'};
-  $('#detail').innerHTML=`${badge(r)}<h3 class="detail-title">${escape(r.title)}</h3><div class="detail-id">${escape(r.id)}</div><span class="detail-label">判定の内容</span><p class="detail-description">${escape(r.autoNotApplicable?'このサイトに関係しないと自動で判定し、対象外にしました。根拠を確認してください。':descriptions[displayStatus(r)]??'')}</p>${r.setting?`<span class="detail-label">設定の照合</span><dl><dt>取得方法</dt><dd>${escape(r.setting.source)}</dd><dt>期待値</dt><dd>${escape(JSON.stringify(r.setting.expected))}</dd><dt>取得した値</dt><dd>${escape(JSON.stringify(r.setting.actual))}</dd></dl>`:''}${r.reason?`<pre class="reason">${escape(r.reason.replace(/\x1b\[[0-9;]*m/g,''))}</pre>`:''}${files.length?'<span class="detail-label">証拠ファイル</span>':''}<div class="evidence-list">${files.map(f=>`<a class="evidence-link" href="${fileURL(f)}" target="_blank" rel="noopener">${escape(f.split('/').at(-1))} ↗</a>${/\.png$/i.test(f)?`<a href="${fileURL(f)}" target="_blank" rel="noopener"><img class="evidence-image" src="${fileURL(f)}" alt="${escape(f.split('/').at(-1))}"></a>`:''}`).join('')}</div>${candidate?`<div class="approval"><span class="detail-label">基準画像のレビュー</span><p class="detail-description">表示が意図どおりか確認した画像のみ承認します。承認後も、再実行するまで以前の判定は変わりません。</p>${canApprove?'<label><input type="checkbox" id="approve-check">候補画像を確認し、意図した表示であることを確認しました</label><button class="primary" id="approve-button" disabled>この画像を基準として承認</button>':'<p class="approval-note">実行中、または現在の設定と異なる履歴のため承認できません。必要に応じて再実行してください。</p>'}</div>`:''}`;
+  $('#detail').innerHTML=`${badge(r)}<h3 class="detail-title">${escape(r.title)}</h3><div class="detail-id">${escape(r.id)}</div><span class="detail-label">判定の内容</span><p class="detail-description">${escape(r.autoNotApplicable?'このサイトに関係しないと自動で判定し、対象外にしました。根拠を確認してください。':descriptions[displayStatus(r)]??'')}</p>${r.setting?`<span class="detail-label">設定の照合</span><dl><dt>取得方法</dt><dd>${escape(r.setting.source)}</dd><dt>期待値</dt><dd>${escape(JSON.stringify(r.setting.expected))}</dd><dt>取得した値</dt><dd>${escape(JSON.stringify(r.setting.actual))}</dd></dl>`:''}${r.reason?`<pre class="reason">${escape(r.reason.replace(/\x1b\[[0-9;]*m/g,''))}</pre>`:''}${files.length?'<span class="detail-label">証拠ファイル</span>':''}<div class="evidence-list">${files.map(f=>`<a class="evidence-link" href="${fileURL(f)}" target="_blank" rel="noopener">${escape(f.split('/').at(-1))} ↗</a>${/\.png$/i.test(f)?`<a href="${fileURL(f)}" target="_blank" rel="noopener"><img class="evidence-image" src="${fileURL(f)}" alt="${escape(f.split('/').at(-1))}"></a>`:''}`).join('')}</div>`;
   $('#detail .detail-id').insertAdjacentHTML('afterend',`<details class="check-details"><summary>検査内容</summary><p>${escape(classifyRow(r)[2])}</p></details>`);
   if(r.failures?.length)$('#detail .detail-id').insertAdjacentHTML('afterend',r.failures.map(f=>`<section class="preparation-help"><h4>${escape(f.title)}</h4>${failureHTML(f)}</section>`).join(''));
   if(preparing||r.status==='blocked'){
@@ -373,7 +353,7 @@ function renderDetail(){
     $('#manual-review').hidden=true;
     $('#detail .detail-id').insertAdjacentHTML('afterend',`<section class="confirmation-panel"><button type="button" id="start-confirmation" ${!canApprove?'disabled':''}>確認を進める</button><p>手順ごとに確認し、途中結果・証拠を保存できます。サイトへの送信は自動実行しません。</p><div id="confirmation-workspace"></div></section>`);
   }else if(!preparing&&['review','blocked','fail','not_run'].includes(r.status)){
-    $('#detail').insertAdjacentHTML('beforeend',`<section class="confirmation-panel">${candidate?'<p>候補画像の承認後に比較できます。</p>':''}<button id="execute-case" type="button" ${!canApprove?'disabled':''}>この項目を再検査</button></section>`);
+    $('#detail').insertAdjacentHTML('beforeend',`<section class="confirmation-panel"><button id="execute-case" type="button" ${!canApprove?'disabled':''}>この項目を再検査</button></section>`);
   }
 }
 function render(){
@@ -413,19 +393,13 @@ function render(){
   $('#metric-preparation').textContent=report?preparationCount:'—';
   const notRun=rows.filter(r=>r.status==='not_run'&&!needsPreparation(r)).length;
   $('#metric-not_run').textContent=report?notRun:'—';$('#metric-unconfirmed').textContent=report?(report.summary?.review??0)+notRun+preparationCount:'—';
-  $('#report-link').hidden=!report;if(report)$('#report-link').href=fileURL(report.aggregation&&rows.some(r=>r.evidence?.includes('followup-summary.html'))?'followup-summary.html':'report.html');
-  $('#results-download').hidden=!report||['running','starting','planned'].includes(report.runStatus);if(report)$('#results-download').href=runAPI()+'/download';
-  $('#issue-report-panel').hidden=!report;
-  $('#issue-report-generate').disabled=state.requesting||report?.runStatus!=='finished';
   const reportScope=`${state.projectId}/${state.runId}`;
-  if(issueReportScope!==reportScope){issueReportScope=reportScope;$('#issue-report-open').hidden=true;$('#issue-report-status').textContent='';$('#issue-report-notes').value='';}
   $('#editor-report-panel').hidden=!report;
   if(editorReport.scope!==reportScope+report?.runStatus){editorReport.scope=reportScope+report?.runStatus;editorReport.info=null;editorReport.done=null;editorReport.ticket++;$('#editor-report-status').textContent='';if(report&&!editorReport.creating)editorReportLoad();}
   editorReportShow();
   $('#handoff-panel').hidden=!report;$('#handoff-make').disabled=state.requesting||report?.runStatus!=='finished';
   if(handoff.scope!==reportScope){handoff.scope=reportScope;handoff.id=handoff.cmpId='';$('#handoff-result').hidden=true;$('#handoff-compare-result').hidden=true;$('#handoff-status').textContent='';}
   const finished=report?.runStatus==='finished'&&report.runId===state.runId,probeKey=reportScope+finished;if(handoff.probeKey!==probeKey){handoff.probeKey=probeKey;handoffProbe(finished);}
-  if(report?.autoReport?.file==='issue-report.html'){$('#issue-report-open').href=`${projectAPI()}/runs/${state.runId}/files?path=issue-report.html`;$('#issue-report-open').hidden=false;$('#issue-report-status').textContent='検査完了時に報告書を自動生成しました。';}
   renderRows();renderDetail();renderFindings();renderTodoState();
   $('#run-time').textContent=report?date(report.finishedAt??report.startedAt):'';
   const metadata=[['対象サイト',report?.baseURL??state.project?.baseURL??'—'],['実行ID',report?.runId??'—'],['環境',({local:'ローカル',staging:'検証環境',production:'本番環境'})[report?.environment??state.project?.environment]??'—'],['設定ファイル',state.project?.configPath??'—'],['対象リビジョン',report?.revision??'未指定'],['実行環境',report?.runtime??'—']];
@@ -463,9 +437,6 @@ async function refresh(){
     state.lastActive=running;state.runId=runId;state.report=report;
     renderHistory(data.runs);render();void refreshLatest(data);void refreshTodo(data);
     if(completedReport)showVerdict(completedReport.report,data.lastJob.exitCode);
-    if(completedReport&&$('#auto-download-results').checked&&!downloadedRuns.has(expectedProject+'/'+completedId)){
-      downloadedRuns.add(expectedProject+'/'+completedId);const link=document.createElement('a');link.href=`/api/projects/${encodeURIComponent(expectedProject)}/runs/${encodeURIComponent(completedId)}/download`;link.download='';document.body.append(link);link.click();link.remove();notify('結果のダウンロードを開始しました。保存されない場合は「結果をPCに保存（ZIP）」を押してください。');
-    }
   }catch(e){if(current())showError('状態を取得できませんでした：'+e.message);}
 }
 $('#project-select').addEventListener('change',async e=>{++refreshTicket;state.projectId=e.target.value;state.project=null;localStorage.setItem('wpqa-project',state.projectId);state.runId=null;state.report=null;state.detail=null;state.follow=true;state.lastActive=false;state.rowsKey='';state.historyKey='';Object.assign(todoUI,{data:null,key:''});renderTodo();notify('');showError('');render();await refresh();});
@@ -489,7 +460,6 @@ $('#test-rows').addEventListener('click',e=>{
 });
 $('#filters').addEventListener('click',e=>{const button=e.target.closest('[data-filter]');if(!button)return;state.filter=button.dataset.filter;for(const b of $('#filters').querySelectorAll('button')){b.classList.toggle('selected',b===button);b.setAttribute('aria-pressed',String(b===button));}renderRows();});
 $('#search').addEventListener('input',e=>{state.search=e.target.value;renderRows();});
-$('#detail').addEventListener('change',e=>{if(e.target.id==='approve-check')$('#approve-button').disabled=!e.target.checked;});
 $('#detail').addEventListener('click',async e=>{
  if(e.target.id==='start-confirmation'){
   const host=$('#confirmation-workspace'),endpoint=runAPI()+'/confirmation/'+encodeURIComponent(state.detail);
@@ -523,15 +493,6 @@ $('#detail').addEventListener('submit',async e=>{
  const payload={rowId,reviewer:values.get('reviewer').trim(),outcome:values.get('outcome'),notes:values.get('notes').trim(),evidence:values.get('evidence').split(/\r?\n/).map(v=>v.trim()).filter(Boolean)};
  ++refreshTicket;state.requesting=true;form.querySelector('button').disabled=true;showError('');
  try{await api(url,{method:'POST',body:JSON.stringify(payload)});notify('人手による判定を保存しました');}catch(error){showError(error.message);}finally{state.requesting=false;state.detailKey='';await refresh();}
-});
-$('#detail').addEventListener('click',async e=>{
-  if(e.target.id!=='approve-button'||!$('#approve-check')?.checked)return;
-  const approvedRun=state.report?.report?.runId;
-  if(!approvedRun||approvedRun!==state.runId||state.requesting)return;
-  const approvalURL=runAPI()+'/approve',approvedId=state.detail;
-  ++refreshTicket;state.requesting=true;e.target.disabled=true;showError('');
-  try{await api(approvalURL,{method:'POST',body:JSON.stringify({id:approvedId,confirmed:true})});notify('基準画像を承認しました。再実行して比較してください。');}
-  catch(error){showError(error.message);}finally{state.requesting=false;state.detailKey='';await refresh();}
 });
 try{
   const boot=await api('/api/bootstrap');document.querySelector('.page-footer').textContent+=' ／ '+(boot.releaseVersion??'版情報なし');state.shared=boot.shared===true;state.canRemove=boot.canRemove===true;state.token=boot.token;state.projects=boot.projects;$('#demo-label').hidden=!boot.demo;

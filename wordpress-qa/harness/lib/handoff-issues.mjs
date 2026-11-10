@@ -1,6 +1,5 @@
 import {displayStatus} from './results.mjs';
 import {RULES} from './security-baseline-rules.mjs';
-import {evidenceUrls} from './issue-report.mjs';
 
 const KEEP=/^(baseline|security|setting):/;
 // 実行ごとに変わる部分（クエリ・UUID・日時・16進・数字）を除き、同じ問題を同じキーにする。baseline:/security:/setting: はパスやIDが識別子なので変えない。
@@ -23,4 +22,16 @@ export function collectIssues({report,readEvidence}){
     }
   }
   return [...out.values()];
+}
+
+const reportEvidenceFiles=row=>(row.evidence??[]).filter(f=>/\/(axe|javascript|policy|audit|layout|links)-[^/]+\.json$/.test(f)||/^(axe|javascript|policy|audit|layout|links)\.json$/.test(f)||/(?:^|\/)security-baseline\.json$/.test(f));
+// 証拠に記録された対象URL（data.url と基礎診断の path）。読めない証拠は無視する。
+export function evidenceUrls({row,run,readEvidence}){
+  const urls=new Set(),add=u=>{try{if(u)urls.add(new URL(u,run.baseURL).href);}catch{}};
+  for(const file of reportEvidenceFiles(row)){
+    let data;try{data=readEvidence(run.runId,file);}catch{continue;}
+    if(typeof data?.url==='string')add(data.url);
+    if(data?.schema==='security-baseline-v1')for(const x of data.findings??[])if(Object.hasOwn(RULES,x.rule))add(x.path);
+  }
+  return [...urls];
 }

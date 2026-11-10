@@ -110,9 +110,7 @@ export function catalog(c, suite='all') {
   for(const j of c.journeys) {add(`journey.${j.id}`,'journey',j.title??j.id,j.required);if(j.explicitOnly&&!j.runWithSuite)rows.at(-1).selected=false;}
   for(const a of c.admin??[])add('admin.'+a.id,'admin',a.title??a.id,a.required);
   for(const v of c.visuals) {
-    add(`layout.${v.id}`,'visual',`${v.pageId}: ${v.width}px layout`,v.required);
     add(`javascript.${v.id}`,'visual',`${v.pageId}: ${v.width}px JavaScript errors`,v.required);
-    add(`snapshot.${v.id}`,'visual',`${v.pageId}: ${v.width}px screenshot`,v.required);
     if(v.axe) add(`axe.${v.id}`,'visual',`${v.pageId}: ${v.width}px accessibility`,v.required);
   }
   for(const check of c.checks??[]) {add('check.'+check.id,check.suite,check.title,check.required);Object.assign(rows.at(-1),{kind:check.kind,...(!check.required&&(check.kind==='security-baseline'||check.kind==='software-security'&&check.options?.component==='compatibility')?{level:'caution'}:{}),manualReview:check.kind==='human-review',instructions:check.options.instructions});}

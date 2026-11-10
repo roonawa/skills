@@ -212,11 +212,8 @@ try{
   assert.deepEqual(detail.report.errors,[]);
   assert(detail.report.rows.some(r=>r.required&&!r.selected&&r.status==='not_run'));
   assert(detail.report.rows.filter(r=>r.selected).every(r=>r.id.startsWith('admin.')),'only admin suite executes');
-  assert(detail.report.autoReport,'run finish records automatic report generation');
-  const report=await fetch(`${app.url}/api/projects/${id}/runs/${job.runId}/files?path=issue-report.html`);
-  assert.equal(report.status,200);
-  assert.match(report.headers.get('content-type'),/text\/html/);
-  const html=await report.text();assert.match(html,/<html[\s>]/i);assert(!html.includes(session));
+  assert.equal(detail.report.autoReport,undefined,'no automatic issue report');
+  assert.equal((await fetch(`${app.url}/api/projects/${id}/runs/${job.runId}/files?path=issue-report.html`)).status!==200,true);
   assert(!JSON.stringify(detail).includes(session));
   assert(requests.every(r=>r.method==='GET'),'registration and admin suite never mutate WordPress');
   assert.deepEqual(errors,[]);

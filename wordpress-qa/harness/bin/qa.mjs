@@ -29,9 +29,9 @@ function options(args) {
 async function main() {
   const [command,...args]=process.argv.slice(2);
   if(!command || command==='help' || command==='--help') {
-    console.log('qa validate --config site.json\nqa discover --config site.json --sitemap /wp-sitemap.xml --output inventory.json\nqa run --config site.json [--suite all|standard|interaction|audit|journey|visual|admin|publishing|authz|cache|operations|scheduled|delivery|performance|compatibility|seo|accessibility|commerce|membership|multilingual] [--id <row-id>[,<row-id>...]]\nqa approve-baseline --config site.json --run <run-directory> --id snapshot.<id>\nqa recover --config site.json --run <run-directory>\nExit: 0=command succeeded / required checks satisfied; 1=test failure; 2=incomplete/configuration/environment issue.'); return;
+    console.log('qa validate --config site.json\nqa discover --config site.json --sitemap /wp-sitemap.xml --output inventory.json\nqa run --config site.json [--suite all|standard|interaction|audit|journey|visual|admin|publishing|authz|cache|operations|scheduled|delivery|performance|compatibility|seo|accessibility|commerce|membership|multilingual] [--id <row-id>[,<row-id>...]]\nqa recover --config site.json --run <run-directory>\nExit: 0=command succeeded / required checks satisfied; 1=test failure; 2=incomplete/configuration/environment issue.'); return;
   }
-  if(!['validate','discover','run','approve-baseline','recover'].includes(command)) throw new Error(`Unknown command: ${command}`);
+  if(!['validate','discover','run','recover'].includes(command)) throw new Error(`Unknown command: ${command}`);
   const opts=options(args),ctx=loadConfig(opts.config),c=ctx.config;
   const rows=catalog(c,opts.suite??'all');
   if(command==='run'&&opts.id){const operation=c.journeys.find(j=>j.explicitOnly&&'journey.'+j.id===opts.id);if(operation)ctx.operation={id:operation.id,mode:process.env.WPQA_OPERATION_MODE,handlesAuthentication:operation.handlesAuthentication===true};}
@@ -79,19 +79,6 @@ async function main() {
   if(command==='validate') {
     for(const j of c.journeys) if(!fs.existsSync(path.resolve(ctx.configDir,j.module))) throw new Error(`Journey module not found: ${j.module}`);
     console.log(`Valid: ${c.name}; ${rows.length} checks; SHA256 ${ctx.configHash}`);return;
-  }
-  if(command==='approve-baseline') {
-    if(!opts.run||!opts.id||!/^snapshot\.[a-z][a-z0-9-]{0,63}$/.test(opts.id)) throw new Error('--run and valid --id required');
-    const run=path.resolve(opts.run),report=JSON.parse(fs.readFileSync(path.join(run,'results.json'),'utf8'));
-    if(report.configHash!==ctx.configHash) throw new Error('Configuration changed since candidate capture; run again');
-    const row=report.rows.find(r=>r.id===opts.id);
-    if(!row || !['review','fail','pass'].includes(row.status)) throw new Error('No reviewable screenshot result');
-    const meta=JSON.parse(fs.readFileSync(path.join(run,'candidates',`${opts.id}.json`),'utf8'));
-    if(meta.id!==opts.id || meta.configHash!==ctx.configHash) throw new Error('Candidate does not match config/id');
-    fs.mkdirSync(ctx.baselineDir,{recursive:true});
-    fs.copyFileSync(path.join(run,'candidates',`${opts.id}.png`),path.join(ctx.baselineDir,`${opts.id.replace('.', '-')}.png`));
-    fs.writeFileSync(path.join(ctx.baselineDir,`${opts.id}.json`),JSON.stringify({...meta,approvedAt:new Date().toISOString(),sourceRun:report.runId},null,2));
-    console.log(`Approved ${opts.id}. Run visual tests again; the previous report remains unchanged.`);return;
   }
   const runId=`${new Date().toISOString().replace(/[:.]/g,'-')}-${randomUUID().slice(0,8)}`;
   ctx.runDir=path.join(path.resolve(ctx.configDir,c.outputDir??'runs'),runId);fs.mkdirSync(ctx.runDir,{recursive:true});

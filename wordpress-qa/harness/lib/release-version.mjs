@@ -1,1 +1,1 @@
-export const releaseVersion='2026-11-09-report-terms';
+export const releaseVersion='2026-11-10-reports-trim';
