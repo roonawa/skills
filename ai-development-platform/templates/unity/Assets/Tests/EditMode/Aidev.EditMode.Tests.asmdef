@@ -1,0 +1,6 @@
+{
+  "name": "Aidev.EditMode.Tests",
+  "references": ["Aidev.Game"],
+  "includePlatforms": ["Editor"],
+  "optionalUnityReferences": ["TestAssemblies"]
+}

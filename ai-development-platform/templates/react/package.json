@@ -1,0 +1,33 @@
+{
+  "name": "aidev-react-starter",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22.17.1"
+  },
+  "scripts": {
+    "dev": "vite",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome lint --error-on-warnings src",
+    "test": "node --import tsx --test \"src/**/*.test.tsx\"",
+    "test:coverage": "c8 --all --src src --include \"src/**\" --exclude \"src/**/*.test.tsx\" --exclude src/main.tsx --check-coverage --lines 80 --branches 80 --functions 80 --statements 80 --reporter text node --import tsx --test \"src/**/*.test.tsx\"",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.6.6",
+    "@types/jsdom": "21.1.7",
+    "@types/node": "22.20.5",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "c8": "12.0.0",
+    "jsdom": "26.1.0",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3",
+    "vite": "7.3.8"
+  }
+}

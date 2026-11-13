@@ -1,0 +1,8 @@
+[
+  "ProjectSettings/ProjectVersion.txt",
+  "Packages/manifest.json",
+  "Assets/Scripts/Score.cs",
+  "Assets/Scripts/Aidev.Game.asmdef",
+  "Assets/Tests/EditMode/ScoreTests.cs",
+  "Assets/Tests/EditMode/Aidev.EditMode.Tests.asmdef"
+]
