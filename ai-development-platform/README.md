@@ -147,4 +147,4 @@ Skill 名には、利用者環境の汎用 Skill（code-review、debugging な�
 CI は親リポジトリの .github/workflows/aidev.yml にある。依存監査、strict ビルド、単体・CLI テストを3 OSで実行する設定。リリースや本番への配布は手動。リンク拒否の結合テストにはテスト用ディレクトリにリンクを作成できる環境が必要。
 
 ## 設計と次の開発
-[構成](docs/architecture.md) / [技術選定と調査元](docs/technical-decisions.md) / [実装計画](docs/implementation-plan.md) / [バックログ](docs/initial-backlog.md)
+[構成](docs/architecture.md) / [技術選定と調査元](docs/technical-decisions.md) / [実装計画](docs/implementation-plan.md) / [バックログ](docs/initial-backlog.md) / [無人実行ランナーと C-HUB 連携（案）](docs/autonomous-runner-design.md)
