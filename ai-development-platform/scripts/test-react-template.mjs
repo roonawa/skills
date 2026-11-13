@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
-import {mkdtempSync, rmSync, statSync, writeFileSync} from 'node:fs';
+import {mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -34,10 +34,16 @@ try {
     "test('初期スコアは数値の 0', () => assert.equal(score, 0));",
     ''
   ].join('\n'));
-  const workflow = [cli,'workflow','check','score-type'];
+  // The security and spec gates come from an AI review; this smoke test supplies a passing one.
+  const review = join(project,'.aidev','reviews','score-type.json');
+  mkdirSync(join(project,'.aidev','reviews'),{recursive:true});
+  writeFileSync(review,JSON.stringify({security:{status:'passed',findings:[]},spec:{status:'passed',findings:[]}}));
+  const workflow = [cli,'workflow','check','score-type','--review','.aidev/reviews/score-type.json'];
   const baseline = JSON.parse(run(project,workflow,1));
   assert.equal(baseline.state,'repair');
   assert.ok(baseline.checks.some(check => check.name === 'typecheck' && check.status === 'failed'));
+  assert.deepEqual(baseline.checks.filter(check => ['security','spec'].includes(check.name)).map(check => check.status),
+    ['passed','passed']);
   writeFileSync(source,'export const score: number = 0;\n');
   const repaired = JSON.parse(run(project,workflow));
   assert.equal(repaired.state,'review');
