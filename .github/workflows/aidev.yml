@@ -1,0 +1,27 @@
+name: aidev
+on:
+  push:
+    paths: ['ai-development-platform/**', '.github/workflows/aidev.yml']
+  pull_request:
+    paths: ['ai-development-platform/**', '.github/workflows/aidev.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: ai-development-platform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --ignore-scripts
+      - run: npm audit --audit-level=high
+      - run: npm test
+      - run: npm run test:react
