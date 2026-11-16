@@ -15,6 +15,7 @@ test('reads projects, sections, tasks and a single task with GET and the bearer 
   const projects = await client.listProjects();
   assert.deepEqual(projects.map(p => [p.title, p.archived]), [['テスト用ボード', false], ['古いボード', true]]);
   assert.deepEqual((await client.listSections('tp-1'))[0], {id: '351', name: 'AI実装待ち'});
+  assert.equal(calls[1].url, BASE + '/api/plugin/task-manager/projects/tp-1');
   assert.equal((await client.listTasks('tp-1', true))[0].id, 'task-1');
   assert.equal((await client.getTask('task-1')).description, 'x');
   assert.ok(calls.every(c => c.method === 'GET' && c.headers.Authorization === 'Bearer ' + TOKEN));

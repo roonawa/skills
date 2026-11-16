@@ -15,8 +15,8 @@ export function fakeChub({tasks = [], overrides = {}} = {}) {
       {id: 'tp-1', title: 'テスト用ボード', archived: '0'},
       {id: 'tp-old', title: '古いボード', archived: '1'},
     ]}),
-    '/api/plugin/task-manager/projects/tp-1/sections': ok({sections: [
-      {id: 351, name: 'AI実装待ち'}, {id: 352, name: 'AI実行中'}, {id: 353, name: '人の確認待ち'}]}),
+    '/api/plugin/task-manager/projects/tp-1': ok({project: {id: 'tp-1', title: 'テスト用ボード', archived: 0}, sections: [
+      {id: 351, name: 'AI実装待ち'}, {id: 352, name: 'AI実行中'}, {id: 353, name: '人の確認待ち'}], statuses: []}),
     '/api/plugin/task-manager/projects/tp-1/tasks': ok({tasks: tasks.map(({description, comments, ...t}) => t)}),
     ...Object.fromEntries(tasks.map(t => ['/api/plugin/task-manager/tasks/' + t.id, ok({task: t})])),
     ...overrides,

@@ -123,8 +123,9 @@ export function createChubClient(options: ChubClientOptions) {
       return list(data(await get(base + '/projects')).projects).map(project => ({
         id: String(project.id), title: String(project.title ?? ''), archived: isArchived(project.archived)}));
     },
+    // Sections come with the project detail (OpenAPI: GET /projects/{projectId} returns data.sections).
     async listSections(projectId: string): Promise<ChubSection[]> {
-      const path = base + '/projects/' + checkId(projectId, 'プロジェクトID') + '/sections';
+      const path = base + '/projects/' + checkId(projectId, 'プロジェクトID');
       return list(data(await get(path)).sections).map(section => ({id: String(section.id), name: String(section.name ?? '')}));
     },
     async listTasks(projectId: string, showCompleted = false): Promise<ChubTask[]> {
@@ -140,9 +141,10 @@ export function createChubClient(options: ChubClientOptions) {
   });
 }
 
-/** Finds the non-archived project named exactly `title`. */
-export async function findBoard(client: ChubClient, title: string): Promise<ChubProject | undefined> {
-  return (await client.listProjects()).find(project => project.title === title && !project.archived);
+/** Finds the non-archived project whose ID (tp-...) or exact title is `board`. An ID match wins over a title. */
+export async function findBoard(client: ChubClient, board: string): Promise<ChubProject | undefined> {
+  const projects = (await client.listProjects()).filter(project => !project.archived);
+  return projects.find(project => project.id === board) ?? projects.find(project => project.title === board);
 }
 
 function strings(value: unknown, label: string): string[] {

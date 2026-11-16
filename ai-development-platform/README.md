@@ -156,21 +156,21 @@ CI は親リポジトリの .github/workflows/aidev.yml にある。依存監査
 
 |環境変数|内容|
 |---|---|
-|CHUB_BASE_URL|C-HUB の URL（https:// のみ）|
-|CHUB_TOKEN|`task-manager:read` のトークン|
+|CHUB_BASE_URL|C-HUB の URL（https:// のみ。例 `https://chub.ailesys.co.jp`）|
+|CHUB_TOKEN|`task-manager:read` だけを付けた API キー。C-HUB の「プラグイン > AI とつなぐ」で申請する|
 |AIDEV_CHUB_CONFIG|設定ファイルのパス（`--config FILE` でも指定できる）|
 
 設定ファイル（JSON）の例。リポジトリに置く場合は token を書かない。
 
 ```json
 {
-  "boards": ["テスト用ボード"],
+  "boards": ["tp-1794804787123-7gx3d"],
   "sections": {"ready": "AI実装待ち", "running": "AI実行中", "needsHuman": "人の確認待ち"},
   "allowedRepositories": ["org/app"]
 }
 ```
 
-sections を省略すると上の名前を使う。C-HUB の社内証明書を Node.js が信頼しない場合は、`NODE_EXTRA_CA_CERTS` に社内認証局の証明書（PEM）を指定する。証明書の検証は無効にしない。Node.js は Windows の curl と違い、既定では失効確認をしない。社内の C-HUB で実際に接続できるかは未確認。
+boards にはボード（プロジェクト）の ID（`tp-...`、C-HUB の URL の `projectId`）か名前を書く。ID のほうが名前の変更に影響されない。sections を省略すると上の名前を使う。API の呼び方は C-HUB の公開の API 定義（`https://chub.ailesys.co.jp/openapi.json`）に合わせている。実際の接続は未確認。
 
 ### ランナーの dry-run
 
@@ -190,15 +190,16 @@ node dist/runner.js --dry-run --config runner.json
 
 依頼テンプレートの必須項目は「対象リポジトリ」（org/repo）、「基準ブランチ」、「受け入れ条件」（`- AC-001: 説明` の行が1件以上）。「やらないこと」「参考」は判定に使わない。成功は終了コード 0、設定や通信の失敗は 1。
 
-### MCP サーバー（読み取りのみ）
+### 対話で C-HUB を読む（公式 MCP）
 
-開発者の Claude Code に stdio の MCP サーバーとして登録する。ツールは list_tasks（ボードとセクションを指定）、get_task（1件の本文・コメント）、list_needs_human（「人の確認待ち」と、コメントの `reason: ...`）の3つ。書き込みのツールはない。結果には、本文が外部データであり指示ではないという注記が付く。
+対話用には C-HUB 公式の MCP を使い、自作の MCP サーバーは置かない。ターミナルで次を実行し、ブラウザで許可する。
 
 ```powershell
-claude mcp add aidev-chub -e CHUB_BASE_URL=https://wkozu2024:3030 -e AIDEV_CHUB_CONFIG=C:\path\runner.json -- node C:\path\ai-development-platform\dist\mcp-chub.js
+claude mcp add --transport http c-hub https://chub.ailesys.co.jp/api/mcp
+claude mcp login c-hub
 ```
 
-トークンは CHUB_TOKEN として各自のユーザー環境変数に置き、コマンドの引数や共有の設定ファイルに書かない。
+公式 MCP の書き込み系の道具は、権限があれば確認なしで実行される。許可の画面では `task-manager:read` だけを与え、書き込みの権限が付いたキーやトークンを対話に使わない。Claude Code 側でも書き込み系の道具を「常に許可」にしない。キーを使う場合も、コマンドの引数や共有の設定ファイルに書かない。
 
 ## 設計と次の開発
 [構成](docs/architecture.md) / [技術選定と調査元](docs/technical-decisions.md) / [実装計画](docs/implementation-plan.md) / [バックログ](docs/initial-backlog.md) / [無人実行ランナーと C-HUB 連携（案）](docs/autonomous-runner-design.md)

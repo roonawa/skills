@@ -81,3 +81,11 @@ test('failures exit 1 without revealing secrets; only --dry-run is accepted', as
   const noBoards = await main(['--dry-run', '--config', config(t, {boards: []})], env, {transport: async () => assert.fail('sent')});
   assert.match(JSON.parse(noBoards.output).error, /boards/);
 });
+
+test('boards can be named by project ID; archived projects are skipped either way', async t => {
+  const {transport} = fakeChub({tasks: [task('task-a', 351, template())]});
+  const {output} = await main(['--dry-run', '--config', config(t, {boards: ['tp-1', 'tp-old']})], env, {transport, sleep});
+  const report = JSON.parse(output);
+  assert.deepEqual(report.boards.map(b => [b.name, b.found, b.readyCount]), [['tp-1', true, 1], ['tp-old', false, 0]]);
+  assert.equal(report.next, 'task-a');
+});
