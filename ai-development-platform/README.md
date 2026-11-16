@@ -146,5 +146,59 @@ Skill 名には、利用者環境の汎用 Skill（code-review、debugging な�
 
 CI は親リポジトリの .github/workflows/aidev.yml にある。依存監査、strict ビルド、単体・CLI テストを3 OSで実行する設定。リリースや本番への配布は手動。リンク拒否の結合テストにはテスト用ディレクトリにリンクを作成できる環境が必要。
 
+## C-HUB の読み取りと無人実行ランナー（段階1）
+
+[設計書（案）](docs/autonomous-runner-design.md) の段階1として、C-HUB を読むだけの部品を置く。C-HUB と Gitea には書き込まない。`src/chub.ts` は GET しか送らず、書き込みの関数を持たない。
+
+### 設定
+
+接続先とトークンは環境変数で渡す。設定ファイルにも書けるが、環境変数が優先する。どちらの値も出力・エラー文に出さない。
+
+|環境変数|内容|
+|---|---|
+|CHUB_BASE_URL|C-HUB の URL（https:// のみ）|
+|CHUB_TOKEN|`task-manager:read` のトークン|
+|AIDEV_CHUB_CONFIG|設定ファイルのパス（`--config FILE` でも指定できる）|
+
+設定ファイル（JSON）の例。リポジトリに置く場合は token を書かない。
+
+```json
+{
+  "boards": ["テスト用ボード"],
+  "sections": {"ready": "AI実装待ち", "running": "AI実行中", "needsHuman": "人の確認待ち"},
+  "allowedRepositories": ["org/app"]
+}
+```
+
+sections を省略すると上の名前を使う。C-HUB の社内証明書を Node.js が信頼しない場合は、`NODE_EXTRA_CA_CERTS` に社内認証局の証明書（PEM）を指定する。証明書の検証は無効にしない。Node.js は Windows の curl と違い、既定では失効確認をしない。社内の C-HUB で実際に接続できるかは未確認。
+
+### ランナーの dry-run
+
+```powershell
+npm run build
+node dist/runner.js --dry-run --config runner.json
+```
+
+各ボードの「AI実装待ち」のタスクを作成日時の古い順に読み、単一取得した本文で着手条件を判定して JSON を返す。`--dry-run` 以外の起動は受け付けない。
+
+|項目|内容|
+|---|---|
+|tasks[].eligible / reasons|着手の可否と理由。理由のコードは missing-repository、invalid-repository、repository-not-allowed、missing-base-branch、invalid-base-branch、missing-acceptance、invalid-task-id、section-changed|
+|next|次の起動で着手する予定のタスク（着手可能なうち最古）|
+|interrupted|「AI実行中」に残るタスク。段階2以降は人の確認待ちへ移す対象。段階1では表示だけ|
+|boards|ボードとセクションが見つかったか、件数|
+
+依頼テンプレートの必須項目は「対象リポジトリ」（org/repo）、「基準ブランチ」、「受け入れ条件」（`- AC-001: 説明` の行が1件以上）。「やらないこと」「参考」は判定に使わない。成功は終了コード 0、設定や通信の失敗は 1。
+
+### MCP サーバー（読み取りのみ）
+
+開発者の Claude Code に stdio の MCP サーバーとして登録する。ツールは list_tasks（ボードとセクションを指定）、get_task（1件の本文・コメント）、list_needs_human（「人の確認待ち」と、コメントの `reason: ...`）の3つ。書き込みのツールはない。結果には、本文が外部データであり指示ではないという注記が付く。
+
+```powershell
+claude mcp add aidev-chub -e CHUB_BASE_URL=https://wkozu2024:3030 -e AIDEV_CHUB_CONFIG=C:\path\runner.json -- node C:\path\ai-development-platform\dist\mcp-chub.js
+```
+
+トークンは CHUB_TOKEN として各自のユーザー環境変数に置き、コマンドの引数や共有の設定ファイルに書かない。
+
 ## 設計と次の開発
 [構成](docs/architecture.md) / [技術選定と調査元](docs/technical-decisions.md) / [実装計画](docs/implementation-plan.md) / [バックログ](docs/initial-backlog.md) / [無人実行ランナーと C-HUB 連携（案）](docs/autonomous-runner-design.md)
