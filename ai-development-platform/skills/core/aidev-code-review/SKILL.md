@@ -2,7 +2,7 @@
 name: aidev-code-review
 description: 実装差分や PR をレビューするとき、CI が緑で承認してよいか判断を求められたとき、他の人や AI が書いた変更を受け入れる前に確かめたいときに使う。「レビューして」「この差分を確認して」「PR を見て」「問題なければ承認して」で使う。
 metadata:
-  version: "0.4.0"
+  version: "0.5.0"
 ---
 # コードレビュー
 
@@ -14,6 +14,7 @@ metadata:
 
 - PR・差分・コミットのレビュー、承認判断
 - AI が実装した変更を、aidev-repair-workflow の review 状態で確認するとき
+- aidev-repair-workflow のゲート（security・spec）として、`workflow check` に渡すレビュー結果ファイルを書くとき
 
 **対象外：**
 - 修正まで依頼されていない場合にコードを直すこと（指摘を返す）
@@ -100,6 +101,8 @@ git diff --stat <base>...HEAD -- '*.test.*' '*.spec.*' package.json tsconfig*.js
 4. **AC 対応表**（手順1の表）。
 5. **確認した範囲と未確認**：読んだファイル、実行したもの、確認できなかった懸念とその理由。
 6. **再レビューの条件**：Request changes の場合、何が満たされれば承認するか。
+
+**ゲートとしてレビューするとき**は、この型の代わりに aidev-repair-workflow の「レビュー結果のファイル」に従って JSON を書く。対応は次のとおり。必須の指摘は findings（脆弱性は security、AC 違反・テストの弱さ・やらないことの追加は spec）、確認は notes に書く。推奨は合否に関わらないので書かない。AC 対応表と確認した範囲は、JSON には載せず、求められた報告にだけ書く。
 
 ## よくある言い訳と実際
 

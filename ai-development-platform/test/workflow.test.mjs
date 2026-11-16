@@ -189,7 +189,17 @@ test('review files are validated before use', t => {
   const root = project(t);
   const write = data => { writeFileSync(join(root, 'review.json'), JSON.stringify(data)); return 'review.json'; };
   const ok = {status: 'passed', findings: []};
-  assert.deepEqual(readReview(root, write({security: ok, spec: ok})).map(c => c.status), ['passed', 'passed']);
+  assert.deepEqual(readReview(root, write({security: ok, spec: ok})).checks.map(c => c.status), ['passed', 'passed']);
+  assert.deepEqual(readReview(root, write({security: ok, spec: ok, notes: ['日付のタイムゾーンが仕様にない']})).notes,
+    ['日付のタイムゾーンが仕様にない']);
+  for (const notes of ['not an array', [''], ['line\nbreak'], ['x'.repeat(301)], Array(11).fill('x'), [1]]) {
+    assert.throws(() => readReview(root, write({security: ok, spec: ok, notes})), /notes/);
+  }
+  // Two findings with the same kind, ref and file would be counted as one, so the reviewer must merge them.
+  const twice = {status: 'failed', findings: [spec('AC-001', 'order'), spec('AC-001', 'test missing')]};
+  assert.throws(() => readReview(root, write({security: ok, spec: twice})), /重複/);
+  const distinct = {status: 'failed', findings: [spec('AC-001', 'order'), {...spec('AC-001', 'other file'), file: 'src/b.ts'}]};
+  assert.equal(readReview(root, write({security: ok, spec: distinct})).checks[1].findings.length, 2);
   for (const bad of [
     {security: ok},
     {security: ok, spec: ok, extra: ok},
@@ -202,4 +212,19 @@ test('review files are validated before use', t => {
   ]) assert.throws(() => readReview(root, write(bad)), /形式/);
   assert.throws(() => readReview(root, 'missing.json'), /ありません/);
   assert.throws(() => readReview(root, '../outside.json'));
+});
+
+test('review notes are kept per attempt without affecting the gate and reach the handoff', async t => {
+  const root = project(t);
+  const clean = [gate('security', []), gate('spec', [])];
+  const passed = await runWorkflow(root, 'notes', () => pass, clean, ['投稿日のタイムゾーンが仕様にない']);
+  assert.deepEqual([passed.state, passed.notes], ['review', ['投稿日のタイムゾーンが仕様にない']]);
+  assert.deepEqual(readWorkflowStatus(root, 'notes'), passed);
+  const failing = [gate('security', []), gate('spec', [spec('AC-001', 'order')])];
+  await runWorkflow(root, 'stop', () => pass, failing, ['不正な日時の扱いが未定']);
+  const stopped = await runWorkflow(root, 'stop', () => pass, failing);
+  assert.deepEqual([stopped.state, stopped.notes], ['needs-human', undefined]);
+  const handoff = readFileSync(join(root, stopped.handoff), 'utf8');
+  assert.match(handoff, /確認事項（ゲートの合否には影響しない）\n {2}- 不正な日時の扱いが未定/);
+  await assert.rejects(() => runWorkflow(root, 'bad', () => pass, clean, ['a\nb']));
 });

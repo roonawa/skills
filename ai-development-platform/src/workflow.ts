@@ -4,7 +4,7 @@ import { checkProject, type CheckResult } from './adapter.js';
 import { checked, content, safeName } from './files.js';
 import { readConfig } from './project.js';
 import { captureGuard, CONFIG_PREFIX } from './repair-guard.js';
-import { findingFingerprint, parseFinding, type RecordedFinding } from './review.js';
+import { findingFingerprint, parseFinding, parseNotes, type RecordedFinding } from './review.js';
 
 type RecordedCheck = Pick<CheckResult, 'name' | 'status'> & {fingerprint?: string; findings?: RecordedFinding[]};
 interface WorkflowResult {
@@ -16,8 +16,11 @@ interface WorkflowResult {
   checks: RecordedCheck[];
   exitCode: number;
   handoff?: string;
+  // Review notes of this attempt: questions for a person that do not block the gate.
+  notes?: string[];
 }
-type Attempt = {attempts: number; checks: RecordedCheck[]};
+type Attempt = {attempts: number; checks: RecordedCheck[]; notes: string[]};
+const withNotes = (result: WorkflowResult, notes: string[]): WorkflowResult => notes.length ? {...result, notes} : result;
 const limit = 3;
 // Version 2 baselines also record check settings, so a newly added setting file stops the task.
 const guardVersion = 2;
@@ -67,7 +70,7 @@ function readFindings(name: string, value: unknown): RecordedFinding[] | undefin
 
 function readRecord(record: string) {
   try {
-    const {checks, guard, reason, guardVersion: version} = JSON.parse(record);
+    const {checks, guard, reason, guardVersion: version, notes} = JSON.parse(record);
     if (!Array.isArray(checks)) throw new Error();
     if (guard !== undefined && (!Array.isArray(guard) || guard.some(item => typeof item !== 'string'))) throw new Error();
     const safeChecks: RecordedCheck[] = checks.map(check => {
@@ -80,7 +83,7 @@ function readRecord(record: string) {
     });
     if (version !== undefined && version !== guardVersion) throw new Error();
     return {checks:safeChecks, guard:guard as string[] | undefined, guardVersion:version as number | undefined,
-      protectedChange:reason === 'protected-check-changed'};
+      protectedChange:reason === 'protected-check-changed', notes:parseNotes(notes)};
   } catch {
     throw new Error('ワークフローの実行記録を読み取れません。');
   }
@@ -106,8 +109,9 @@ function readHistory(root: string, task: string) {
       baseline = record.guard;
       detectAdditions = record.guardVersion === guardVersion;
     }
-    latest = record.protectedChange ? guardStop(task, attempts) : decide(task, attempts, record.checks, previous);
-    history.push({attempts, checks:latest.checks});
+    latest = withNotes(record.protectedChange ? guardStop(task, attempts) : decide(task, attempts, record.checks, previous),
+      record.notes);
+    history.push({attempts, checks:latest.checks, notes:record.notes});
     if (latest.state !== 'repair') break;
     for (const check of latest.checks) if (check.status === 'failed') for (const key of failureKeys(check)) previous.add(key);
   }
@@ -136,7 +140,7 @@ function handoffText(result: WorkflowResult, history: Attempt[]): string {
     '- 再開: 担当者が下記を確認して対応方針を決め、新しいタスク名で workflow check を始める', '',
     '## 試行ごとのゲート結果',
   ];
-  for (const {attempts, checks} of history) {
+  for (const {attempts, checks, notes} of history) {
     lines.push('', '### ' + (attempts ? '修正' + attempts + '回目の後' : '初回の実装後'));
     if (!checks.length) lines.push('- 検査を実行していません（保護対象の変更を検出）');
     for (const check of checks) {
@@ -146,6 +150,7 @@ function handoffText(result: WorkflowResult, history: Attempt[]): string {
         lines.push('  - [' + kind + finding.ref + '] ' + finding.file + ': ' + finding.summary);
       }
     }
+    if (notes.length) lines.push('- 確認事項（ゲートの合否には影響しない）', ...notes.map(note => '  - ' + note));
   }
   lines.push('', '## 担当者が判断すること',
     '- 残る失敗・指摘への対応方針（実装の修正、仕様の確認・変更、設計の見直し）',
@@ -179,7 +184,8 @@ export function readWorkflowStatus(root: string, task: string): WorkflowResult &
  * up to three times without a person; after that, or on a repeated failure, the task goes to a person.
  */
 export async function runWorkflow(root: string, task: string, run?: () => CheckResult[] | Promise<CheckResult[]>,
-    review: CheckResult[] = []): Promise<WorkflowResult> {
+    review: CheckResult[] = [], reviewNotes: string[] = []): Promise<WorkflowResult> {
+  const notes = parseNotes(reviewNotes);
   const {base, previous, latest, baseline, detectAdditions, history} = readHistory(root, task);
   if (latest && latest.state !== 'repair') {
     // Tasks stopped before handoffs existed, or interrupted before writing one, get it on the next call.
@@ -214,10 +220,11 @@ export async function runWorkflow(root: string, task: string, run?: () => CheckR
   } catch {
     result = decide(task, attempts, [{name:'application', status:'unavailable'}], previous);
   }
+  result = withNotes(result, notes);
   const record = attempts === 0 ? {...result, guard, guardVersion} : result;
   const pending = path + '.pending';
   writeFileSync(checked(root, pending), JSON.stringify(record) + '\n', {flag:'wx',flush:true});
   renameSync(checked(root, pending), checked(root, path + '.json'));
-  writeHandoff(root, result, [...history, {attempts, checks:result.checks}]);
+  writeHandoff(root, result, [...history, {attempts, checks:result.checks, notes}]);
   return result;
 }

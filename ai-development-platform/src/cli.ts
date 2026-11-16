@@ -30,7 +30,8 @@ async function run(args: string[]) {
     if (command === 'workflow' && ((action === 'check' && words.length === 5 && words[3] === '--review') ||
         (action === 'status' && words.length === 3))) {
       // Read the review before reserving an attempt, so invalid input does not use up a repair.
-      const {exitCode,...report} = action === 'check' ? await runWorkflow(root,name,undefined,readReview(root,words[4])) :
+      const review = action === 'check' ? readReview(root,words[4]) : undefined;
+      const {exitCode,...report} = review ? await runWorkflow(root,name,undefined,review.checks,review.notes) :
         await readWorkflowStatus(root,name);
       process.exitCode = exitCode;
       return {ok:exitCode === 0,...report};
