@@ -1,6 +1,8 @@
-import { readdirSync, lstatSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { readdirSync, lstatSync, mkdirSync, renameSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { checked, content, install, safeName } from './files.js';
-import { listSkills, loadSkill } from './registry.js';
+import { listSkills, loadSkill, releasedHashes, skillHash } from './registry.js';
 import { parseTemplate, templateFiles, type Template } from './adapter.js';
 
 const config = 'aidev.json';
@@ -48,6 +50,48 @@ export function addSkill(root: string, name: string, dryRun: boolean) {
   readConfig(root);
   return install(root,skillFiles(name),dryRun);
 }
+
+/**
+ * Replaces an installed Skill with the bundled version. A copy is replaced only when it is byte-for-byte a released
+ * version of the recorded one (line endings aside), so a copy the user edited is never overwritten.
+ */
+export function updateSkill(root: string, name: string, dryRun: boolean) {
+  readConfig(root);
+  const {info,source} = loadSkill(name);
+  const receipt = content(checked(root,receipts+'/'+name));
+  if (receipt === undefined) throw new Error('Skill ' + name + ' は登録されていません。skill add を使ってください。');
+  const from = receipt.trim();
+  const released = releasedHashes(name);
+  const known = released[from] ?? [];
+  const target = skillHash(source);
+  const pending: string[] = [];
+  const edited: string[] = [];
+  for (const host of hosts) {
+    const path = host+'/'+name+'/SKILL.md';
+    const current = content(checked(root,path));
+    if (current !== undefined && skillHash(current) === target) continue;
+    if (current === undefined || known.includes(skillHash(current))) pending.push(path);
+    else edited.push(path);
+  }
+  if (edited.length) {
+    throw new Error((known.length ? '登録時の版 ' + from + ' から内容が変わっている' : '登録時の版 ' + from + ' の内容が記録にない') +
+      'ため、更新しません: ' + edited.join(', ') + '。変更を確認して必要なら退避し、該当ファイルと .aidev/installed/' + name +
+      ' を削除してから skill add ' + name + ' を実行してください。');
+  }
+  if (from !== info.version) pending.push(receipts+'/'+name);
+  if (!dryRun) {
+    // Write each file completely before it replaces the old one; the receipt goes last, so an interrupted update
+    // leaves copies that are either the old or the new release and can be retried.
+    for (const path of pending) {
+      const target = checked(root,path);
+      mkdirSync(dirname(target),{recursive:true});
+      const temp = join(dirname(target),'.aidev-'+randomUUID());
+      writeFileSync(temp,path.startsWith(receipts) ? info.version+'\n' : source,{flag:'wx'});
+      renameSync(temp,target);
+    }
+  }
+  return {name,from,to:info.version,pending};
+}
 export function verify(root: string): string[] {
   readConfig(root);
   const dir = checked(root,receipts);
@@ -68,6 +112,12 @@ export function verify(root: string): string[] {
         ? 'Skill ' + name + ' は ' + renamed + ' に改名されました。skill add ' + renamed +
           ' を実行し、旧名の配置と .aidev/installed/' + name + ' を内容確認のうえ削除してください。'
         : '同梱 Registry にない Skill が登録されています: ' + name);
+    }
+    const recorded = content(checked(root,receipts+'/'+name))?.trim();
+    const bundled = loadSkill(name).info.version;
+    if (recorded !== undefined && recorded !== bundled) {
+      throw new Error('Skill ' + name + ' の配置は版 ' + recorded + '、同梱の版は ' + bundled + ' です。aidev skill update ' + name +
+        ' で更新できます（利用者が編集したコピーは更新しません）。');
     }
     const missing = install(root,skillFiles(name),true);
     if (missing.length) throw new Error('配置ファイルが不足しています: '+missing.join(', '));

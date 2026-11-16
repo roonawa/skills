@@ -42,6 +42,7 @@ CLI は既存プロジェクトの AGENTS.md を上書きしない。既存プ�
 |init NAME [--template core/react/unity]|親ディレクトリ。子に共通設定と選択したテンプレートを配置。既定は core|
 |skill list / skill validate NAME|任意の場所。同梱原本の名前・説明・版を取得|
 |skill add NAME|プロジェクト直下。両ホストの Skill と .aidev/installed の版記録を作成|
+|skill update NAME|プロジェクト直下。登録済みの Skill を同梱の版に置き換える。利用者が編集したコピーは置き換えない|
 |doctor|プロジェクト直下。Node、OS、設定版、Registry 件数を取得|
 |verify|プロジェクト直下。登録した Skill の欠損・内容差・版差を検出。未登録なら空配列|
 |check|プロジェクト直下。aidev.json の template に対応するアプリの検査結果を JSON で返す|
@@ -49,7 +50,7 @@ CLI は既存プロジェクトの AGENTS.md を上書きしない。既存プ�
 |workflow run TASK --spec FILE|実装・レビュー・ゲートを別々の Claude Code セッションで自動で回し、review か needs-human で止まる|
 |workflow status TASK|保存された直近の判定を表示する。検査実行や試行回数の加算は行わない|
 
-すべて JSON を標準出力に返す。成功は終了コード 0、失敗は 1。check は失敗がなくても実行不能の項目がある場合に 2 を返す。init と add は末尾に --dry-run を付けると変更予定を返す。再実行で同じファイルはスキップする。既存内容と異なる場合は処理を止める。メタデータ検証は社内の単一 Markdown 配布形式に限定する。
+すべて JSON を標準出力に返す。成功は終了コード 0、失敗は 1。check は失敗がなくても実行不能の項目がある場合に 2 を返す。init・add・update は末尾に --dry-run を付けると変更予定を返す。再実行で同じファイルはスキップする。既存内容と異なる場合は処理を止める。メタデータ検証は社内の単一 Markdown 配布形式に限定する。
 
 ## React / TypeScript を検証する
 
@@ -92,6 +93,14 @@ coverage は、テストに合格しても検証されていないコードを�
 |手順を改善する|aidev-skill-evolution|記録の分類、機械的な対策案、旧版との比較結果、承認用の変更案と戻し方|
 
 アプリの障害調査には aidev-debugging、配布された Skill 自体の改変・欠損の調査には aidev-project-verification を使う。
+
+### 配置した Skill を新しい版にする
+
+基盤の Skill が新しい版になると、配置済みのプロジェクトでは verify が版の違いを示して失敗する。プロジェクト直下で `aidev skill update aidev-NAME --dry-run` を実行して置き換えるファイルを確かめ、`--dry-run` を外して実行する。
+
+update は、両ホストのコピーが登録時の版として配布された内容そのもの（改行コードの違いは同じとみなす）の場合だけ置き換え、最後に `.aidev/installed/NAME` の版を書き換える。どちらかのコピーを利用者が編集していた場合、または登録時の版の内容が記録にない場合は、何も変更せずに失敗する。そのときは変更を確認して必要なら退避し、そのファイルと `.aidev/installed/NAME` を削除してから `aidev skill add aidev-NAME` で入れ直す。途中で止まった場合は同じコマンドで再開できる。
+
+配布した版の内容は `skills/history.json` に版ごとのハッシュで記録する。Skill の原本を変えて metadata.version を上げたら、`npm run build` の後に `node scripts/skill-history.mjs` を実行して記録を更新する（git の履歴からも過去の版を集める）。記録漏れはテストが検出する。aidev-implementation と aidev-repair-workflow の 0.4.0 は git に入る前の版で記録がないため、この2つを 0.4.0 で登録したプロジェクトは上の手順で入れ直す。
 
 Skill 名には、利用者環境の汎用 Skill（code-review、debugging など）と衝突しないよう `aidev-` を付ける。0.1.0 までの旧名（接頭辞なし）で登録したプロジェクトでは verify が改名先を示して失敗する。`aidev skill add aidev-NAME` で新名を追加し、旧名の `.claude/skills/NAME`、`.agents/skills/NAME`、`.aidev/installed/NAME` を内容確認のうえ削除する。CLI は旧名の配置を自動では削除しない。
 

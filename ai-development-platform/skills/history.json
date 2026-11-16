@@ -1,0 +1,66 @@
+{
+  "aidev-architecture": {
+    "0.4.0": [
+      "b5728f30746b2d81421045e7340e534f8fd1792936fe172e31581e6bcb1354ae"
+    ]
+  },
+  "aidev-code-review": {
+    "0.4.0": [
+      "c05e8d0472bc1a6b0498042c6d3d8be7064bba0615346ae9c40e2097f9b7036f"
+    ],
+    "0.5.0": [
+      "0c030e39d796ef445cd2f4ca33cb952f221cc97575938a8ea6a4ade52d6b52f7"
+    ]
+  },
+  "aidev-debugging": {
+    "0.4.0": [
+      "ed1af41ea517368c0ddeffa724a26fcd264c50f5cc1b66a8a41056e87da865cc"
+    ]
+  },
+  "aidev-implementation": {
+    "0.5.0": [
+      "036ba0ee6804bc3c1d0666087bc1f16aac279c39cb3ac9ed050e75fff5cf9a4b"
+    ]
+  },
+  "aidev-project-verification": {
+    "0.4.0": [
+      "ac4b453482b4da338d41d09341573a625104690bdd928bc4a0297256a89f58f4"
+    ]
+  },
+  "aidev-repair-workflow": {
+    "0.5.0": [
+      "a7d44302c55a3ea1a7639cd98c6c230c92992b9b61eb9b9b790146d1c32ec011"
+    ],
+    "0.6.0": [
+      "311466b7424aa41c74ce8675f0e38f27f05ad358b9b2a262b17cbb78b4008848"
+    ],
+    "0.7.0": [
+      "51ac7334e985126487840f1939fb5cd839484566485095df40928ea6b5d62690"
+    ]
+  },
+  "aidev-requirements": {
+    "0.4.0": [
+      "2c5bfa5bdd0f1cfda4a8bb8b85d8a3f539fd2cfbc2303f2120b0474458c9d511"
+    ]
+  },
+  "aidev-skill-evolution": {
+    "0.4.0": [
+      "644c4a5de4f6f1f4f7cb44b51ffe3f375a2956b775c5649f8cc3c4fa4aa7b985"
+    ]
+  },
+  "aidev-task-planning": {
+    "0.4.0": [
+      "df7993c015ff324060246a619864e948322c7f8a9877a9efeb25866ff04adbf3"
+    ]
+  },
+  "aidev-testing": {
+    "0.4.0": [
+      "2a00d372524f5733512b9db5decdafdcfdf1a6ec0d7b48a701d38534a25a958f"
+    ]
+  },
+  "aidev-ui-delivery": {
+    "0.4.0": [
+      "5d281d4f26a54328ad61ff10e59f169881e8a5154db04228df2ab205d20369f0"
+    ]
+  }
+}

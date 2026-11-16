@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { realpathSync } from 'node:fs';
 import { listSkills, loadSkill } from './registry.js';
-import { initialize, readConfig, addSkill, verify } from './project.js';
+import { initialize, readConfig, addSkill, updateSkill, verify } from './project.js';
 import { checkProject, parseTemplate } from './adapter.js';
 import { readWorkflowStatus, runWorkflow } from './workflow.js';
 import { evaluate } from './evaluator.js';
@@ -32,6 +32,7 @@ async function run(args: string[]) {
     return {pending:initialize(root,action,dryRun,parseTemplate(words[3] ?? 'core')),dryRun};
   }
   if (command === 'skill' && action === 'add' && words.length === 3) return {pending:addSkill(root,name,dryRun),dryRun};
+  if (command === 'skill' && action === 'update' && words.length === 3) return {...updateSkill(root,name,dryRun),dryRun};
   if (!dryRun) {
     if (command === 'skill' && action === 'eval' && (words.length === 3 ||
         (words.length === 5 && words[3] === '--observations'))) {
@@ -70,7 +71,7 @@ async function run(args: string[]) {
       return {node:process.versions.node,platform:process.platform,registryCount:listSkills().length,...config};
     }
   }
-  throw new Error('使用法: aidev init NAME [--template core|react|unity] | skill list | skill add NAME | skill validate NAME | skill eval NAME [--observations FILE] | doctor | verify | check | workflow check TASK --review FILE | workflow run TASK --spec FILE | workflow status TASK。init/add は末尾に --dry-run を指定できます。');
+  throw new Error('使用法: aidev init NAME [--template core|react|unity] | skill list | skill add NAME | skill update NAME | skill validate NAME | skill eval NAME [--observations FILE] | doctor | verify | check | workflow check TASK --review FILE | workflow run TASK --spec FILE | workflow status TASK。init/add/update は末尾に --dry-run を指定できます。');
 }
 try {
   console.log(JSON.stringify({ok:true,...await run(process.argv.slice(2))}));

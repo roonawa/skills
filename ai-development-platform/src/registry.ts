@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { parseDocument } from 'yaml';
@@ -28,4 +29,23 @@ export function loadSkill(name: string) {
 }
 export function listSkills(): Skill[] {
   return readdirSync(root).sort().map(name => loadSkill(name).info);
+}
+
+/** Hash of a Skill's content. Line endings are normalized because a checkout on Windows may convert them. */
+export function skillHash(source: string): string {
+  return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
+}
+
+/** Content hashes of every released version of a Skill (skills/history.json, written by scripts/skill-history.mjs). */
+export function releasedHashes(name: string): Record<string, string[]> {
+  const file = fileURLToPath(new URL('../skills/history.json', import.meta.url));
+  const text = content(file);
+  if (text === undefined) throw new Error('Skill の版の記録（skills/history.json）がありません。');
+  const versions: unknown = (JSON.parse(text) as Record<string, unknown>)[safeName(name)];
+  if (typeof versions !== 'object' || versions === null) return {};
+  const result: Record<string, string[]> = {};
+  for (const [version, hashes] of Object.entries(versions)) {
+    if (Array.isArray(hashes) && hashes.every(hash => typeof hash === 'string')) result[version] = hashes;
+  }
+  return result;
 }
