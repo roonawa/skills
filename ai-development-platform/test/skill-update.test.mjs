@@ -9,7 +9,8 @@ import { listSkills, loadSkill, releasedHashes, skillHash } from '../dist/regist
 
 const cli = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
 // A released copy of an earlier version, as a project registered before the update would have it.
-const previous = readFileSync(new URL('./fixtures/aidev-repair-workflow-0.6.0.md', import.meta.url), 'utf8');
+// A checkout on Windows may give the fixture CRLF line endings; the tests start from LF and add CRLF themselves.
+const previous = readFileSync(new URL('./fixtures/aidev-repair-workflow-0.6.0.md', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
 const name = 'aidev-repair-workflow';
 const copies = ['.claude/skills/' + name + '/SKILL.md', '.agents/skills/' + name + '/SKILL.md'];
 const receipt = '.aidev/installed/' + name;
