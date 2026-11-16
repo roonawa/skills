@@ -136,15 +136,16 @@ Skill 名には、利用者環境の汎用 Skill（code-review、debugging な�
 3. `workflow check` と同じ判定を行い、repair なら1に戻る。review か needs-human で止まる
 
 - 各セッションは `claude -p` で起動する。MCP サーバーは読み込まない。使える道具は、実装担当がファイルの読み書きと決まった検査（`npm run typecheck`・`lint`・`test`・`test:coverage`・`build`）、レビュー担当が読み取りだけ。git は両者とも `git status`・`git diff`・`git diff --stat`・`git ls-files --others --exclude-standard` に限る。C-HUB や Gitea への接続、git のコミットや push はしない
-- 実装担当は package.json・package-lock.json・検査設定（tsconfig・biome・ESLint・vite/vitest/jest/playwright・c8/nyc）・`.aidev/`・`.claude/`・`.agents/`・AGENTS.md・CLAUDE.md・aidev.json を編集できない。検査スクリプトを書き換えてから実行することを防ぐため
+- 実装担当は package.json・package-lock.json・.npmrc・.yarnrc・.env*（いずれもサブディレクトリを含む）・検査設定（tsconfig・biome・ESLint・vite/vitest/jest/playwright・c8/nyc）・`.aidev/`・`.claude/`・`.agents/`・AGENTS.md・CLAUDE.md・aidev.json を編集できない。検査スクリプトや npm の設定を書き換えてから実行することを防ぐため
 - セッションの環境変数からは、Claude Code 自身の認証情報（ANTHROPIC_API_KEY など）を除き、TOKEN・SECRET・PASSWORD・API_KEY などを名前に含む変数を外す。セッションが書いたテストやビルドもこの環境で動く
+- ゲートの検査（`check` と `workflow check` が実行する npm scripts）は、Claude Code の認証情報も含めて、こうした変数をすべて外した環境で動かす。AI が書いたコードを実行するため
 - セッションはプロジェクトのコード（テスト・ビルド）を実行するため、ネットワークへの接続や Claude の認証情報の読み取りまでは防げない。夜間などの無人実行では、プロジェクトだけを置いた専用のランナー（コンテナや専用のマシン）で動かす
 - 上限は環境変数で変えられる。AIDEV_SESSION_BUDGET_USD（1セッションの費用、既定 5 ドル）、AIDEV_SESSION_TIMEOUT_MIN（1セッションの時間、既定 30 分）、AIDEV_MODEL（モデル）、AIDEV_CLAUDE（claude の場所）
 - 各セッションの報告は `.aidev/runs/TASK/reports/` に残る。needs-human のときは引継ぎ票と合わせて担当者が読む
 - セッションが失敗した場合（時間切れ・上限超過・レビュー結果が2回とも不正）は、ゲートを実行せずに終了コード 2 で止まる。試行回数は消費しないので、原因を直して同じコマンドで再開できる
 - 差分をレビューに見せるため、仕様書を含めた作業前の状態を git にコミットしておく
 
-初回に見つかったテストファイルが消えた場合、または保護対象の検査スクリプトやセキュリティ設定が変わった場合は、人の確認へ引き継ぐ。型検査・Lint・テストランナーの設定（tsconfig*.json、biome.json、ESLint、vite/vitest/jest/playwright の設定、.editorconfig、Directory.Build.props、*.ruleset、.c8rc・.nycrc、package.json の eslintConfig・jest・mocha・c8・nyc）は、初回からの内容変更に加えて、2回目以降に新たに追加された場合も停止する。アプリの機能のために vite.config などを変える場合も停止するので、担当者が差分を確認して新しいタスク名で再開する。追加判定は、この版以降に開始したタスクに適用する。テストの追加や本文の編集は可能で、skip や期待値の緩和、仕様への適合性は aidev-code-review の観点で差分レビューが判断する。履歴はローカル作業の引き継ぎ用であり、作業者自身による改変を防ぐ監査台帳としては扱えない。
+初回に見つかったテストファイルが消えた場合、または保護対象の検査スクリプトやセキュリティ設定が変わった場合は、人の確認へ引き継ぐ。型検査・Lint・テストランナーの設定（tsconfig*.json、biome.json、ESLint、vite/vitest/jest/playwright の設定、.editorconfig、Directory.Build.props、*.ruleset、.c8rc・.nycrc、.npmrc・.yarnrc、package.json の eslintConfig・jest・mocha・c8・nyc）は、初回からの内容変更に加えて、2回目以降に新たに追加された場合も停止する。アプリの機能のために vite.config などを変える場合も停止するので、担当者が差分を確認して新しいタスク名で再開する。追加判定は、この版以降に開始したタスクに適用する。テストの追加や本文の編集は可能で、skip や期待値の緩和、仕様への適合性は aidev-code-review の観点で差分レビューが判断する。履歴はローカル作業の引き継ぎ用であり、作業者自身による改変を防ぐ監査台帳としては扱えない。
 
 ## 運用上の境界
 

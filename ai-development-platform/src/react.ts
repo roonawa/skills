@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
 import type { CheckResult } from './adapter.js';
+import { withoutCredentials } from './environment.js';
 import { checked, content } from './files.js';
 
 // [gate name, npm script]. The coverage script carries its thresholds as arguments, so the
@@ -54,8 +55,9 @@ function npm(root: string, args: string[], timeoutMs = 300_000) {
   const windows = process.platform === 'win32';
   const command = windows ? 'cmd.exe' : 'npm';
   const argv = windows ? ['/d','/s','/c','npm '+args.join(' ')] : args;
+  // The scripts run project code that an AI session may have written, so credentials stay out of its environment.
   const child = spawn(command, argv, {
-    cwd:root, stdio:['ignore','pipe','pipe'], windowsHide:true, detached:!windows
+    cwd:root, env:withoutCredentials(process.env), stdio:['ignore','pipe','pipe'], windowsHide:true, detached:!windows
   });
   const stdout = capture(child.stdout);
   const stderr = capture(child.stderr);

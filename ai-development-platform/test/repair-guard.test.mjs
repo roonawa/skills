@@ -66,7 +66,8 @@ test('check settings are protected by content and tagged so additions can be det
   put('biome.json','{"linter":{"enabled":false}}');
   const added = captureGuard(root).filter(key => key.startsWith(CONFIG_PREFIX) && !baseline.includes(key));
   assert.equal(added.length,3);
-  for (const name of ['.c8rc.json','.nycrc','vitest.config.ts','.eslintrc.json','Directory.Build.props','rules.ruleset','.editorconfig','tsconfig.app.json']) {
+  // .npmrc can set the shell npm runs scripts with, so it is a check setting too.
+  for (const name of ['.c8rc.json','.nycrc','vitest.config.ts','.eslintrc.json','Directory.Build.props','rules.ruleset','.editorconfig','tsconfig.app.json','.npmrc','packages/web/.npmrc','.yarnrc.yml']) {
     const { root: other, put: write } = fixture(t);
     write(name,'x');
     assert.equal(captureGuard(other).filter(key => key.startsWith(CONFIG_PREFIX)).length,1,name);

@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import type { CheckResult } from './adapter.js';
+import { withoutCredentials } from './environment.js';
 import { checked, content, safeName } from './files.js';
 import { stopTree } from './react.js';
 import { readReview, REVIEW_GATES } from './review.js';
@@ -47,7 +48,10 @@ const checkScripts = ['typecheck', 'lint', 'test', 'test:coverage', 'build'];
 export const implementationTools = ['Read', 'Edit', 'Write', 'Glob', 'Grep', ...checkScripts.flatMap(script => shell('npm run ' + script)), ...gitRead];
 // The scripts and check settings decide what the gate enforces, so the session may not change them.
 // The repair guard also stops the task if they change; denying the edit keeps them from running in between.
-const protectedFiles = ['package.json', 'package-lock.json', '.aidev/**', 'tsconfig*.json', 'biome.json', 'biome.jsonc',
+// npm and package manager settings (.npmrc can replace the shell npm runs scripts with) and environment files are
+// listed for the root and for subdirectories.
+const protectedFiles = ['package.json', '**/package.json', 'package-lock.json', '**/package-lock.json', '.npmrc', '**/.npmrc',
+  '.yarnrc*', '**/.yarnrc*', '.env*', '**/.env*', '.aidev/**', 'tsconfig*.json', 'biome.json', 'biome.jsonc',
   '.eslintrc*', 'eslint.config.*', 'vite.config.*', 'vitest.config.*', 'jest.config.*', 'playwright.config.*', '.c8rc*', '.nycrc*',
   '.claude/**', '.agents/**', 'AGENTS.md', 'CLAUDE.md', 'aidev.json'];
 export const implementationDenied = protectedFiles.flatMap(path => ['Edit(' + path + ')', 'Write(' + path + ')']);
@@ -55,14 +59,11 @@ export const implementationDenied = protectedFiles.flatMap(path => ['Edit(' + pa
 export const reviewTools = ['Read', 'Glob', 'Grep', ...gitRead];
 
 /**
- * Environment for a session. Credentials other than the Claude API key are removed: the session runs code it
+ * Environment for a session. Credentials other than Claude Code's own are removed: the session runs code it
  * writes (tests, build), and that code inherits this environment.
  */
 export function sessionEnvironment(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  const secret = /TOKEN|SECRET|PASSW|CREDENTIAL|API_?KEY|PRIVATE|COOKIE|AUTH|CHUB|GITEA/i;
-  // Claude Code's own credentials: the session cannot start without one of them.
-  const keep = new Set(['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN']);
-  return Object.fromEntries(Object.entries(source).filter(([name]) => keep.has(name) || !secret.test(name)));
+  return withoutCredentials(source, ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN']);
 }
 
 const finding = (spec: boolean) => ({

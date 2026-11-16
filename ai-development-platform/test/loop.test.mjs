@@ -134,3 +134,14 @@ test('prompts list the allowed commands to be run verbatim', async t => {
   assert.doesNotMatch(review.prompt, /npm run/);
   for (const prompt of [implementation.prompt, review.prompt]) assert.match(prompt, /つなげない/);
 });
+
+test('npm and environment files are protected, and gate scripts run without credentials', async () => {
+  const {implementationDenied} = await import('../dist/loop.js');
+  const {withoutCredentials} = await import('../dist/environment.js');
+  for (const path of ['.npmrc', '**/.npmrc', '**/package.json', '.env*', '**/.env*', '.yarnrc*']) {
+    assert.ok(implementationDenied.includes('Edit(' + path + ')') && implementationDenied.includes('Write(' + path + ')'), path);
+  }
+  // The gate keeps nothing: the tests it runs need no credentials, not even Claude Code's.
+  const env = withoutCredentials({PATH: 'p', ANTHROPIC_API_KEY: 'k', CLAUDE_CODE_OAUTH_TOKEN: 'o', CHUB_TOKEN: 'c', SystemRoot: 'w'});
+  assert.deepEqual(Object.keys(env).sort(), ['PATH', 'SystemRoot']);
+});
