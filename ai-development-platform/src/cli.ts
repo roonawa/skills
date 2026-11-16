@@ -6,6 +6,21 @@ import { checkProject, parseTemplate } from './adapter.js';
 import { readWorkflowStatus, runWorkflow } from './workflow.js';
 import { evaluate } from './evaluator.js';
 import { readReview } from './review.js';
+import { claudeRunner, runLoop, type ClaudeOptions } from './loop.js';
+
+/** Session limits for `workflow run`, from the environment. Invalid values stop before any session starts. */
+function sessionOptions(env: NodeJS.ProcessEnv): ClaudeOptions {
+  const number = (name: string, max: number) => {
+    const value = env[name];
+    if (value === undefined || value === '') return undefined;
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed <= 0 || parsed > max) throw new Error(name + ' には 0 より大きく ' + max + ' 以下の数を指定してください。');
+    return parsed;
+  };
+  const minutes = number('AIDEV_SESSION_TIMEOUT_MIN', 180);
+  return {command:env.AIDEV_CLAUDE || undefined, budgetUsd:number('AIDEV_SESSION_BUDGET_USD', 100),
+    timeoutMs:minutes === undefined ? undefined : minutes * 60_000, model:env.AIDEV_MODEL || undefined};
+}
 
 async function run(args: string[]) {
   const root = realpathSync(process.cwd());
@@ -23,6 +38,11 @@ async function run(args: string[]) {
       const report = evaluate(root,name,words[4]);
       process.exitCode = report.ok ? 0 : 1;
       return report;
+    }
+    if (command === 'workflow' && action === 'run' && words.length === 5 && words[3] === '--spec') {
+      const {exitCode,...report} = await runLoop(root,name,words[4],{runner:claudeRunner(sessionOptions(process.env))});
+      process.exitCode = exitCode;
+      return {ok:exitCode === 0,...report};
     }
     if (command === 'workflow' && action === 'check' && words.length === 3) {
       throw new Error('workflow check には --review FILE（security と spec のレビュー結果）が必要です。');
@@ -50,7 +70,7 @@ async function run(args: string[]) {
       return {node:process.versions.node,platform:process.platform,registryCount:listSkills().length,...config};
     }
   }
-  throw new Error('使用法: aidev init NAME [--template core|react|unity] | skill list | skill add NAME | skill validate NAME | skill eval NAME [--observations FILE] | doctor | verify | check | workflow check TASK --review FILE | workflow status TASK。init/add は末尾に --dry-run を指定できます。');
+  throw new Error('使用法: aidev init NAME [--template core|react|unity] | skill list | skill add NAME | skill validate NAME | skill eval NAME [--observations FILE] | doctor | verify | check | workflow check TASK --review FILE | workflow run TASK --spec FILE | workflow status TASK。init/add は末尾に --dry-run を指定できます。');
 }
 try {
   console.log(JSON.stringify({ok:true,...await run(process.argv.slice(2))}));

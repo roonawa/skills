@@ -30,7 +30,7 @@ function capture(stream: NodeJS.ReadableStream) {
   return () => first + '\n' + last;
 }
 
-async function stopTree(pid: number): Promise<boolean> {
+export async function stopTree(pid: number): Promise<boolean> {
   if (process.platform !== 'win32') {
     try {
       process.kill(-pid, 'SIGKILL');

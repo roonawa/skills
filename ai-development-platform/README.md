@@ -46,6 +46,7 @@ CLI は既存プロジェクトの AGENTS.md を上書きしない。既存プ�
 |verify|プロジェクト直下。登録した Skill の欠損・内容差・版差を検出。未登録なら空配列|
 |check|プロジェクト直下。aidev.json の template に対応するアプリの検査結果を JSON で返す|
 |workflow check TASK --review FILE|一つの実装タスクに対し、単体テスト・セキュリティ・仕様乖離と過剰実装のゲート結果と修正回数を記録して次の作業を決める|
+|workflow run TASK --spec FILE|実装・レビュー・ゲートを別々の Claude Code セッションで自動で回し、review か needs-human で止まる|
 |workflow status TASK|保存された直近の判定を表示する。検査実行や試行回数の加算は行わない|
 
 すべて JSON を標準出力に返す。成功は終了コード 0、失敗は 1。check は失敗がなくても実行不能の項目がある場合に 2 を返す。init と add は末尾に --dry-run を付けると変更予定を返す。再実行で同じファイルはスキップする。既存内容と異なる場合は処理を止める。メタデータ検証は社内の単一 Markdown 配布形式に限定する。
@@ -125,6 +126,23 @@ Skill 名には、利用者環境の汎用 Skill（code-review、debugging な�
 初回の検査は修正0回。ゲートを通過しなければ実装へ差し戻し、人の確認なしで最大3回まで修正する。同じ失敗の再発は3回を待たずに止め、別の原因で失敗が続く場合は3回目の修正後に止める。実行不能と保護対象の変更でも止まる。止まると state は needs-human となり、試行ごとのゲート結果と指摘を並べた引継ぎ票を書く。引継ぎ票が既にある場合は上書きしない。同じ失敗の判定は、アプリの検査は検査項目とエラー署名、レビューは指摘の種類・ref・file の組で行い、summary の文言は使わない。一つのゲートに同じ組の指摘が2件あるレビュー結果は拒否する。レビュー結果には、合否に影響しない確認事項を任意の notes（最大10件）として書け、結果の JSON と引継ぎ票に載る。review と needs-human に達した識別名を再指定すると記録済みの結果を返す。新規タスクには新しい識別名を使う。コードの編集と承認はホストと担当者が行う。CLI は同じタスクの検査履歴と停止条件を管理する。
 
 履歴は `.aidev/runs/TASK/` に保存する。同じ試行を二重実行しないよう、各回の開始時に番号を予約し、完了後に結果を確定する。実行中または保存前の中断を検出した場合は、記録を保持してプロセスの状態を確認する。React の失敗判定には、ログの先頭と末尾から時刻や一時パスなどの変動部分を正規化して得たハッシュを使う。長大な出力の中央にしか現れない差異は識別できないことがある。
+
+### 実装ループを自動で回す
+
+`aidev workflow run TASK --spec docs/spec.md` は、上の流れを人の操作なしで回す。プロジェクト直下で、Claude Code（`claude`）にログインした状態で実行する。
+
+1. 実装担当のセッションが仕様を読んで実装し、ローカルで検査を通す（2回目以降は直前のゲート結果とレビュー結果を読んで1回修正する）
+2. 別のレビュー担当のセッションが差分を読み、security と spec の結果を返す。前回までのレビュー結果も渡す。結果は CLI の検証を通ったものだけを `.aidev/reviews/TASK-N.json` に保存し、通らなければ1回だけやり直す
+3. `workflow check` と同じ判定を行い、repair なら1に戻る。review か needs-human で止まる
+
+- 各セッションは `claude -p` で起動する。MCP サーバーは読み込まない。使える道具は、実装担当がファイルの読み書きと決まった検査（`npm run typecheck`・`lint`・`test`・`test:coverage`・`build`）、レビュー担当が読み取りだけ。git は両者とも `git status`・`git diff`・`git diff --stat`・`git ls-files --others --exclude-standard` に限る。C-HUB や Gitea への接続、git のコミットや push はしない
+- 実装担当は package.json・package-lock.json・検査設定（tsconfig・biome・ESLint・vite/vitest/jest/playwright・c8/nyc）・`.aidev/`・`.claude/`・`.agents/`・AGENTS.md・CLAUDE.md・aidev.json を編集できない。検査スクリプトを書き換えてから実行することを防ぐため
+- セッションの環境変数からは、Claude Code 自身の認証情報（ANTHROPIC_API_KEY など）を除き、TOKEN・SECRET・PASSWORD・API_KEY などを名前に含む変数を外す。セッションが書いたテストやビルドもこの環境で動く
+- セッションはプロジェクトのコード（テスト・ビルド）を実行するため、ネットワークへの接続や Claude の認証情報の読み取りまでは防げない。夜間などの無人実行では、プロジェクトだけを置いた専用のランナー（コンテナや専用のマシン）で動かす
+- 上限は環境変数で変えられる。AIDEV_SESSION_BUDGET_USD（1セッションの費用、既定 5 ドル）、AIDEV_SESSION_TIMEOUT_MIN（1セッションの時間、既定 30 分）、AIDEV_MODEL（モデル）、AIDEV_CLAUDE（claude の場所）
+- 各セッションの報告は `.aidev/runs/TASK/reports/` に残る。needs-human のときは引継ぎ票と合わせて担当者が読む
+- セッションが失敗した場合（時間切れ・上限超過・レビュー結果が2回とも不正）は、ゲートを実行せずに終了コード 2 で止まる。試行回数は消費しないので、原因を直して同じコマンドで再開できる
+- 差分をレビューに見せるため、仕様書を含めた作業前の状態を git にコミットしておく
 
 初回に見つかったテストファイルが消えた場合、または保護対象の検査スクリプトやセキュリティ設定が変わった場合は、人の確認へ引き継ぐ。型検査・Lint・テストランナーの設定（tsconfig*.json、biome.json、ESLint、vite/vitest/jest/playwright の設定、.editorconfig、Directory.Build.props、*.ruleset、.c8rc・.nycrc、package.json の eslintConfig・jest・mocha・c8・nyc）は、初回からの内容変更に加えて、2回目以降に新たに追加された場合も停止する。アプリの機能のために vite.config などを変える場合も停止するので、担当者が差分を確認して新しいタスク名で再開する。追加判定は、この版以降に開始したタスクに適用する。テストの追加や本文の編集は可能で、skip や期待値の緩和、仕様への適合性は aidev-code-review の観点で差分レビューが判断する。履歴はローカル作業の引き継ぎ用であり、作業者自身による改変を防ぐ監査台帳としては扱えない。
 

@@ -258,6 +258,7 @@ aidev の規約（Node.js 22、strict TypeScript、`npm test`）に合わせ、a
 |---|---|
 | `src/chub.ts` | C-HUB の共通ライブラリ。読み取りと、4章の許可リストに限った書き込み（段階1は読み取りだけ） |
 | `src/runner.ts` | 5章のランナー処理（段階1は着手可否の dry-run だけ） |
+| `src/loop.ts` | 5.4 の実装とゲートのループ。`aidev workflow run` として単独でも使える（2026-11-16 実装。C-HUB・Gitea には接続しない） |
 | `src/gitea.ts` | ブランチの push と PR 作成 |
 
 C-HUB の API は公開の API 定義（`/openapi.json`）を正本とする。chub-team-status（Python）は旧接続先の実績として、注意点（`title`、`archived` の型の揺れ）を参照する。chub-team-status 自体は変更しない。
