@@ -95,3 +95,30 @@ test('config: environment wins over the file, https only, errors never contain t
   assert.ok(!broken.message.includes(TOKEN));
   assert.equal(redact('a ' + TOKEN + ' b', [TOKEN, undefined]), 'a [redacted] b');
 });
+
+test('the default transport refuses a response larger than the limit, declared or streamed', async t => {
+  const {maxResponseBytes} = await import('../dist/chub.js');
+  const big = Buffer.alloc(maxResponseBytes + 1, 'a');
+  const server = createServer((req, res) => {
+    if (req.url === '/declared') { res.writeHead(200, {'content-length': String(big.length)}); res.end(big); return; }
+    // No content-length: the body arrives in chunks and the limit is found while reading.
+    res.writeHead(200, {'transfer-encoding': 'chunked'});
+    const chunk = Buffer.alloc(1024 * 1024, 'a');
+    let sent = 0;
+    const push = () => {
+      while (sent <= maxResponseBytes) {
+        sent += chunk.length;
+        if (!res.write(chunk)) return res.once('drain', push);
+      }
+      res.end();
+    };
+    res.on('error', () => {});
+    push();
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => server.close());
+  const root = 'http://127.0.0.1:' + server.address().port;
+  for (const path of ['/declared', '/streamed']) {
+    await assert.rejects(fetchTransport({method: 'GET', url: root + path, headers: {}}), /大きすぎます/, path);
+  }
+});

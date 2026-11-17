@@ -52,8 +52,45 @@ export const fetchTransport: Transport = async request => {
       (error as {name?: unknown}).name === 'TimeoutError' ? 'TIMEOUT' : 'UNKNOWN';
     throw new ChubError('C-HUB に接続できません（' + code + '）');
   }
-  return {status: response.status, body: response.status === 200 ? await response.text() : ''};
+  if (response.status !== 200) {
+    await response.body?.cancel();
+    return {status: response.status, body: ''};
+  }
+  return {status: response.status, body: await readLimited(response)};
 };
+
+/** Largest response body read from C-HUB. A board's task list is far smaller; anything larger is refused unread. */
+export const maxResponseBytes = 20 * 1024 * 1024;
+
+/** Reads the body up to maxResponseBytes and stops reading as soon as the limit is passed. */
+async function readLimited(response: Response): Promise<string> {
+  const declared = Number(response.headers.get('content-length'));
+  const tooLarge = () => new ChubError('C-HUB の応答が大きすぎます（' + maxResponseBytes / 1024 / 1024 + ' MiB を超えました）。');
+  if (declared > maxResponseBytes) {
+    await response.body?.cancel();
+    throw tooLarge();
+  }
+  if (!response.body) return '';
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxResponseBytes) {
+        await reader.cancel();
+        throw tooLarge();
+      }
+      chunks.push(value);
+    }
+  } catch (error) {
+    if (error instanceof ChubError) throw error;
+    throw new ChubError('C-HUB の応答を読み取れませんでした。');
+  }
+  return new TextDecoder().decode(Buffer.concat(chunks));
+}
 
 export interface ChubProject {id: string; title: string; archived: boolean}
 export interface ChubSection {id: string; name: string}
