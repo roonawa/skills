@@ -41,6 +41,10 @@ try{
   await form.locator('#login-start').click();await expect(form.locator('.remote-login')).toBeVisible({timeout:30000});
   const alice=await(await api('alice','/api/bootstrap')).json(),bob=await(await api('bob','/api/bootstrap')).json();
   const session=(await(await api('alice','/api/logins/current')).json()).login;
+  assert(session.expiresAt>Date.now());await expect(form.locator('[data-remaining]')).toContainText('操作の残り時間');
+  await expect(form.locator('[data-send]')).toHaveText('選択した欄へ文字を送る');
+  await form.getByRole('button',{name:'下へスクロール',exact:true}).click();
+  await form.getByRole('button',{name:'上へスクロール',exact:true}).click();
   assert.equal((await(await api('bob','/api/logins/current')).json()).login,null);
   for(const action of ['operate','verify','cancel'])assert.equal((await api('bob',`/api/logins/${session.id}/${action}`,{type:'frame'},bob.token)).status,403);
   const config={name:'forbidden',baseURL:target,environment:'local',pages:[],journeys:[],visuals:[],admin:[]};

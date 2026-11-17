@@ -1,11 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import {isRouteDisposalError,isToolExecutionFailure} from './tool-execution.mjs';
 
 export function releaseGate(rows) {
   return rows.length>0 && rows.every(r=>!r.required || r.status==='pass' || (r.status==='not_applicable' && !!r.reason?.trim()));
 }
-export function displayStatus(row){return row.level==='caution'&&row.status==='fail'?'caution':row.status;}
+export function displayStatus(row){return isToolExecutionFailure(row)?'blocked':row.level==='caution'&&row.status==='fail'?'caution':row.status;}
 export function classify(result, annotations) {
+  if(result.status==='failed'&&result.errors?.length&&result.errors.every(e=>isRouteDisposalError(e.message)))return 'blocked';
   if(result.status==='skipped' && annotations.some(a=>a.type==='qa-review')) return 'review';
   if(result.status==='interrupted' || result.errors?.some(e=>(e.message??'').includes('BLOCKED:'))) return 'blocked';
   return ({passed:'pass',failed:'fail',timedOut:'fail',skipped:'not_run'})[result.status] ?? 'blocked';

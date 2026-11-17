@@ -19,7 +19,7 @@ const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 function options(args) {
   const out={};
   for(let i=0;i<args.length;i+=2) {
-    if(!['--config','--suite','--run','--id','--sitemap','--output'].includes(args[i]) || !args[i+1] || args[i+1].startsWith('--')) throw new Error(`Invalid option: ${args[i]}`);
+    if(!['--config','--suite','--run','--id','--sitemap','--output','--parent-run'].includes(args[i]) || !args[i+1] || args[i+1].startsWith('--')) throw new Error(`Invalid option: ${args[i]}`);
     if(out[args[i].slice(2)]!==undefined) throw new Error(`Duplicate option ${args[i]}`);
     out[args[i].slice(2)]=args[i+1];
   }
@@ -86,7 +86,7 @@ async function main() {
   const packageJSON=JSON.parse(fs.readFileSync(path.join(root,'package.json'),'utf8'));
   ctx.report={name:c.name,baseURL:c.baseURL,environment:c.environment,runId,startedAt:new Date().toISOString(),configHash:ctx.configHash,revision:c.revision,
     runtime:`Node ${process.version}; ${os.platform()} ${os.release()}; Playwright ${packageJSON.dependencies['@playwright/test']}`,
-    rows,errors:[],runStatus:'starting'};
+    rows,selection:{suite:opts.suite??'all',ids:opts.id?[...new Set(opts.id.split(','))]:[],parentRunId:opts['parent-run']??null},errors:[],runStatus:'starting'};
   const contextFile=path.join(ctx.runDir,'context.json');fs.writeFileSync(contextFile,JSON.stringify(ctx,null,2));
   const requestCancel=()=>fs.writeFileSync(path.join(ctx.runDir,'cancel.request.json'),JSON.stringify({requestedAt:new Date().toISOString()}));
   process.on('message',message=>{if(message?.type==='cancel')requestCancel();});

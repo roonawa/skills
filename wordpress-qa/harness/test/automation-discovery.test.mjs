@@ -54,7 +54,7 @@ test('discovers exact admin baselines and public conditions without retaining se
   assert.deepEqual(result.activePlugins,['contact-form-7']);
   assert.equal(result.admin.plugins[0].selector,'tr.active[data-plugin="contact-form-7/wp-contact-form-7.php"] .plugin-title strong');
   assert.equal(result.admin.plugins[0].read,'text');
-  assert.match(result.warnings[0],/regression baselines/);
+  assert.match(result.warnings[0],/変更を検出する基準/);
   const form=result.public.forms[0];assert.equal(form.formId,42);
   assert.equal(form.restPath,'/wp-json/contact-form-7/v1/contact-forms/42/feedback');
   assert.deepEqual(form.fields,[{name:'your-name',type:'text',required:true},{name:'your-email',type:'email',required:true},{name:'your-message',type:'textarea',required:true}]);

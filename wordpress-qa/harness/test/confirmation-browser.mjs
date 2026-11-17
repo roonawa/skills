@@ -35,5 +35,11 @@ try{
  const result=JSON.parse(fs.readFileSync(path.join(dir,'runs',runs[0],'results.json')));
  assert.deepEqual(result.rows.filter(r=>r.selected).map(r=>r.id),['javascript.home']);
  assert.equal(result.rows.find(r=>r.id==='javascript.home').status,'pass');
+ assert.deepEqual(result.selection.ids,['javascript.home']);assert.equal(result.selection.parentRunId,'seed');
+ await expect(page.locator('#scope-note')).toContainText('1項目のみ');
+ // The relationship is persisted, not just held in the current browser state.
+ await page.reload();await expect(page.locator('#scope-note')).toContainText('サイト全体の再検査ではありません');
+ await page.locator('#scope-back').click();await expect(page.locator('#scope-note')).toBeHidden();
+ await expect(page.locator('.history-item.selected')).toHaveAttribute('data-run','seed');
  assert.deepEqual(errors,[]);await page.screenshot({path:path.join(dir,'ui.png')});console.log(JSON.stringify({ok:true,dir,selected:['javascript.home']}));
 }finally{await browser.close();await app.close();await demo.close();}

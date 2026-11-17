@@ -120,7 +120,7 @@ try{
   const saved=await registration.json(),id=saved.id;
   assert.equal(saved.pages,6);
   // Since automation discovery warnings are surfaced at registration: the fixed baseline notice plus this fixture's missing admin pages and menu.
-  assert.deepEqual(saved.warnings,['Admin observations are regression baselines, not validated business requirements.','Some discovery sources were unavailable; missing conditions were not inferred.','No unambiguous public menu control and target were verified; selectors were not guessed.']);
+  assert.deepEqual(saved.warnings,['管理画面から取得した現在値は変更を検出する基準です。お客さんとの取り決めに合っているかは案件担当が確認してください。','Some discovery sources were unavailable; missing conditions were not inferred.','No unambiguous public menu control and target were verified; selectors were not guessed.']);
   await expect(dialog).not.toBeVisible();
   await expect(page.locator('#project-name')).toContainText('Local registration acceptance');
   const boot=await getJSON('/api/bootstrap');token=boot.token;

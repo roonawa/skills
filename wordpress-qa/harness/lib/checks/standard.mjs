@@ -4,6 +4,7 @@ import {load} from 'cheerio';
 import {sameOrigin} from '../config.mjs';
 import {fetchPage} from '../audit.mjs';
 import {envHeaders} from '../mailpit.mjs';
+import {closeRoutedContext,abortUnfinishedRoute} from '../tool-execution.mjs';
 
 export const kinds=['standard-public'];
 const areas={metadata:'seo',navigation:'delivery',forms:'delivery',keyboard:'accessibility',integrations:'delivery',multilingual:'multilingual',performance:'performance',crawl:'seo'};
@@ -56,11 +57,11 @@ export async function run({check,config,browser,requestFactory,attach=async()=>{
        try{
         await probe.route('**/*',async route=>{
          const request=route.request();if(request.method()!=='GET'||new URL(request.url()).origin!==new URL(config.baseURL).origin){intercepted=true;return route.abort();}
-         let reply;try{reply=await route.fetch({headers:{...request.headers(),...headers},maxRedirects:0});await route.fulfill({response:reply});}catch{intercepted=true;await route.abort();}finally{await reply?.dispose();}
+         let reply;try{reply=await route.fetch({headers:{...request.headers(),...headers},maxRedirects:0,timeout:config.timeoutMs??15000});await route.fulfill({response:reply});}catch{intercepted=true;await abortUnfinishedRoute(route);}finally{await reply?.dispose();}
         });
         const page=await probe.newPage();await page.goto(url,{waitUntil:'load',timeout:config.timeoutMs??15000});
         browserConfirmed=await confirmFragmentTargets(page,common)&&!intercepted;
-       }finally{await probe.close();}
+       }finally{await closeRoutedContext(probe);}
       }
       await attach('impact-'+results.length,{schema:'wpqa-document-impact-v1',browserConfirmed,path:new URL(url).pathname,statuses:[response.status,second.status],repeated:response.url===second.url,findings});
      }catch{await attach('impact-'+results.length,{schema:'wpqa-document-impact-v1',path:new URL(url).pathname,repeated:false,findings:[]});}
@@ -77,7 +78,7 @@ export async function run({check,config,browser,requestFactory,attach=async()=>{
     const req=route.request(),u=new URL(req.url());if(req.method()!=='GET'||(req.isNavigationRequest()&&u.origin!==new URL(config.baseURL).origin))return route.abort();
     if(u.origin===new URL(config.baseURL).origin){
      // Fetch one hop so public-gate headers are never inherited by an off-site redirect.
-     let response;try{response=await route.fetch({headers:{...req.headers(),...headers},maxRedirects:0});await route.fulfill({response});}catch{await route.abort();}finally{await response?.dispose();}return;
+     let response;try{response=await route.fetch({headers:{...req.headers(),...headers},maxRedirects:0,timeout:config.timeoutMs??15000});await route.fulfill({response});}catch{await abortUnfinishedRoute(route);}finally{await response?.dispose();}return;
     }return route.continue();
    });
    const page=await context.newPage();page.setDefaultTimeout(config.timeoutMs??15000);
@@ -89,7 +90,7 @@ export async function run({check,config,browser,requestFactory,attach=async()=>{
       if(el.required){required++;el.value='';if(el.validity.valid)failures.push('required field accepts empty value');}
       if(el.type==='email'){email++;el.value='invalid-email';if(el.validity.valid)failures.push('email field accepts malformed value');}el.value=value;
      }
-     return {forms:document.forms.length,controls:controls.length,required,email,failures};
+     return {forms:document.forms.length,submissionValidationUnverified:[...document.forms].some(f=>f.noValidate||f.querySelector('[formnovalidate]')),controls:controls.length,required,email,failures};
     });results.push({path:pathname,...r,scope:'declared native required/email constraints only; no submission, server-side validation or custom JS validation'});errors.push(...r.failures.map(e=>pathname+': '+e));
    }
    if(area==='keyboard'){
@@ -100,8 +101,12 @@ export async function run({check,config,browser,requestFactory,attach=async()=>{
     const samples=[];for(let n=0;n<3;n++){if(n)await page.reload({waitUntil:'load'});samples.push(await page.evaluate(()=>{const e=performance.getEntriesByType('navigation')[0];return {durationMs:e.duration,domContentLoadedMs:e.domContentLoadedEventEnd,resources:performance.getEntriesByType('resource').length};}));}
     results.push({path:pathname,samples,scope:'reference measurements, first load and two reloads; no performance budget or field CWV judgment'});
    }
-   await context.close();context=null;
+   const finished=context;context=null;await closeRoutedContext(finished);
   }
-  const evidence={area,representativePaths:paths,results,errors};await attach('standard-public-evidence',evidence);assert.equal(errors.length,0,errors.join('\n'));return evidence;
- }finally{await context?.close();await client.dispose();}
+  const reviewRequired=area==='forms'&&results.some(r=>r.submissionValidationUnverified||(r.forms>0&&r.required+r.email===0));
+  const evidence={area,representativePaths:paths,results,errors,...(reviewRequired?{reviewRequired:true,reviewReason:'送信なしではフォームの入力チェックを確かめられません。送信時の検証は、許可された検証環境で別途確認してください。'}:{})};await attach('standard-public-evidence',evidence);assert.equal(errors.length,0,errors.join('\n'));return evidence;
+ }catch(error){
+  if(area==='performance'&&!error.message.startsWith('BLOCKED:'))error.message='BLOCKED: 参考測定を完了できませんでした。速度の合否は判定していません。 '+error.message;
+  throw error;
+ }finally{try{await closeRoutedContext(context);}finally{await client.dispose();}}
 }

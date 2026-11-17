@@ -22,6 +22,7 @@ test('system settings require admin and CSRF; keys never returned or audited; ta
   const saved=await post('/api/system/settings',admin);assert.equal(saved.status,200);assert(!(await saved.text()).includes('sk-ant-fixture-only'));
   const view=await(await fetch(app.url+'/api/system/settings',{headers:member})).json();assert.equal(view.canEdit,false);assert.equal(view.configured,true);
   const blocked=await post('/api/logins',member,JSON.stringify({baseURL:'http://127.0.0.1',environment:'local',loginPath:'/'}));assert.equal(blocked.status,403);
+  const error=(await blocked.json()).error;assert.match(error,/127\.0\.0\.1/);assert.match(error,/管理者（admin）/);assert.match(error,/接続先の許可設定/);
   assert(!fs.readFileSync(auditFile,'utf8').includes('sk-ant-fixture-only'));
  }finally{await app.close();fs.rmSync(dir,{recursive:true,force:true});}
 });

@@ -45,10 +45,10 @@ export function initSettings({api,currentProject,onSaved,shared=false}) {
     ['expectedTotal','送料込みの期待合計（円）','','number']
   ];
   const profileSection=document.createElement('section');profileSection.id='operation-profile-section';profileSection.hidden=true;
-  profileSection.innerHTML=`<details><summary>登録済みの操作テスト・閲覧パスワード</summary><p>操作の許可と対象を変更できます。管理設定や公開ページの期待値は、それぞれの検査欄で編集してください。</p><fieldset id="operation-profile-fields"><legend>操作テストの条件</legend>${check('writes','検証環境でテストデータの作成・変更・削除を許可する',false)}${check('submit','指定したCF7フォームをテスト送信する（通知先のテスト設定済み）',false)}${check('bankOrder','銀行振込注文の確定・取消を検査する',false)}${check('sensitivePaths','機密ファイル露出の確認（存在確認のみ。顧客の監視に検知される場合があります）',false)}<p id="operation-profile-policy" role="status"></p><div class="editor-grid">${profileFields.map(([key,label,value,type])=>input(key,label,value,type)).join('')}</div></fieldset><p>送信・注文検査には操作の許可が必要です。受信箱への到着は別の確認が必要です。</p><h4>サイト閲覧パスワード</h4><p>管理者ログインとは別の閲覧保護用です。未入力なら保存済みの値を維持し、値は再表示しません。</p><label>新しい閲覧パスワード<input id="profile-public-password" type="password" autocomplete="new-password"></label><label class="check-line"><input id="profile-clear-public-password" type="checkbox">保存済みの閲覧パスワードを削除する</label></details>`;
+  profileSection.innerHTML=`<details><summary>登録済みの操作テスト・閲覧パスワード</summary><p>操作の許可と対象を変更できます。管理設定や公開ページの期待値は、それぞれの検査欄で編集してください。</p><fieldset id="operation-profile-fields"><legend>操作テストの条件</legend>${check('writes','検証環境でテストデータの作成・変更・削除を許可する',false)}${check('submit','指定したCF7フォームをテスト送信する（通知先のテスト設定済み）',false)}${check('bankOrder','銀行振込注文の確定・取消を検査する',false)}${check('sensitivePaths','機密ファイル露出の確認（存在確認のみ。顧客の監視に検知される場合があります）',false)}<p id="operation-profile-policy" role="status"></p><div class="editor-grid">${profileFields.map(([key,label,value,type])=>input(key,label,value,type)).join('')}</div></fieldset><p>送信・注文検査には操作の許可が必要です。受信箱への到着は別の確認が必要です。</p><h4>サイト閲覧パスワード</h4><p>サイトを見るための既存のパスワードです。この操作でサイトにパスワードは設定されません。公開中のサイトは空欄で構いません。未入力なら保存済みの値を維持します。</p><label>サイトに設定済みの閲覧パスワード<input id="profile-public-password" type="password" autocomplete="new-password"></label><label class="check-line"><input id="profile-clear-public-password" type="checkbox">保存済みの閲覧パスワードを削除する</label></details>`;
   $('#credentials-section').before(profileSection);
   const enableProfile=document.createElement('label');enableProfile.className='check-line';enableProfile.innerHTML='<input id="enable-operation-profile" type="checkbox">WordPressの標準操作テストを登録する（CMS照合・フォーム・投稿・予約公開・銀行振込）';profileSection.prepend(enableProfile);
-  $('#operation-profile-fields').prepend(document.createRange().createContextualFragment(check('indexable','検索エンジンへの公開を期待する',false)));
+  $('#operation-profile-fields').prepend(document.createRange().createContextualFragment(check('indexable','検索結果に表示される想定（本番は通常オン、検証用はオフ）',false)));
   const interactionSection=document.createElement('section');interactionSection.id='interaction-profile-section';$('#credentials-section').before(interactionSection);const interactions=createInteractionEditor(interactionSection);
   const automationSection=document.createElement('section');automationSection.id='settings-automation';interactionSection.before(automationSection);const automation=createAutomationEditor(automationSection);
   const automationNote=document.createElement('p');automationNote.textContent='この条件を保存するには「WordPressの標準操作テストを登録する」を選択してください。';automationSection.append(automationNote);
@@ -269,7 +269,7 @@ export function initSettings({api,currentProject,onSaved,shared=false}) {
     $('#rest-state').textContent=credentials.rest?'登録済み（値は表示しません）':'未登録';$('#browser-state').textContent=credentials.browser?'登録済み（値は表示しません）':'未登録';
     $('#auth-user').value='';$('#auth-password').value='';$('#auth-state').value='';$('#clear-rest').checked=false;$('#clear-browser').checked=false;
     $('#editor-heading').textContent=editing?'サイト設定を編集':'サイトを登録';
-    $('#editor-mode').textContent=editable?'新規登録時は基本観点のテストケースを自動生成します。追加条件が必要な観点は設定が必要で残り、すべてが自動実行されるわけではありません。必要な場合は詳細設定（技術担当向け）で確認できます。':'このサイトは外部ファイルで管理されています。複製すると操作テスト・認証参照・メール連携を除いた新しい登録を作成します。';
+    $('#editor-mode').textContent=editable?'登録すると、よくある確認項目を自動で用意します。条件が足りない項目は「設定が必要」として残ります。通常は基本の入力だけで進められます。':'このサイトは外部ファイルで管理されています。複製すると操作テスト・認証参照・メール連携を除いた新しい登録を作成します。';
     $('#editor-copy').hidden=editable;$('#editor-save').hidden=!editable;
     for(const e of dialog.querySelectorAll('.editor-body input,.editor-body select,.editor-body textarea,.editor-body button'))e.disabled=!editable;
     $('#enable-operation-profile').disabled=!editable||!!operationProfile;
@@ -336,7 +336,7 @@ export function initSettings({api,currentProject,onSaved,shared=false}) {
       loginId=result.id;loginReady=false;loginOwned=true;$('#clear-browser').checked=false;$('#auth-state').value='';
       remote?.start(loginId);
       $('#login-status').textContent=result.baseURL+' の専用ブラウザーでログイン後、「ログインを確認して保存」を押してください（10分以内）。';
-    }catch(e){error(e.message);$('#login-status').textContent='ログインを開始できませんでした';}finally{loginBusy=false;loginControls();}
+    }catch(e){error(e.message);$('#login-status').textContent='ログインを開始できませんでした：'+e.message;}finally{loginBusy=false;loginControls();}
   };
   // The login check reads the real admin path (e.g. /wp/wp-admin/) from the logged-in browser.
   const useAdminPath=value=>{if(typeof value!=='string'||!value)return;$('#admin-path').value=value;const f=profileField('adminPath');if(f)f.value=value;};

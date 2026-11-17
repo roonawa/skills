@@ -49,7 +49,7 @@ export function applyAutomationPlan(input, profile, discovery={}) {
     if(!c.admin.some(x=>x.id===id))c.admin.push({...row,id,title:`${label}・登録時からの変更検知: ${row.title}`,source:'browser',authenticatedSelector:'#wpadminbar',storageStateEnv:'WPQA_UI_ADMIN_STATE'});
    }
    if(pending('coverage-'+key))remove('coverage-'+key);
-   note(key,label+'の運用方針',`管理画面から取得した現在値（${a.observedAt}）を回帰基準として検査します。設定の運用上の妥当性、追加プラグインの要否は担当者の判断が必要です。既に入力した期待値は優先します。${group==='plugins'?'プラグインは取得時の各プラグインが有効のまま存在することを検査します。追加・バージョン・個別プラグイン設定の正しさは別の条件が必要です。':''}`);
+   note(key,label+'がお客さんとの取り決めに合っているか確認する',`管理画面から取得した現在値（${a.observedAt}）を回帰基準として検査します。設定の運用上の妥当性、追加プラグインの要否は担当者の判断が必要です。既に入力した期待値は優先します。${group==='plugins'?'プラグインは取得時の各プラグインが有効のまま存在することを検査します。追加・バージョン・個別プラグイン設定の正しさは別の条件が必要です。':''}`);
   }
   const pub=a.public??{},path=profile.sitePath||'/';
   if(pub.search||pub.menu)replace('navigation','自動取得した検索・メニューの操作','delivery',{area:'navigation',path,...(pub.search?{search:pub.search}:{}),...(pub.menu?{menu:pub.menu}:{})});
@@ -62,7 +62,7 @@ export function applyAutomationPlan(input, profile, discovery={}) {
   }
   if(pub.robots||pub.sitemaps?.length||pub.crawlProbes?.length){
    replace('crawl','robots・サイトマップの取得と構造・参照先の整合性','seo',{area:'crawl',path,...(pub.robots?{robots:pub.robots}:{}),sitemaps:pub.sitemaps??[],...(pub.crawlProbes?.length?{probes:pub.crawlProbes}:{})});
-   note('crawl','SEO・移行の運用方針','robots・サイトマップの応答と、存在する文書の機械的な整合性を検査します。未宣言の候補URLが404/410の場合は不在、転送の場合は転送応答を記録し、転送先は取得しません。必要な文書が揃っているとは判定しません。bot別公開方針・旧URLの転送対応表・掲載すべきURLの完全性は運用条件として追加してください。');
+   note('crawl','検索公開・旧URLの転送条件を案件担当に確認する','robots・サイトマップの応答と、存在する文書の機械的な整合性を検査します。未宣言の候補URLが404/410の場合は不在、転送の場合は転送応答を記録し、転送先は取得しません。必要な文書が揃っているとは判定しません。bot別公開方針・旧URLの転送対応表・掲載すべきURLの完全性は運用条件として追加してください。');
   }
  }
  // Existing common operations are genuine execution, not a second placeholder.

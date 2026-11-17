@@ -17,11 +17,11 @@ for(const check of ctx.config.checks??[]){
    const file=info.outputPath(safe+'.json');fs.writeFileSync(file,JSON.stringify(data,null,2));await info.attach(safe,{path:file,contentType:'application/json'});
   };
   const journal=createEvidence({runDir:ctx.runDir,check,config:ctx.config});
-  const cancellation=cancellationSignal(ctx.runDir);let reviewRequired=false;
+  const cancellation=cancellationSignal(ctx.runDir);let reviewRequired=false,reviewReason;
   try{
    checkCancellation(ctx.runDir);
    const evidence=await runCheck({check,config:ctx.config,requestFactory,browser,token:'qa-'+ctx.report.runId+'-'+check.id,configDir:ctx.configDir,runDir:ctx.runDir,attach,record:journal.record,signal:cancellation.signal});
-   reviewRequired=evidence?.reviewRequired===true;journal.record({phase:'complete',passed:!reviewRequired,reviewRequired});
+   reviewRequired=evidence?.reviewRequired===true;reviewReason=evidence?.reviewReason;journal.record({phase:'complete',passed:!reviewRequired,reviewRequired});
    await attach('extended-result',journal.clean(evidence));
   }catch(error){
    journal.record({phase:'failure',passed:false,error});
@@ -34,6 +34,6 @@ for(const check of ctx.config.checks??[]){
    await attach('extended-evidence',journal.summary());
    await info.attach('step-journal',{path:journal.file,contentType:'application/x-ndjson'});
   }
-  if(reviewRequired){info.annotations.push({type:'qa-review',description:'公式補助照合済み。脆弱性照合・独自コードの未確認範囲を直接確認してください'});test.skip();}
+  if(reviewRequired){info.annotations.push({type:'qa-review',description:reviewReason??'公式補助照合済み。脆弱性照合・独自コードの未確認範囲を直接確認してください'});test.skip();}
  });
 }

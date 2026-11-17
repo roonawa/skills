@@ -1,6 +1,7 @@
 import {impactAssessments} from './impact-probes.mjs';
 import {contactImpactObservations,blockedRetryObservations} from './automatic-assessment.mjs';
 import {RULES} from './security-baseline-rules.mjs';
+import {isToolExecutionFailure} from './tool-execution.mjs';
 
 // Group observed mismatches, never infer a shared root cause from a test title.
 export function explainFailure(row, evidence=[]) {
@@ -42,6 +43,7 @@ export function explainFailure(row, evidence=[]) {
 
 export function enrichFailures(report,readEvidence){
   return {...report,rows:report.rows.map(row=>{
+    if(isToolExecutionFailure(row))return {...row,originalStatus:row.originalStatus??row.status,status:'blocked',failureOrigin:'tool',failures:[],reason:'検査ツールの通信終了処理でエラーが発生しました。サイトの不具合とは判定できません。診断担当がツールを修正し、再検査してください。\n'+row.reason};
     const evidence=[];
     for(const file of row.evidence??[])if(/(?:^|\/)(?:impact|security|audit|axe|javascript|policy|layout|links|.*discovered-json|.*discovered)(?:-[^/]*)?\.(?:json|txt)$/.test(file))try{evidence.push(readEvidence(file));}catch{}
     return {...row,...(evidence.find(d=>d?.schema==='software-security-v1')?{softwareSecurity:evidence.find(d=>d?.schema==='software-security-v1')}:{}),...(row.status==='fail'?{failures:explainFailure(row,evidence)}:{})};

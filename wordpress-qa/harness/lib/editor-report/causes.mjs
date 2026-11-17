@@ -1,4 +1,6 @@
+import {countResults} from '../../ui/public/result-summary.js';
 import {displayStatus} from '../results.mjs';
+import {isToolExecutionFailure} from '../tool-execution.mjs';
 
 export const CATEGORIES=['editor','admin','tech','not-site','unverified','not-applicable'];
 const ANSI=/\x1b\[[0-9;]*[A-Za-z]/g;
@@ -61,6 +63,7 @@ export function reasonKind(row){
 function factsAndProbes(rule,rows,{environment,config,readEvidence}){
   const paths=rs=>rs.map(r=>pagePath(r,config));
   switch(rule){
+    case 'tool-execution': return {facts:{failureOrigin:'tool',checkCompleted:null},probes:[],basis:{reasons:rows.map(text)}};
     case 'index-expectation': return {facts:{environment:environment??null,pageCount:rows.filter(r=>r.id.startsWith('page.')).length,adminSetting:rows.some(r=>r.id==='admin.indexing')},probes:probes('page',paths(rows.filter(r=>r.id.startsWith('page.'))))};
     case 'render-timeout': return {facts:{environment:environment??null},probes:probes('images',paths(rows))};
     case 'link-transient': {
@@ -80,7 +83,8 @@ export function groupRows(report,options={}){
   const put=(key,rule,status,row)=>{if(!buckets.has(key))buckets.set(key,{rule,status,rows:[]});buckets.get(key).rows.push(row);};
   for(const row of report.rows??[]){
     const shown=displayStatus(row);
-    if(row.status==='not_applicable'||row.autoNotApplicable) put(`not-applicable:${row.id}`,'not-applicable','not-applicable',row);
+    if(isToolExecutionFailure(row))put('tool-execution','tool-execution','unverified',row);
+    else if(row.status==='not_applicable'||row.autoNotApplicable) put(`not-applicable:${row.id}`,'not-applicable','not-applicable',row);
     else if(['not_run','blocked','review'].includes(row.status)||row.preparationRequired) put(`unverified:${row.id}`,'unverified','unverified',row);
     else if(shown==='fail'||shown==='caution'){
       const status=shown==='caution'?'caution':'fail';
@@ -91,10 +95,10 @@ export function groupRows(report,options={}){
   }
   const groups=[];
   for(const [key,{rule,status,rows}] of buckets){
-    const category=status==='unverified'||status==='not-applicable'?status:PROVISIONAL[rule];
+    const category=rule==='tool-execution'?'not-site':status==='unverified'||status==='not-applicable'?status:PROVISIONAL[rule];
     const {facts,probes,basis}=factsAndProbes(rule,rows,options);
     groups.push({id:key.replace(/[^A-Za-z0-9._:-]/g,'_'),rule,rowIds:rows.map(r=>r.id),status,category,facts,probes,...(basis?{basis}:{})});
   }
-  const count=s=>groups.filter(g=>g.status===s).reduce((n,g)=>n+g.rowIds.length,0);
-  return {groups,counts:{fail:count('fail'),caution:count('caution'),unverified:count('unverified'),notApplicable:count('not-applicable')}};
+  const counts=countResults(report.rows);
+  return {groups,counts:{fail:counts.fail,caution:counts.caution,unverified:counts.unverified,notApplicable:counts.not_applicable}};
 }

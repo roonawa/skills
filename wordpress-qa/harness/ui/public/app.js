@@ -1,10 +1,19 @@
+import {manualGuidance} from './manual-guidance.js';
 import {initAiSettings} from './ai-settings.js';
 import {initSettings} from './settings.js';
 import {initExternalAuth} from './external-auth.js';
 import {initRegistration} from './registration.js';
 import {extendedSuites} from './coverage-editor.js';
 import {COVERAGE_REPLACEMENTS} from './case-generator.js';
+import {resultStatus,countResults,executionScope} from './result-summary.js';
 const $=selector=>document.querySelector(selector);
+$('.run-summary').insertAdjacentHTML('afterend','<section id="scope-note" class="notice" role="status" hidden></section>');
+const findingsLayout=document.createElement('div');findingsLayout.className='findings-layout';
+const originalDetailHost=$('.detail-panel').parentElement;let detailSource='#findings-body';
+$('#findings').before(findingsLayout);findingsLayout.append($('#findings'),$('.detail-panel'));
+$('#detail').tabIndex=-1;
+$('.detail-panel .panel-heading').insertAdjacentHTML('beforeend','<button type="button" id="back-to-findings">一覧に戻る</button>');
+$('#back-to-findings').onclick=()=>{const button=[...$(detailSource).querySelectorAll('[data-row]')].find(b=>b.dataset.row===state.detail);(button??$(detailSource)).scrollIntoView({block:'nearest'});button?.focus({preventScroll:true});};
 const state={token:'',projects:[],projectId:'',project:null,runId:null,report:null,detail:null,filter:'all',search:'',busy:false,active:null,follow:true,lastActive:false,notice:'',detailKey:'',rowsKey:'',historyKey:'',requesting:false};
 let refreshTicket=0;
 let verdictTimer,verdictRun='';
@@ -88,6 +97,7 @@ $('#editor-report-panel').ontoggle=()=>{if($('#editor-report-panel').open&&state
 reportAnchor.insertAdjacentHTML('afterend','<details id="handoff-panel"><summary>開発担当への引き継ぎ（C-HUB）</summary><p>不合格・注意の課題を、開発担当に渡す文面にまとめます。コピーした時点の内容が引き継ぎ記録として保存されます。</p><button id="handoff-make" type="button">文面を作成</button><div id="handoff-result" hidden><p>引き継ぐ課題（外すと文面から消えます）</p><div id="handoff-issues"></div><label for="handoff-subject">件名</label><input id="handoff-subject" readonly><label for="handoff-body">本文</label><textarea id="handoff-body" readonly rows="14"></textarea><button id="handoff-copy-subject" type="button">件名をコピー</button><button id="handoff-copy-body" type="button">本文をコピー</button></div><div id="handoff-compare" hidden><button id="handoff-compare-open" type="button" hidden>前回の引き継ぎと比較</button><div id="handoff-compare-result" hidden><p id="handoff-compare-counts"></p><p>新たに発生した課題（外すと比較文面から消えます）</p><div id="handoff-compare-added"></div><label for="handoff-compare-body">比較文面</label><textarea id="handoff-compare-body" readonly rows="12"></textarea><button id="handoff-compare-copy" type="button">比較結果をコピー</button></div></div><p id="handoff-status" role="status"></p></details>');
 const handoff={scope:'',id:'',cmpId:'',ticket:0};
 const handoffURL=kind=>`${runAPI()}/${kind}`,handoffKeys=box=>[...box.querySelectorAll('input:not(:checked)')].map(i=>i.dataset.key);
+const deliveryNote=document.createElement('p');deliveryNote.className='handoff-delivery';deliveryNote.textContent='共有前に、依頼元のC-HUBタスク・次の担当者・完了条件を案件担当に確認してください。報告書と根拠ファイルを一緒に添付し、実行日時・未確認事項・次の対応をコメントに記録してください。引き継ぎ文面は技術担当への調査・修正依頼に使います。この画面からC-HUBへの投稿や担当変更は行いません。';$('#handoff-panel').append(deliveryNote);$('#editor-report-panel').append(deliveryNote.cloneNode(true));
 const handoffList=(box,items)=>{box.innerHTML=items.map(i=>`<label><input type="checkbox" data-key="${escape(i.key)}" checked> <span>${escape(i.level==='caution'?'注意':'不合格')}：${escape(i.rowTitle)} — ${escape(i.title)}</span></label>`).join('')||'<p class="quiet">該当する課題はありません。</p>';};
 const handoffCurrent=scope=>scope===`${state.projectId}/${state.runId}`;
 async function handoffPreview(fresh,save){
@@ -144,20 +154,22 @@ const motionButton=$('#preparation-motion');
 function setPreparationMotion(stopped){document.body.classList.toggle('preparation-motion-off',stopped);motionButton.setAttribute('aria-pressed',String(stopped));motionButton.textContent=stopped?'重要項目の点滅を再開':'重要項目の点滅を停止';}
 setPreparationMotion(localStorage.getItem('wpqa-preparation-motion')==='off');
 motionButton.onclick=()=>{const stopped=!document.body.classList.contains('preparation-motion-off');localStorage.setItem('wpqa-preparation-motion',stopped?'off':'on');setPreparationMotion(stopped);};
-const displayStatus=row=>needsPreparation(row)?'preparation':row.active?'running':row.level==='caution'&&row.status==='fail'?'caution':row.status;
+const displayStatus=resultStatus;
 const failCount=s=>(s?.fail??0)-(s?.caution??0);
 function badge(row){const status=displayStatus(row);return `<span class="pill ${escape(status)}">${escape(names[status]??status)}${row.autoNotApplicable?'・自動判定':''}</span>`;}
 function renderHistory(runs){
   const key=JSON.stringify([runs,state.runId]);if(key===state.historyKey)return;state.historyKey=key;
   $('#history-count').textContent=runs.length;
   $('#run-list').innerHTML=runs.length?runs.map(r=>{
+    r={...r,summary:r.displayCounts?{...r.displayCounts,fail:r.displayCounts.fail+r.displayCounts.caution}:r.summary};
     const active=state.active?.runId===r.runId;const label=active?'実行中':r.gatePassed?'必須条件充足':failCount(r.summary)?'不合格あり':'未確認あり';
-    return `<button class="history-item ${r.runId===state.runId?'selected':''}" data-run="${escape(r.runId)}"><span class="history-top"><span><i class="dot ${active?'blue':r.gatePassed?'green':failCount(r.summary)?'red':'orange'}"></i>${escape(date(r.startedAt))}</span></span><small>${label} · ${r.summary?.pass??0}件合格${r.summary?.caution?` · 注意${r.summary.caution}件`:''}</small></button>`;
+    return `<button class="history-item ${r.runId===state.runId?'selected':''}" data-run="${escape(r.runId)}"><span class="history-top"><span><i class="dot ${active?'blue':r.gatePassed?'green':failCount(r.summary)?'red':'orange'}"></i>${escape(date(r.startedAt))}</span></span><small>${r.scope?.partial?`${r.scope.count}項目のみ · `:''}${label} · ${r.summary?.pass??0}件合格${r.summary?.caution?` · 注意${r.summary.caution}件`:''}</small></button>`;
   }).join(''):'<p class="quiet">履歴はここに表示されます</p>';
 }
 const openGroups=new Set();let groupScope='';
 const displayReadiness='共通: 可視画像・フォントの読込みを確認。JavaScript例外は独立検査。';
 function classifyRow(r){
+  if(r.manualReview)return [r.id,`${manualGuidance(r).owner}：${r.title}`,manualGuidance(r).action];
   const prefix=r.id.split('.')[0];
   const categories={
     javascript:['JavaScriptエラー','ページ表示・表示準備・画像スクロール中の未捕捉例外を検査。他の表示検査は続行。'],
@@ -216,12 +228,12 @@ function renderFindings(){
   const section=(status,label)=>{
     const list=rows.filter(r=>displayStatus(r)===status),causes=new Map(),plain=list.filter(r=>!r.failures?.length);if(!list.length)return '';
     for(const r of list)for(const f of r.failures??[]){if(!causes.has(f.key))causes.set(f.key,{...f,rows:[]});causes.get(f.key).rows.push(r);}
-    return `<section class="preparation-help findings-${status}"><h3>${label} ${list.length}件${causes.size?` — ${status==='fail'?'不合格':'注意'}の理由・対応方法（${causes.size}項目）`:''}</h3>${causes.size?'<p>同じ検出内容を集約しています。根本原因の一致は未確定です。</p>':''}${[...causes.values()].map(f=>`<details><summary><strong>${escape(f.title)}</strong> — ${f.rows.length}ケース</summary>${failureHTML(f)}<h4>対象URL・条件</h4>${f.rows.map(findingButton).join('')}</details>`).join('')}${plain.length?`<ul>${plain.map(r=>`<li>${findingButton(r)}</li>`).join('')}</ul>`:''}</section>`;
+    return `<section class="preparation-help findings-${status}"><h3>${label}の検査 ${list.length}項目${causes.size?` ／ 表示中の指摘 ${causes.size}件`:''}</h3>${causes.size?'<p>似た指摘をまとめています。原因が同じとは限りません。1つの検査から複数の指摘が出ることがあります。</p>':''}${[...causes.values()].map(f=>`<details><summary><strong>${escape(f.title)}${/^baseline:[^:]+:/.test(f.key)?' — '+escape(f.key.replace(/^baseline:[^:]+:/,'')):f.rows.length===1?' — '+escape(f.rows[0].title):''}</strong> — 対象の検査 ${f.rows.length}項目</summary>${failureHTML(f)}<h4>対象URL・条件</h4>${f.rows.map(findingButton).join('')}</details>`).join('')}${plain.length?`<ul>${plain.map(r=>`<li>${findingButton(r)}</li>`).join('')}</ul>`:''}</section>`;
   };
   const passed=rows.filter(r=>displayStatus(r)==='pass');
   $('#findings-body').innerHTML=(section('fail','不合格')+section('caution','注意')||'<p>この実行では不合格・注意はありませんでした。</p>')+`<details class="findings-pass"><summary>合格 ${passed.length}件</summary>${passed.length?`<ul>${passed.map(r=>`<li>${findingButton(r)}</li>`).join('')}</ul>`:'<p class="quiet">ありません。</p>'}</details>`;
 }
-$('#findings-body').addEventListener('click',e=>{const button=e.target.closest('[data-row]');if(!button)return;state.detail=button.dataset.row;renderRows();renderDetail();$('.detail-panel').scrollIntoView({block:'nearest'});});
+$('#findings-body').addEventListener('click',e=>{const button=e.target.closest('[data-row]');if(!button)return;detailSource='#findings-body';findingsLayout.append($('.detail-panel'));state.detail=button.dataset.row;renderRows();renderDetail();$('#detail').focus({preventScroll:innerWidth>900});});
 const todoUI={data:null,project:'',key:'',saving:false,ticket:0};
 const todoNames={writes:'投稿・キャッシュ・予約公開',submit:'フォーム送信',performance:'表示速度',sensitivePaths:'機密ファイル露出'};
 const todoBuckets=[['toolGap','ツールが取得できなかったもの','ツールが自動で取得できなかった項目です。担当者の入力は要りません。'],['technical','技術担当の準備が要るもの','技術担当が準備してから検査します。'],['notRelevant','このサイトに関係しないもの','登録時に取得した情報から、このサイトに関係しないと判断しました。根拠を確かめ、関係がある場合は戻してください。']];
@@ -323,12 +335,18 @@ function failureHTML(f){return `<dl><dt>不合格の理由・取得結果</dt><d
 function renderDetail(){
   const r=state.report?.report?.rows.find(r=>r.id===state.detail);
   const key=JSON.stringify([state.runId,r,state.report?.canApprove,state.busy]);if(key===state.detailKey)return;state.detailKey=key;
-  if(!r){$('#detail').innerHTML='<div class="detail-placeholder"><span aria-hidden="true">↖</span><h3>確認したい項目を選択</h3></div>';return;}
+  if(!r){$('#detail').innerHTML='<div class="detail-placeholder"><h3>左の一覧から項目を選んでください</h3><p>直接確認の項目を選ぶと「確認を進める」を使えます。</p></div>';return;}
   const preparing=needsPreparation(r),files=r.evidence??[],canApprove=state.report.canApprove&&!state.busy;
   const descriptions={preparation:'検査条件や期待値が未定義のため、実行対象に含めていません。設定を登録してから検査してください。',pass:'この検査は期待した結果に一致しました。',not_run:'この実行では確認していません。対象の検査範囲を選んで実行してください。',review:'人による確認が必要です。証拠と期待する状態を照合してください。',caution:'参考検査で兆候が見つかりました。必須条件には影響しません。内容を確認し、必要に応じて対応してください。',blocked:'前提条件や実行環境を確認してから再実行してください。',not_applicable:'このサイトでは適用外として登録されています。',fail:'期待結果との違いがあります。証拠から原因を確認してください。'};
   $('#detail').innerHTML=`${badge(r)}<h3 class="detail-title">${escape(r.title)}</h3><div class="detail-id">${escape(r.id)}</div><span class="detail-label">判定の内容</span><p class="detail-description">${escape(r.autoNotApplicable?'このサイトに関係しないと自動で判定し、対象外にしました。根拠を確認してください。':descriptions[displayStatus(r)]??'')}</p>${r.setting?`<span class="detail-label">設定の照合</span><dl><dt>取得方法</dt><dd>${escape(r.setting.source)}</dd><dt>期待値</dt><dd>${escape(JSON.stringify(r.setting.expected))}</dd><dt>取得した値</dt><dd>${escape(JSON.stringify(r.setting.actual))}</dd></dl>`:''}${r.reason?`<pre class="reason">${escape(r.reason.replace(/\x1b\[[0-9;]*m/g,''))}</pre>`:''}${files.length?'<span class="detail-label">証拠ファイル</span>':''}<div class="evidence-list">${files.map(f=>`<a class="evidence-link" href="${fileURL(f)}" target="_blank" rel="noopener">${escape(f.split('/').at(-1))} ↗</a>${/\.png$/i.test(f)?`<a href="${fileURL(f)}" target="_blank" rel="noopener"><img class="evidence-image" src="${fileURL(f)}" alt="${escape(f.split('/').at(-1))}"></a>`:''}`).join('')}</div>`;
   $('#detail .detail-id').insertAdjacentHTML('afterend',`<details class="check-details"><summary>検査内容</summary><p>${escape(classifyRow(r)[2])}</p></details>`);
+  const expected=r.setting?.expected??r.details?.expectations,actual=r.setting?.actual??r.details?.actual??(r.failures?.length?r.failures.map(f=>f.actual).filter(Boolean).join('\n'):undefined);
+  if(['fail','caution','blocked'].includes(displayStatus(r))){
+    const show=value=>value===undefined?'この結果には記録されていません。下の証拠と判定理由を確認してください。':typeof value==='string'?value:JSON.stringify(value,null,2);
+    $('#detail .detail-id').insertAdjacentHTML('afterend',`<section class="result-comparison"><h4>期待と実際</h4><dl><dt>期待</dt><dd><pre>${escape(show(expected))}</pre></dd><dt>実際</dt><dd><pre>${escape(show(actual))}</pre></dd></dl></section>`);
+  }
   if(r.failures?.length)$('#detail .detail-id').insertAdjacentHTML('afterend',r.failures.map(f=>`<section class="preparation-help"><h4>${escape(f.title)}</h4>${failureHTML(f)}</section>`).join(''));
+  if($('#detail .result-comparison'))$('#detail .detail-id').after($('#detail .result-comparison'));
   if(preparing||r.status==='blocked'){
 
     const help=document.createElement('section');help.className='blocked-help';help.setAttribute('aria-live','polite');help.textContent='不足している設定を確認しています…';$('#detail .detail-id').after(help);
@@ -347,11 +365,13 @@ function renderDetail(){
   if(r.softwareSecurity){const d=r.softwareSecurity;$('#detail').insertAdjacentHTML('beforeend',`<section class="preparation-help"><h4>構成情報と照合結果</h4><p>照合日時：${escape(d.checkedAt)}</p>${d.target?`<p>移行先：PHP ${escape(d.target.php)}・WordPress ${escape(d.target.wordpress)} ／ 現在：PHP ${escape(d.current?.php??'不明')}・WordPress ${escape(d.current?.wordpress??'不明')}</p>`:''}${(d.assets??[]).map(a=>{const c=(d.results??[]).find(x=>x.slug===a.slug&&x.type===a.type);return `<p><strong>${escape(a.name)}</strong>：${escape(a.version??'取得不能')}${a.active===false?'（無効・非使用）':''}${c?` ／ ${escape(({ok:'宣言上は対応',caution:'要確認',incompatible:'要件を満たさない・配布停止',unlisted:'WordPress.org 未掲載（配布元で確認）'})[c.status]??c.status)}${c.requiresPhp?` ／ 必要PHP ${escape(c.requiresPhp)}以上`:''}${c.tested?` ／ 動作確認済み WordPress ${escape(c.tested)}`:''}${c.notes?.length?`<br><small>${c.notes.map(escape).join(' ')}</small>`:''}`:''}</p>`;}).join('')}${(d.assets??[]).filter(a=>a.supplement).map(a=>{const x=a.supplement,p=x.parent;return `<h5>${escape(a.name)}：公式情報の補助照合</h5><p>公式掲載版：${escape(x.referenceVersion??p?.referenceVersion??'未確認')} ／ 比較：${escape(({current:'一致',outdated:'更新候補あり',ahead:'公式掲載版より新しいため確認が必要','child-review':'子テーマの差分確認が必要'})[x.comparison])}</p>${p?`<p>親テーマ：${escape(p.name)} ${escape(p.version)}</p>`:''}<p>出典：${escape(x.source)}</p><p>${escape(x.action)}</p><p>${escape(x.limit)}</p>`;}).join('')}${(d.assets??[]).filter(a=>a.childCode).map(a=>childCodeSummary(a.childCode)).join('')}${d.lifecycle?`<p>PHP：${escape(({active:'通常サポート中','security-only':'セキュリティ修正のみ提供',eol:'公式サポート終了'})[d.lifecycle.state]??d.lifecycle.state)} ／ セキュリティサポート期限：${escape(d.lifecycle.security??'終了済み（現在の公式対象外）')}</p><p>${escape(d.lifecycle.note)}</p>`:''}${d.unknown?.length?`<h5>未確認事項</h5><ul>${d.unknown.map(x=>`<li>${escape(x)}</li>`).join('')}</ul>`:''}<p>${escape(d.scope)}</p></section>`);}
   if(r.details)$('#detail').insertAdjacentHTML('beforeend',`<details class="check-details"><summary>期待値と取得結果</summary><pre class="reason">${escape(JSON.stringify(r.details,null,2))}</pre></details>`);
   if(r.diagnostics)$('#detail').insertAdjacentHTML('beforeend',`<details class="check-details" open><summary>実行経過・失敗時の証拠</summary><pre class="reason">${escape(JSON.stringify(r.diagnostics,null,2))}</pre></details>`);
+  if(r.manualReview){const guide=manualGuidance(r);$('#detail .detail-id').after(Object.assign(document.createElement('p'),{className:'manual-guidance',textContent:guide.owner+'：'+guide.action+' '+guide.done+' 記録はこのツールに保存できます。スクリーンショットはC-HUBの依頼元タスクに添付し、ファイル名または添付先を証拠欄に記録してください。'}));}
   if(r.instructions)$('#detail').insertAdjacentHTML('beforeend',`<p class="detail-description">${escape(r.instructions)}</p>`);
   if(!preparing&&r.manualReview)$('#detail').insertAdjacentHTML('beforeend',`<form id="manual-review" class="manual-review"><h4>人手による判定を記録</h4>${r.review?`<p>前回: ${escape(r.review.reviewer)} · ${escape(date(r.review.timestamp))} · ${escape(names[r.review.outcome])}</p>`:''}<label>確認者<input name="reviewer" required maxlength="10000" value="${escape(r.review?.reviewer??'')}"></label><label>判定<select name="outcome"><option value="pass">合格</option><option value="fail">不合格</option><option value="not_applicable">対象外</option></select></label><label>確認内容・判断理由<textarea name="notes" required maxlength="10000" rows="4">${escape(r.review?.notes??'')}</textarea></label><label>証拠・実施環境（1行に1件）<textarea name="evidence" required rows="4">${escape((r.review?.evidence??[]).join('\n'))}</textarea></label><button type="submit" class="primary" ${state.busy?'disabled':''}>判定を保存</button></form>`);
   if(!preparing&&r.manualReview){
     $('#manual-review').hidden=true;
     $('#detail .detail-id').insertAdjacentHTML('afterend',`<section class="confirmation-panel"><button type="button" id="start-confirmation" ${!canApprove?'disabled':''}>確認を進める</button><p>手順ごとに確認し、途中結果・証拠を保存できます。サイトへの送信は自動実行しません。</p><div id="confirmation-workspace"></div></section>`);
+    if(!canApprove)$('#start-confirmation').after(Object.assign(document.createElement('p'),{textContent:state.busy?'ほかの処理が完了すると確認を進められます。':'現在の設定と一致する実行結果を選ぶと確認を進められます。'}));
   }else if(!preparing&&['review','blocked','fail','not_run'].includes(r.status)){
     $('#detail').insertAdjacentHTML('beforeend',`<section class="confirmation-panel"><button id="execute-case" type="button" ${!canApprove?'disabled':''}>この項目を再検査</button></section>`);
   }
@@ -359,7 +379,10 @@ function renderDetail(){
 function render(){
   if($('#remove-site'))$('#remove-site').disabled=!state.canRemove||!state.project||state.busy||state.requesting;
   renderOperationScope();
-  const report=state.report?.report,rows=report?.rows??[],active=state.active?.projectId===state.projectId;
+  const report=state.report?.report,rows=report?.rows??[],active=state.active?.projectId===state.projectId,counts=countResults(rows);
+  const scope=executionScope(report??{});$('#scope-note').hidden=!report||!scope.partial;
+  $('#scope-note').innerHTML=scope.partial?`<strong>${scope.count}項目のみの${scope.explicit?'再検査・選択検査':'範囲を絞った検査'}です。</strong><p>サイト全体の再検査ではありません。他の項目の結果は元の履歴に残っています。</p>${scope.parentRunId?'<button type="button" id="scope-back">元の実行結果に戻る</button>':''}`:'';
+  if($('#scope-back'))$('#scope-back').onclick=async()=>{state.runId=scope.parentRunId;state.report=null;state.detail=null;state.follow=false;await refresh();};
   const live=active&&(!state.runId||state.active.runId===state.runId);
   document.body.classList.toggle('cinema-active',!!active&&state.active?.kind==='run');
   const cinemaStatus=document.querySelector('.cinema-caption b');
@@ -380,19 +403,19 @@ function render(){
   else if(live){title='検査を実行しています';subtitle=rows.find(r=>r.active)?.title??'テストを準備しています';label='実行中';tone='running';icon='◌';}
   else if(state.report?.orphaned){title='実行の完了を確認できません';subtitle='アプリの終了などで中断した可能性があります。ログを確認してください。';label='未完了';tone='blocked';icon='!';}
   else if(report?.runStatus==='planned'){title='テストケースを実行できます';subtitle='検査範囲を選択できます。';label='未実施';tone='not_run';icon='○';}
-  else if(report){title=report.gatePassed?'必須条件を満たしています':failCount(report.summary)?'不合格の項目を確認してください':'確認が必要な項目が残っています';subtitle=`${date(report.startedAt)} の実行結果`;label=report.gatePassed?'必須条件充足':failCount(report.summary)?'不合格あり':'未確認あり';tone=report.gatePassed?'pass':failCount(report.summary)?'fail':'review';icon=report.gatePassed?'✓':failCount(report.summary)?'!':'○';}
+  else if(report){title=report.gatePassed?'必須条件を満たしています':countResults(report.rows).fail?'不合格の項目を確認してください':'確認が必要な項目が残っています';subtitle=`${date(report.startedAt)} の実行結果`;label=report.gatePassed?'必須条件充足':countResults(report.rows).fail?'不合格あり':'未確認あり';tone=report.gatePassed?'pass':countResults(report.rows).fail?'fail':'review';icon=report.gatePassed?'✓':countResults(report.rows).fail?'!':'○';}
   if(report?.aggregation&&!live){title='実行結果・実査レビューの統合';subtitle='複数の実行履歴を統合した結果です。新たな全件実行ではありません。各項目の採用元・確認日を参照してください。';}
-  const preparationCount=rows.filter(needsPreparation).length;
+  const preparationCount=counts.preparation;
   if(preparationCount)subtitle+=` · 設定が必要 ${preparationCount}件（実行対象外）`;
   $('#run-title').textContent=title;$('#run-subtitle').textContent=subtitle;$('#run-badge').className=`pill ${tone}`;$('#run-badge').textContent=label;
   $('#run-indicator').className=`status-icon ${live?'running':tone==='pass'?'good':tone==='fail'?'bad':''}`;$('#run-indicator').textContent=icon;
   $('#progress-fill').style.width=`${percent}%`;$('.progress-track').setAttribute('aria-valuenow',percent);$('#progress-label').textContent=`${completed} / ${selected.length} 項目`;
   if(report?.aggregation&&!live)$('#progress-label').textContent=`${rows.length}項目の保存証拠を統合`;
-  for(const status of ['pass','blocked','review','not_run'])$(`#metric-${status}`).textContent=report?.summary?.[status]??'—';
-  $('#metric-fail').textContent=report?.summary?failCount(report.summary):'—';$('#metric-caution').textContent=report?.summary?report.summary.caution??0:'—';
+  for(const status of ['pass','blocked','review','not_run'])$(`#metric-${status}`).textContent=report?counts[status]:'—';
+  $('#metric-fail').textContent=report?counts.fail:'—';$('#metric-caution').textContent=report?counts.caution:'—';
   $('#metric-preparation').textContent=report?preparationCount:'—';
-  const notRun=rows.filter(r=>r.status==='not_run'&&!needsPreparation(r)).length;
-  $('#metric-not_run').textContent=report?notRun:'—';$('#metric-unconfirmed').textContent=report?(report.summary?.review??0)+notRun+preparationCount:'—';
+  const notRun=counts.not_run;
+  $('#metric-not_run').textContent=report?notRun:'—';$('#metric-unconfirmed').textContent=report?counts.unverified:'—';
   const reportScope=`${state.projectId}/${state.runId}`;
   $('#editor-report-panel').hidden=!report;
   if(editorReport.scope!==reportScope+report?.runStatus){editorReport.scope=reportScope+report?.runStatus;editorReport.info=null;editorReport.done=null;editorReport.ticket++;$('#editor-report-status').textContent='';if(report&&!editorReport.creating)editorReportLoad();}
@@ -456,7 +479,7 @@ $('#run-list').addEventListener('click',async e=>{const button=e.target.closest(
 $('#test-rows').addEventListener('click',e=>{
   const group=e.target.closest('[data-group]');
   if(group){const id=group.dataset.group;openGroups.has(id)?openGroups.delete(id):openGroups.add(id);renderRows();[...$('#test-rows').querySelectorAll('[data-group]')].find(b=>b.dataset.group===id)?.focus();return;}
-  const button=e.target.closest('[data-row]');if(!button)return;state.detail=button.dataset.row;renderRows();renderDetail();
+  const button=e.target.closest('[data-row]');if(!button)return;detailSource='#test-rows';originalDetailHost.prepend($('.detail-panel'));state.detail=button.dataset.row;renderRows();renderDetail();
 });
 $('#filters').addEventListener('click',e=>{const button=e.target.closest('[data-filter]');if(!button)return;state.filter=button.dataset.filter;for(const b of $('#filters').querySelectorAll('button')){b.classList.toggle('selected',b===button);b.setAttribute('aria-pressed',String(b===button));}renderRows();});
 $('#search').addEventListener('input',e=>{state.search=e.target.value;renderRows();});
@@ -504,7 +527,7 @@ try{
 }catch(e){showError(e.message);}
 
 initAiSettings({api});
-const removeSite=document.createElement('button');removeSite.id='remove-site';removeSite.type='button';removeSite.textContent='サイトを一覧から削除';removeSite.className='danger-text';document.querySelector('.site-actions').append(removeSite);
+const removeSite=document.createElement('button');removeSite.id='remove-site';removeSite.type='button';removeSite.textContent='サイトを一覧から削除';removeSite.className='danger-text';const dangerMenu=document.createElement('details');dangerMenu.className='site-danger-menu';dangerMenu.innerHTML='<summary>サイトの管理操作</summary>';document.querySelector('.site-actions').append(dangerMenu);dangerMenu.append(removeSite);
 removeSite.disabled=!state.canRemove||!state.project||state.busy;
 removeSite.textContent='サイトを削除';
 removeSite.onclick=async()=>{

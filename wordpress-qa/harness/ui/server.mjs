@@ -1,3 +1,4 @@
+import {countResults,executionScope} from './public/result-summary.js';
 import {latestResults} from '../lib/latest-results.mjs';
 import {releaseVersion} from '../lib/release-version.mjs';
 import {deletionPlan,deleteSiteData} from './project-removal.mjs';
@@ -78,7 +79,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
   const system=store?new SystemSettings({directory:systemOptions.directory??path.join(storeDir,'system'),codec:store.codec,policyFile:systemOptions.policyFile??path.join(storeDir,'system','egress.json'),admins:systemOptions.admins??[]}):null;
   const ai=system?new AiAssistant(system,aiOptions):null;
   const isAdmin=actor=>!access||system?.admins.includes(actor?.name);
-  const allowTarget=baseURL=>{if(systemOptions.enforceEgress&&!system.view().destinations.some(e=>e.origin===new URL(baseURL).origin))reject(403,'管理者の「接続先の許可設定」に対象サイトを登録してください');};
+  const allowTarget=baseURL=>{if(systemOptions.enforceEgress&&!system.view().destinations.some(e=>e.origin===new URL(baseURL).origin))reject(403,`このサイト（${new URL(baseURL).hostname}）は接続先として許可されていません。管理者${system.admins.length?'（'+system.admins.join('、')+'）':''}に、このサイトの「接続先の許可設定」への登録を依頼してください。` );};
   const admission=()=>{if(systemOptions.enforceEgress)checkStorage(storeDir,systemOptions.maxDataMB??8192);};
   const externalAuth=storeDir?new ExternalAuth(path.join(storeDir,'external-auth'),{codec:credentialCodec}):null;
   const hiddenFile=storeDir?path.join(storeDir,'.hidden-sites.json'):null;
@@ -145,7 +146,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
   function history(p,limit=100) {
     if(!fs.existsSync(p.outputDir))return [];
     return fs.readdirSync(p.outputDir,{withFileTypes:true}).filter(e=>e.isDirectory()).map(e=>{
-      try {const directory=runPath(p,e.name),r=readJSON(path.join(directory,'results.json'));return {runId:e.name,startedAt:r.startedAt,finishedAt:r.finishedAt,runStatus:r.runStatus,gatePassed:r.gatePassed,summary:r.summary,pendingRecovery:summarizeRecovery(directory).pending};}catch{return null;}
+      try {const directory=runPath(p,e.name),r=readJSON(path.join(directory,'results.json'));return {runId:e.name,startedAt:r.startedAt,finishedAt:r.finishedAt,runStatus:r.runStatus,gatePassed:r.gatePassed,summary:r.summary,displayCounts:countResults(r.rows),scope:executionScope(r),pendingRecovery:summarizeRecovery(directory).pending};}catch{return null;}
     }).filter(Boolean).sort((a,b)=>(b.startedAt??b.runId).localeCompare(a.startedAt??a.runId)).filter((r,index)=>index<limit||r.pendingRecovery);
   }
   function jobState(job){return job?{projectId:job.projectId,kind:job.kind,runId:job.runId,state:job.state,exitCode:job.exitCode,log:job.log}:null;}
@@ -542,7 +543,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
             const row=report.rows.find(r=>r.id===data.rowId);if(!row)reject(404,'検査項目が見つかりません');
             if(current.config.journeys.some(j=>j.explicitOnly&&row.id==='journey.'+j.id))reject(400,'操作テストの画面で送信内容を確認して実行してください');
             try{selectSingleTest(catalog(current.config),row.id);}catch(e){reject(400,e.message);}
-            const {job}=launch(p,['run','--config',p.file,'--suite',row.suite,'--id',row.id],'run');return json(202,jobState(job));
+            const {job}=launch(p,['run','--config',p.file,'--suite',row.suite,'--id',row.id,'--parent-run',id],'run');return json(202,jobState(job));
           }
           if(['handoff','handoff-compare'].includes(segments[5])&&segments.length===6&&req.method==='POST'){
             if(report.runStatus!=='finished'||!report.finishedAt||runIsAlive(directory))reject(409,'完了した実行を選択してください');
@@ -682,6 +683,7 @@ export async function startUI({configPaths=[],port=4310,demo=false,storeDir,logi
       if(req.method!=='GET')reject(404,'ページが見つかりません');
       const files={'/':'index.html','/app.js':'app.js','/style.css':'style.css','/automation-inputs.js':'automation-inputs.js','/interaction-profile.js':'interaction-profile.js','/case-generator.js':'case-generator.js','/settings.js':'settings.js','/external-auth.js':'external-auth.js','/registration.js':'registration.js','/coverage-editor.js':'coverage-editor.js','/options-form.js':'options-form.js'};
       files['/preparation-wizard.js']='preparation-wizard.js';
+      files['/result-summary.js']='result-summary.js';files['/manual-guidance.js']='manual-guidance.js';
       files['/remote-login.js']='remote-login.js';
       files['/ai-settings.js']='ai-settings.js';files['/ai-preparation.js']='ai-preparation.js';
       const helpFiles={'/help/user-manual.html':'user-manual.html','/help/security-ai-guide.html':'security-ai-guide.html'};

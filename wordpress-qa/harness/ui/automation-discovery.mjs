@@ -12,7 +12,7 @@ const discussion = ['default_pingback_flag','default_ping_status','default_comme
  * request headers, REST nonce, mail destinations or exception text are returned.
  */
 export async function discoverAutomation({baseURL, profile = {}, adminPage, adminContext, publicHeaders = {}, pages = [], restSettings} = {}) {
-  const out = {version:1, observedAt:new Date().toISOString(), admin:{reading:[],discussion:[],permalink:[],plugins:[]}, activePlugins:[], pluginInventory:{observed:false,slugs:[]}, public:{forms:[],sitemaps:[],fieldLabels:[]}, warnings:['Admin observations are regression baselines, not validated business requirements.'], sources:[]};
+  const out = {version:1, observedAt:new Date().toISOString(), admin:{reading:[],discussion:[],permalink:[],plugins:[]}, activePlugins:[], pluginInventory:{observed:false,slugs:[]}, public:{forms:[],sitemaps:[],fieldLabels:[]}, warnings:['管理画面から取得した現在値は変更を検出する基準です。お客さんとの取り決めに合っているかは案件担当が確認してください。'], sources:[]};
   let origin;
   try { const u = new URL(baseURL); if(!/^https?:$/.test(u.protocol) || u.username || u.password) throw Error(); origin=u.origin; }
   catch {out.warnings.push('Invalid base URL.'); return out;}

@@ -15,7 +15,7 @@ const RULE_LABELS={'plugin-vulnerability':'プラグインの既知の弱点',co
 const ENVIRONMENTS={production:'本番環境',staging:'検証環境',local:'ローカル環境'};
 // Rows of unverified / not-applicable groups carry only an internal id; show a plain label for its kind.
 const ID_LABELS={page:'ページの表示確認',links:'リンクの確認',layout:'画面の見た目',snapshot:'画面の見た目',axe:'アクセシビリティ',javascript:'画面の動き',admin:'管理画面の設定確認',journey:'操作の流れ',check:'サイト全体の検査'};
-const label=g=>g.status==='unverified'||g.status==='not-applicable'?ID_LABELS[String(g.rowIds?.[0]).split('.')[0]]??'その他の検査':RULE_LABELS[g.rule]??'その他の項目';
+const label=g=>g.rule==='tool-execution'?'検査ツールの通信終了処理のエラー':g.status==='unverified'||g.status==='not-applicable'?ID_LABELS[String(g.rowIds?.[0]).split('.')[0]]??'その他の検査':RULE_LABELS[g.rule]??'その他の項目';
 const sum=gs=>gs.reduce((n,g)=>n+(g.rowIds?.length??0),0);
 const byCategory=(groups,c)=>groups.filter(g=>g.category===c);
 
@@ -76,13 +76,16 @@ ${body}
 const tag=s=>`<span class="tag ${s.tag}">${esc(s.name)}</span>`;
 const scroll=t=>`<div class="scroll">${t}</div>`;
 
-function itemCard(s,item){
+const anchor=g=>'group-'+encodeURIComponent(g.id);
+const reference=g=>`<p class="note">根拠：${esc(label(g))} ／ <a href="editor-report-basis.html#${esc(anchor(g))}">この項目の検査結果・根拠を開く</a></p>`;
+function technicalDetails(g){return (g.basis?.checks??[]).flatMap(row=>(row.failures??[]).map(f=>`<details><summary>${esc(row.title??label(g))}：${esc(f.title)}</summary><p>取得した結果：${esc(f.actual)}</p><p>設定での確認：${esc(f.admin)}</p><p>技術担当の確認：${esc(f.code)}</p><p>修正後の確認：${esc(f.verify)}</p></details>`)).join('');}
+function itemCard(s,item,g){
   const steps=(item.steps??[]).filter(Boolean);
   return `<div class="card">
 <h3>${tag(s)}${esc(item.title)}</h3>
 <p>${esc(item.summary)}</p>
 ${item.impact?`<div class="why">困ること：${esc(item.impact)}</div>\n`:''}${steps.length?`<dl class="steps">\n<dt>直し方</dt>\n<dd><ol>${steps.map(x=>`<li>${esc(x)}</li>`).join('')}</ol></dd>\n</dl>\n`:''}${item.location?`<p>場所：${esc(item.location)}</p>\n`:''}<p class="note">急ぎ度：${esc(URGENCY[item.urgency]??URGENCY.normal)}</p>
-${item.note?`<p class="note">${esc(item.note)}</p>\n`:''}</div>`;
+${item.note?`<p class="note">${esc(item.note)}</p>\n`:''}${reference(g)}${s.category==='tech'?technicalDetails(g):''}</div>`;
 }
 
 function section(n,s,groups,items){
@@ -90,18 +93,20 @@ function section(n,s,groups,items){
   let body=`<h2>${n}. ${esc(s.heading)}</h2>\n`;
   if(!gs.length)return body+'<p>この項目はありません。</p>\n';
   if(s.intro)body+=`<p>${esc(s.intro)}</p>\n`;
-  if(s.category==='unverified'||s.category==='not-applicable')return body+`<div class="card">${bullets(gs)}</div>\n`;
+  if(s.category==='unverified'||s.category==='not-applicable')return body+`<div class="card">${bullets(gs)}<details><summary>元の検査結果を確認</summary>${gs.map(reference).join('')}</details></div>\n`;
   const byId=new Map(items.map(i=>[i.groupId,i]));
   const shown=gs.filter(g=>byId.has(g.id)),rest=gs.filter(g=>!byId.has(g.id));
-  body+=shown.map(g=>itemCard(s,byId.get(g.id))).join('\n');
-  if(rest.length)body+=`${shown.length?'\n':''}<div class="card">${tag(s)}${bullets(rest)}</div>`;
+  body+=shown.map(g=>itemCard(s,byId.get(g.id),g)).join('\n');
+  if(rest.length)body+=`${shown.length?'\n':''}<div class="card">${tag(s)}${bullets(rest)}${rest.map(reference).join('')}</div>`;
+  if(gs.some(g=>g.rule==='tool-execution'))body+='<p>通信の終了処理でエラーが発生したため、検査結果を確定できません。サイトの修正依頼には含めず、診断担当がツールを修正して再検査してください。</p>';
   return body+'\n';
 }
 
 function header(title,{site,runId,startedAt,checkedAt}){
+  const date=value=>{const d=new Date(value);if(!Number.isFinite(d.getTime()))return '日時不明';const p=Object.fromEntries(new Intl.DateTimeFormat('ja-JP',{timeZone:'Asia/Tokyo',year:'numeric',month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(d).map(x=>[x.type,x.value]));return `${p.year}年${p.month}月${p.day}日 ${p.hour}:${p.minute}`;};
   return `<h1>${esc(title)}</h1>
 <p class="meta">対象：${esc(site?.name)}（${esc(site?.baseURL)}）／環境：${esc(ENVIRONMENTS[site?.environment]??site?.environment)}<br>
-診断の実行：${esc(runId)}（開始：${esc(startedAt)}）／再確認：${esc(checkedAt)}</p>`;
+診断：${esc(date(startedAt))} ／ 報告書作成時の再確認：${esc(date(checkedAt))}（日本時間）</p><details><summary>実行ID</summary><code>${esc(runId)}</code></details>`;
 }
 
 export function renderEditorReport(input){
@@ -120,13 +125,16 @@ ${notSiteText}`
   }).join('\n');
   const title=`${site?.name??''} サイト診断のまとめ（編集者向け）`;
   return page(title,`${header(title,{site,runId,startedAt,checkedAt})}
+${input.scope?.partial?`<p class="note">${input.scope.count}項目のみの検査結果です。サイト全体の再検査ではありません。</p>`:''}
+<p class="note">診断時の検査項目数：不合格 ${input.counts?.fail??0}件 ／ 注意 ${input.counts?.caution??0}件 ／ 未確認 ${input.counts?.unverified??0}件 ／ 対象外 ${input.counts?.notApplicable??0}件。未確認は実行不能・直接確認・未実施・設定が必要な項目を重複なく数えています。以下の分類は報告書作成時の再確認を反映しています。</p>
 
 <div class="card lead">
-<h2>2. ひとことで言うと</h2>
+<h2>1. ひとことで言うと</h2>
 ${lead}
 </div>
 
-<h2>3. 分類ごとの件数</h2>
+<h2>2. 分類ごとの件数</h2>
+<p class="note">件数は検査項目数、括弧内は対応をまとめた数です。同じ検査から複数の指摘が出る場合があります。</p>
 ${scroll(`<table>
 <thead><tr><th>分類</th><th>件数</th><th>だれが対応するか</th></tr></thead>
 <tbody>
@@ -134,15 +142,15 @@ ${rows}
 </tbody>
 </table>`)}
 
-${SECTIONS.map((s,i)=>section(i+4,s,groups,items)).join('\n')}
-<h2>10. このあとの進め方</h2>
+${SECTIONS.map((s,i)=>section(i+3,s,groups,items)).join('\n')}
+<h2>9. このあとの進め方</h2>
 <ol>
 <li>編集者・管理者・技術担当の項目は、それぞれの担当の方に渡してください。</li>
 <li>サイトの問題ではないものと未確認のものは、診断の担当が設定を直し、もう一度診断します。</li>
 <li>直したあと、もう一度診断して、結果が改善したことを確かめます。</li>
 </ol>
 
-<h2>11. 作成の根拠</h2>
+<h2>10. 作成の根拠</h2>
 <p class="note">この資料は、診断ツールの結果（実行：${esc(runId)}、開始：${esc(startedAt)}）を、公開されているページの再確認（${esc(checkedAt)}）と合わせて整理したものです。再確認は、ページを取得して確かめただけで、管理画面にはログインしていません。文章は AI が下書きし、プログラムが形式を確認しています。どの記録に基づくかは、別の「根拠」のファイルに残してあります。</p>`);
 }
 
@@ -155,9 +163,12 @@ export function renderBasis(input){
   const cards=groups.map(g=>{
     const reasons=g.basis?.reasons?.length?g.basis.reasons:g.rowIds??[];
     const log=recheckLog.filter(e=>e.rule===g.rule),v=g.verification;
-    return `<div class="card">
-<h3>${esc(g.id)}</h3>
+    return `<div class="card" id="${esc(anchor(g))}">
+<h3>${esc(input.items?.find(i=>i.groupId===g.id)?.title??label(g))}</h3>
 <p>規則：<code>${esc(g.rule)}</code>／状態：${esc(g.status)}／分類：${esc(g.category)}／${g.rowIds?.length??0}件</p>
+${reference(g)}<p><a href="editor-report.html">報告書に戻る</a></p>
+${(g.basis?.checks??[]).map(row=>`<section><h4>${esc(row.title??row.id)}</h4><p>結果：${esc(({pass:'合格',fail:'不合格',blocked:'実行不能',review:'直接確認',not_run:'未実施'})[row.status]??row.status)} ／ 検査ID：${esc(row.id)}</p><p>判定理由：${esc(row.reason??'記録なし')}</p><p>証拠ファイル名：${esc(row.evidence.join('、')||'なし')}</p></section>`).join('')}
+
 <p>行ID：${list(g.rowIds)}</p>
 <p>元の理由：${list(reasons)}</p>
 <p>再確認の結果：${v?`${esc(v.result)}${list(v.notes)}`:'再確認なし'}</p>

@@ -1,3 +1,4 @@
+import {manualGuidance} from '../ui/public/manual-guidance.js';
 const recipes={
  'manual.checkout-flow':[['registration','既存のテスト注文を管理画面で照合する（注文番号・商品・金額・支払方法）'],['mail','受信箱で注文番号または識別子を検索し、宛先・内容を確認する'],['cleanup','同じテスト注文をキャンセルし、保存後の状態を確認する']],
  'manual.contact-form':[['submission','送信済みのテスト問い合わせの完了表示・識別子を照合する'],['mail','通知先の受信箱で識別子を検索し、通知・必要な自動返信を確認する']],
@@ -5,7 +6,8 @@ const recipes={
 };
 export function confirmationPlan(row){
  if(!row.manualReview)return {mode:row.id.startsWith('snapshot.')?'snapshot':'automatic',steps:[]};
- const steps=(recipes[row.id]??[['check',row.instructions??'対象画面を操作し、この項目の期待結果と証拠を照合する']]).map(([id,title])=>({id,title,status:'review',evidence:''}));
+ const guide=manualGuidance(row);
+ const steps=(recipes[row.id]??[['check',guide.action]]).map(([id,title])=>({id,title,status:'review',evidence:''}));
  const previous=row.details?.confirmation;
  const admin=row.details?.adminFollowup;
  for(const step of steps){

@@ -3,6 +3,7 @@ import path from 'node:path';
 import { classify, writeReport } from './results.mjs';
 import {redactor} from './evidence.mjs';
 import {scopedFile,restoreDiagnostics} from './diagnostics.mjs';
+import {isRouteDisposalError} from './tool-execution.mjs';
 export default class Reporter {
   constructor(){this.ctx=JSON.parse(fs.readFileSync(process.env.WPQA_CONTEXT,'utf8'));this.report=this.ctx.report;this.clean=redactor(this.ctx.config);}
   onBegin() {this.report.runStatus='running';writeReport(this.ctx.runDir,this.report);}
@@ -13,6 +14,8 @@ export default class Reporter {
   onTestEnd(test,result) {
     const row=this.report.rows.find(r=>test.title.startsWith(`${r.id} |`)); if(!row) return;
     row.active=false;row.status=classify(result,test.annotations);row.durationMs=result.duration;
+    if(result.errors?.some(e=>isRouteDisposalError(e.message)))row.failureOrigin=result.errors.every(e=>isRouteDisposalError(e.message))?'tool':'mixed';
+    else delete row.failureOrigin;
     row.reason=this.clean(test.annotations.find(a=>a.type==='qa-review')?.description ?? result.errors.map(e=>e.message??'').join('\n') ?? '');
     row.evidence=[];
     for(const attachment of result.attachments) {

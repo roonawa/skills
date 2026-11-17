@@ -1,3 +1,5 @@
+import {executionScope} from '../../ui/public/result-summary.js';
+import {enrichFailures} from '../failure-explanations.mjs';
 import {groupRows} from './causes.mjs';
 import {recheck,defaultClient,publicGateHeaders} from './recheck.mjs';
 import {lintItems,usedSentences,dropRepeatedSentences,dropUnknownFactSentences,explainTerms} from './lint.mjs';
@@ -58,7 +60,7 @@ export async function buildEditorReport({report,readEvidence,config,site,environ
   const groups=checked.groups;
   const warnings=[...new Set(groups.filter(g=>g.verification?.result==='unverified').map(g=>reasonOf(g.verification.notes??[])))];
 
-  const written=groups.filter(g=>WRITTEN.includes(g.category));
+  const written=groups.filter(g=>WRITTEN.includes(g.category)&&g.rule!=='tool-execution');
   let items=[],aiCalls=0,problems=[];const removed=[];
   // 確認の前に、渡していない事実を含む文と、繰り返しの文を取り除く。取り除いた語は根拠ページに載せる。
   const tidy=list=>{const facts=dropUnknownFactSentences(list,written);for(const r of facts.removed)removed.push({groupId:r.groupId,problem:'removed-unknown-fact',detail:'渡していない事実を含む文を取り除きました：'+r.facts.join('、')});const terms=explainTerms(dropRepeatedSentences(facts.items).items);for(const a of terms.added)removed.push({groupId:a.groupId,problem:'explained-term',detail:`用語「${a.term}」に説明を付けました`});return terms.items;};
@@ -82,6 +84,8 @@ export async function buildEditorReport({report,readEvidence,config,site,environ
   }
 
   onStage('rendering');
-  const input={site:shownSite,runId:report.runId,startedAt:report.startedAt,checkedAt,counts:facts.counts,groups,items};
+  const evidenceRows=enrichFailures(report,readEvidence).rows;
+  for(const group of groups)group.basis={...group.basis,checks:evidenceRows.filter(row=>group.rowIds.includes(row.id)).map(row=>({id:row.id,title:row.title,status:row.status,reason:row.reason,evidence:row.evidence??[],failures:row.failures??[]}))};
+  const input={site:shownSite,runId:report.runId,startedAt:report.startedAt,checkedAt,counts:facts.counts,groups,items,scope:executionScope(report)};
   return {html:renderEditorReport(input),basisHtml:renderBasis({...input,recheckLog:checked.log,lintResults:[...removed,...problems],aiCalls}),counts:facts.counts,aiCalls,warnings};
 }

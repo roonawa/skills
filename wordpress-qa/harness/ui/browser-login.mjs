@@ -44,11 +44,11 @@ export class BrowserLogin {
       const state=scopeState(resume.state,target.baseURL);
       if(!state.cookies.some(isLoggedInCookie))throw Error('復元する認証情報がありません');
       const s={...target,id:resume.id,environment:resume.environment,projectId:null,role:null,phase:'verified',state};this.session=s;
-      s.timer=setTimeout(()=>{void this.cancel(s.id);},ttlMs);s.timer.unref();
+      s.expiresAt=Date.now()+this.ttlMs; s.timer=setTimeout(()=>{void this.cancel(s.id);},ttlMs);s.timer.unref();
     }
   }
   get busy(){return !!this.session;}
-  status(){const s=this.session;return s?{id:s.id,projectId:s.projectId,baseURL:s.baseURL,environment:s.environment,phase:s.phase,...(s.role?{role:s.role}:{})}:null;}
+  status(){const s=this.session;return s?{id:s.id,projectId:s.projectId,baseURL:s.baseURL,environment:s.environment,phase:s.phase,expiresAt:s.expiresAt,...(s.role?{role:s.role}:{})}:null;}
   get(id){if(!this.session||this.session.id!==id)throw new Error('ログインが終了または期限切れです。再度ログインしてください');return this.session;}
   // The admin path found in the logged-in browser, when it differs from the default guess.
   adminPathOf(id){return this.get(id).adminPath??null;}
@@ -56,7 +56,7 @@ export class BrowserLogin {
     if(this.busy)throw new Error('別のログインが進行中です。完了またはキャンセルしてください');
     if(options.role!=null&&(typeof options.role!=='string'||!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(options.role)||['constructor','prototype'].includes(options.role)))throw new Error('ロール名が不正です');
     const target=loginTarget(options),s={id:randomUUID(),projectId:options.projectId??null,role:options.role??null,environment:options.environment,...target,phase:'opening'};this.session=s;
-    s.timer=setTimeout(()=>{void this.cancel(s.id);},this.ttlMs);s.timer.unref();
+    s.expiresAt=Date.now()+this.ttlMs; s.timer=setTimeout(()=>{void this.cancel(s.id);},this.ttlMs);s.timer.unref();
     try{
       const browser=await this.launch();s.browser=browser;
       if(this.session!==s){await browser.close();throw new Error('cancelled');}
