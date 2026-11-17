@@ -206,3 +206,26 @@ test('the git snapshot sees changes to tracked and untracked files but not .aide
   writeFileSync(join(root, 'docs', 'spec.md'), 'changed');
   assert.notEqual(gitSnapshot(root), added);
 });
+
+test('the session cannot edit git settings, and the snapshot does not run programs from them', async t => {
+  const {gitSnapshot, implementationDenied} = await import('../dist/loop.js');
+  for (const path of ['.git/**', '**/.git/**', '.gitattributes', '**/.gitattributes', '.gitmodules']) {
+    assert.ok(implementationDenied.includes('Edit(' + path + ')') && implementationDenied.includes('Write(' + path + ')'), path);
+  }
+  const {execFileSync} = await import('node:child_process');
+  const root = project(t);
+  const git = (...args) => execFileSync('git', args, {cwd: root, stdio: 'ignore'});
+  git('init', '-q');
+  git('-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'add', '-A');
+  git('-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '-qm', 'base');
+  // A changed project configuration that would run a program on every `git diff`.
+  const marker = join(root, 'ran.txt').replaceAll('\\', '/');
+  writeFileSync(join(root, 'external.js'), "require('node:fs').writeFileSync(" + JSON.stringify(marker) + ", 'x');\n");
+  git('config', 'diff.external', 'node "' + join(root, 'external.js').replaceAll('\\', '/') + '"');
+  writeFileSync(join(root, 'docs', 'spec.md'), 'changed');
+  assert.ok(gitSnapshot(root));
+  assert.equal(existsSync(join(root, 'ran.txt')), false);
+  // The same configuration does run the program for a plain `git diff`, so the check above is meaningful.
+  try { git('diff'); } catch { /* the external program exits without diff output */ }
+  assert.equal(existsSync(join(root, 'ran.txt')), true);
+});

@@ -145,7 +145,7 @@ Skill 名には、利用者環境の汎用 Skill（code-review、debugging な�
 3. `workflow check` と同じ判定を行い、repair なら1に戻る。review か needs-human で止まる
 
 - 各セッションは `claude -p` で起動する。MCP サーバーは読み込まない。使える道具は、実装担当がファイルの読み書きと決まった検査（`npm run typecheck`・`lint`・`test`・`test:coverage`・`build`）、レビュー担当が読み取りだけ。git は両者とも `git status`・`git diff`・`git diff --stat`・`git ls-files --others --exclude-standard` に限る。C-HUB や Gitea への接続、git のコミットや push はしない
-- 実装担当は package.json・package-lock.json・.npmrc・.yarnrc・.env*（いずれもサブディレクトリを含む）・検査設定（tsconfig・biome・ESLint・vite/vitest/jest/playwright・c8/nyc）・`.aidev/`・`.claude/`・`.agents/`・AGENTS.md・CLAUDE.md・aidev.json を編集できない。検査スクリプトや npm の設定を書き換えてから実行することを防ぐため
+- 実装担当は package.json・package-lock.json・.npmrc・.yarnrc・.env*（いずれもサブディレクトリを含む）・検査設定（tsconfig・biome・ESLint・vite/vitest/jest/playwright・c8/nyc）・`.aidev/`・`.claude/`・`.agents/`・AGENTS.md・CLAUDE.md・aidev.json・`.git/`・.gitattributes・.gitmodules を編集できない。検査スクリプトや npm・git の設定を書き換えて、検査やランナーの git 呼び出しのときに別のプログラムを実行させることを防ぐため。作業ツリーの比較で git を呼ぶときも、外部プログラムを起動する設定（core.fsmonitor・diff.external・hooks・textconv）を無効にし、認証情報を外した環境で動かす
 - セッションの環境変数からは、Claude Code 自身の認証情報（ANTHROPIC_API_KEY など）を除き、TOKEN・SECRET・PASSWORD・API_KEY などを名前に含む変数を外す。セッションが書いたテストやビルドもこの環境で動く
 - ゲートの検査（`check` と `workflow check` が実行する npm scripts）は、Claude Code の認証情報も含めて、こうした変数をすべて外した環境で動かす。AI が書いたコードを実行するため
 - セッションはプロジェクトのコード（テスト・ビルド）を実行するため、ネットワークへの接続や Claude の認証情報の読み取りまでは防げない。夜間などの無人実行では、プロジェクトだけを置いた専用のランナー（コンテナや専用のマシン）で動かす

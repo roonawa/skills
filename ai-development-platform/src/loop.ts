@@ -54,7 +54,9 @@ export const implementationTools = ['Read', 'Edit', 'Write', 'Glob', 'Grep', ...
 const protectedFiles = ['package.json', '**/package.json', 'package-lock.json', '**/package-lock.json', '.npmrc', '**/.npmrc',
   '.yarnrc*', '**/.yarnrc*', '.env*', '**/.env*', '.aidev/**', 'tsconfig*.json', 'biome.json', 'biome.jsonc',
   '.eslintrc*', 'eslint.config.*', 'vite.config.*', 'vitest.config.*', 'jest.config.*', 'playwright.config.*', '.c8rc*', '.nycrc*',
-  '.claude/**', '.agents/**', 'AGENTS.md', 'CLAUDE.md', 'aidev.json'];
+  '.claude/**', '.agents/**', 'AGENTS.md', 'CLAUDE.md', 'aidev.json',
+  // git settings can run commands when the runner calls git (core.fsmonitor, filters, hooks).
+  '.git/**', '**/.git/**', '.gitattributes', '**/.gitattributes', '.gitmodules'];
 export const implementationDenied = protectedFiles.flatMap(path => ['Edit(' + path + ')', 'Write(' + path + ')']);
 // Review reads only. It cannot edit files, so its result reaches the runner as structured output.
 export const reviewTools = ['Read', 'Glob', 'Grep', ...gitRead];
@@ -248,14 +250,21 @@ export function withoutEmptyNotes(review: object): object {
  * Identifies the working tree outside `.aidev/`: status, tracked changes and the content of untracked files.
  * Returns undefined when the project is not a git repository, so the comparison is skipped.
  */
+const devNull = process.platform === 'win32' ? 'NUL' : '/dev/null';
+
 export function gitSnapshot(root: string): string | undefined {
   const scope = ['--', '.', ':(exclude).aidev'];
-  const git = (args: string[]) => execFileSync('git', args, {cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
+  // Settings that make git run other programs are turned off, and git gets no credentials, in case the project's
+  // git configuration was changed despite the session being denied edits to it.
+  const safe = ['-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=' + devNull, '-c', 'diff.external=',
+    '-c', 'core.untrackedCache=false'];
+  const env = {...withoutCredentials(process.env), GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0'};
+  const git = (args: string[]) => execFileSync('git', [...safe, ...args], {cwd: root, env, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
     stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true});
   try {
     const hash = createHash('sha256');
     hash.update(git(['status', '--porcelain=v1', '-uall', ...scope]));
-    hash.update(git(['diff', ...scope]));
+    hash.update(git(['diff', '--no-ext-diff', '--no-textconv', ...scope]));
     for (const file of git(['ls-files', '--others', '--exclude-standard', ...scope]).split('\n').filter(Boolean)) {
       hash.update(file + '\0');
       hash.update(readFileSync(checked(root, file)));
