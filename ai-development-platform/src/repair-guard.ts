@@ -3,7 +3,8 @@ import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { content } from './files.js';
 
-const ignored = new Set([
+/** Directories that hold dependencies, build output, history or version control data rather than project files. */
+export const ignoredDirectories = new Set([
   '.git', '.svn', '.hg', '.aidev', '.next', '.nuxt', '.cache', '.tox', '.venv',
   'node_modules', 'vendor', 'coverage', 'dist', 'build', 'builds', 'target',
   'library', 'temp', 'logs', 'obj', 'usersettings',
@@ -48,7 +49,7 @@ export function captureGuard(root: string): string[] {
       const relative = prefix + entry.name;
       const path = join(directory,entry.name);
       if (entry.isDirectory()) {
-        if (!ignored.has(entry.name.toLowerCase())) visit(path,relative + '/');
+        if (!ignoredDirectories.has(entry.name.toLowerCase())) visit(path,relative + '/');
         continue;
       }
       if (!entry.isFile()) continue;

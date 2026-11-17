@@ -1,10 +1,12 @@
-import { execFileSync, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { CheckResult } from './adapter.js';
 import { withoutCredentials } from './environment.js';
 import { checked, content, safeName } from './files.js';
 import { stopTree } from './react.js';
+import { ignoredDirectories } from './repair-guard.js';
 import { readReview, REVIEW_GATES } from './review.js';
 import { readWorkflowStatus, runWorkflow } from './workflow.js';
 
@@ -247,32 +249,29 @@ export function withoutEmptyNotes(review: object): object {
 }
 
 /**
- * Identifies the working tree outside `.aidev/`: status, tracked changes and the content of untracked files.
- * Returns undefined when the project is not a git repository, so the comparison is skipped.
+ * Identifies the project files outside `.aidev/`, `.git/`, dependencies and build output by their paths and
+ * contents. It reads the files directly instead of asking git, because git can run programs named in the
+ * project's own configuration (filters, fsmonitor), which a session might have changed.
  */
-const devNull = process.platform === 'win32' ? 'NUL' : '/dev/null';
-
-export function gitSnapshot(root: string): string | undefined {
-  const scope = ['--', '.', ':(exclude).aidev'];
-  // Settings that make git run other programs are turned off, and git gets no credentials, in case the project's
-  // git configuration was changed despite the session being denied edits to it.
-  const safe = ['-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=' + devNull, '-c', 'diff.external=',
-    '-c', 'core.untrackedCache=false'];
-  const env = {...withoutCredentials(process.env), GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0'};
-  const git = (args: string[]) => execFileSync('git', [...safe, ...args], {cwd: root, env, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
-    stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true});
-  try {
-    const hash = createHash('sha256');
-    hash.update(git(['status', '--porcelain=v1', '-uall', ...scope]));
-    hash.update(git(['diff', '--no-ext-diff', '--no-textconv', ...scope]));
-    for (const file of git(['ls-files', '--others', '--exclude-standard', ...scope]).split('\n').filter(Boolean)) {
-      hash.update(file + '\0');
-      hash.update(readFileSync(checked(root, file)));
+export function treeSnapshot(root: string): string {
+  const hash = createHash('sha256');
+  const visit = (directory: string, prefix: string) => {
+    for (const entry of readdirSync(directory, {withFileTypes: true}).sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0)) {
+      const relative = prefix + entry.name;
+      // Links are recorded by name only and never followed, so the walk stays inside the project.
+      if (entry.isSymbolicLink()) { hash.update('link\0' + relative + '\0'); continue; }
+      if (entry.isDirectory()) {
+        if (!ignoredDirectories.has(entry.name.toLowerCase())) visit(join(directory, entry.name), relative + '/');
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      hash.update('file\0' + relative + '\0');
+      hash.update(readFileSync(join(directory, entry.name)));
+      hash.update('\0');
     }
-    return hash.digest('hex');
-  } catch {
-    return undefined;
-  }
+  };
+  visit(root, '');
+  return hash.digest('hex');
 }
 
 /** Runs the review session, retrying once when its result does not pass the CLI's validation. */
@@ -331,7 +330,7 @@ export async function runLoop(root: string, task: string, spec: string, options:
   for (;;) {
     const reviews = Array.from({length: attempt}, (_, n) => '.aidev/reviews/' + task + '-' + n + '.json')
       .filter(path => content(checked(root, path)) !== undefined);
-    const snapshot = options.snapshot ?? gitSnapshot;
+    const snapshot = options.snapshot ?? treeSnapshot;
     const implement = (retry: boolean) => options.runner(root, {role: 'implementation',
       prompt: implementationPrompt(task, spec, attempt, reviews, last, retry), allowedTools: implementationTools,
       deniedTools: implementationDenied});

@@ -185,30 +185,28 @@ test('the review sees the implementation report and empty notes are dropped', as
   assert.deepEqual(withoutEmptyNotes({notes: ['特になし。', 'AC-001 を呼び出し側の責任と解釈した']}).notes, ['AC-001 を呼び出し側の責任と解釈した']);
 });
 
-test('the git snapshot sees changes to tracked and untracked files but not .aidev', async t => {
-  const {gitSnapshot} = await import('../dist/loop.js');
-  const {execFileSync} = await import('node:child_process');
+test('the tree snapshot sees file changes but not .aidev, .git or dependencies', async t => {
+  const {treeSnapshot} = await import('../dist/loop.js');
   const root = project(t);
-  const git = (...args) => execFileSync('git', args, {cwd: root, stdio: 'ignore'});
-  git('init', '-q');
-  git('-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'add', '-A');
-  git('-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '-qm', 'base');
-  const base = gitSnapshot(root);
-  assert.ok(base);
-  mkdirSync(join(root, '.aidev'), {recursive: true});
-  writeFileSync(join(root, '.aidev', 'report.md'), 'x');
-  assert.equal(gitSnapshot(root), base);
+  const base = treeSnapshot(root);
+  for (const [dir, file] of [['.aidev', 'report.md'], ['.git', 'index'], ['node_modules/x', 'index.js'], ['dist', 'app.js']]) {
+    mkdirSync(join(root, dir), {recursive: true});
+    writeFileSync(join(root, dir, file), 'x');
+  }
+  assert.equal(treeSnapshot(root), base);
   writeFileSync(join(root, 'new.ts'), 'a');
-  const added = gitSnapshot(root);
+  const added = treeSnapshot(root);
   assert.notEqual(added, base);
   writeFileSync(join(root, 'new.ts'), 'b');
-  assert.notEqual(gitSnapshot(root), added);
+  assert.notEqual(treeSnapshot(root), added);
+  writeFileSync(join(root, 'new.ts'), 'a');
+  assert.equal(treeSnapshot(root), added);
   writeFileSync(join(root, 'docs', 'spec.md'), 'changed');
-  assert.notEqual(gitSnapshot(root), added);
+  assert.notEqual(treeSnapshot(root), added);
 });
 
-test('the session cannot edit git settings, and the snapshot does not run programs from them', async t => {
-  const {gitSnapshot, implementationDenied} = await import('../dist/loop.js');
+test('the session cannot edit git settings, and the snapshot runs no git at all', async t => {
+  const {treeSnapshot, implementationDenied} = await import('../dist/loop.js');
   for (const path of ['.git/**', '**/.git/**', '.gitattributes', '**/.gitattributes', '.gitmodules']) {
     assert.ok(implementationDenied.includes('Edit(' + path + ')') && implementationDenied.includes('Write(' + path + ')'), path);
   }
@@ -218,12 +216,12 @@ test('the session cannot edit git settings, and the snapshot does not run progra
   git('init', '-q');
   git('-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'add', '-A');
   git('-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '-qm', 'base');
-  // A changed project configuration that would run a program on every `git diff`.
+  // A changed project configuration that would run a program whenever git compares files.
   const marker = join(root, 'ran.txt').replaceAll('\\', '/');
   writeFileSync(join(root, 'external.js'), "require('node:fs').writeFileSync(" + JSON.stringify(marker) + ", 'x');\n");
   git('config', 'diff.external', 'node "' + join(root, 'external.js').replaceAll('\\', '/') + '"');
   writeFileSync(join(root, 'docs', 'spec.md'), 'changed');
-  assert.ok(gitSnapshot(root));
+  assert.ok(treeSnapshot(root));
   assert.equal(existsSync(join(root, 'ran.txt')), false);
   // The same configuration does run the program for a plain `git diff`, so the check above is meaningful.
   try { git('diff'); } catch { /* the external program exits without diff output */ }

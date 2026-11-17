@@ -145,14 +145,14 @@ Skill 名には、利用者環境の汎用 Skill（code-review、debugging な�
 3. `workflow check` と同じ判定を行い、repair なら1に戻る。review か needs-human で止まる
 
 - 各セッションは `claude -p` で起動する。MCP サーバーは読み込まない。使える道具は、実装担当がファイルの読み書きと決まった検査（`npm run typecheck`・`lint`・`test`・`test:coverage`・`build`）、レビュー担当が読み取りだけ。git は両者とも `git status`・`git diff`・`git diff --stat`・`git ls-files --others --exclude-standard` に限る。C-HUB や Gitea への接続、git のコミットや push はしない
-- 実装担当は package.json・package-lock.json・.npmrc・.yarnrc・.env*（いずれもサブディレクトリを含む）・検査設定（tsconfig・biome・ESLint・vite/vitest/jest/playwright・c8/nyc）・`.aidev/`・`.claude/`・`.agents/`・AGENTS.md・CLAUDE.md・aidev.json・`.git/`・.gitattributes・.gitmodules を編集できない。検査スクリプトや npm・git の設定を書き換えて、検査やランナーの git 呼び出しのときに別のプログラムを実行させることを防ぐため。作業ツリーの比較で git を呼ぶときも、外部プログラムを起動する設定（core.fsmonitor・diff.external・hooks・textconv）を無効にし、認証情報を外した環境で動かす
+- 実装担当は package.json・package-lock.json・.npmrc・.yarnrc・.env*（いずれもサブディレクトリを含む）・検査設定（tsconfig・biome・ESLint・vite/vitest/jest/playwright・c8/nyc）・`.aidev/`・`.claude/`・`.agents/`・AGENTS.md・CLAUDE.md・aidev.json・`.git/`・.gitattributes・.gitmodules を編集できない。検査スクリプトや npm・git の設定を書き換えて、検査やレビューの git 呼び出しのときに別のプログラムを実行させることを防ぐため
 - セッションの環境変数からは、Claude Code 自身の認証情報（ANTHROPIC_API_KEY など）を除き、TOKEN・SECRET・PASSWORD・API_KEY などを名前に含む変数を外す。セッションが書いたテストやビルドもこの環境で動く
 - ゲートの検査（`check` と `workflow check` が実行する npm scripts）は、Claude Code の認証情報も含めて、こうした変数をすべて外した環境で動かす。AI が書いたコードを実行するため
 - セッションはプロジェクトのコード（テスト・ビルド）を実行するため、ネットワークへの接続や Claude の認証情報の読み取りまでは防げない。夜間などの無人実行では、プロジェクトだけを置いた専用のランナー（コンテナや専用のマシン）で動かす
 - 上限は環境変数で変えられる。AIDEV_SESSION_BUDGET_USD（1セッションの費用、既定 5 ドル）、AIDEV_SESSION_TIMEOUT_MIN（1セッションの時間、既定 30 分）、AIDEV_MODEL（モデル）、AIDEV_CLAUDE（claude の場所）
 - 各セッションの報告は `.aidev/runs/TASK/reports/` に残る。needs-human のときは引継ぎ票と合わせて担当者が読む
 - レビュー担当には実装担当の報告も渡す。受け入れ条件どうしの矛盾や曖昧さを実装が解釈で解決した場合、レビュー担当は合否とは別に、その解釈を notes に書く。review で止まったときも結果の notes に残るので、人のレビューで解釈を承認する（試行では、矛盾する2つの AC を AI が解釈で両立させ、その解釈が実装の報告にしか書かれていなかった）
-- 実装担当のセッションが作業ツリーを変えずに終わった場合（`.aidev/` を除いて git の状態・差分・未追跡ファイルの内容を比べる）は、1回だけやり直す。それでも変わらなければ、そのままレビューとゲートに進む。git 管理外のプロジェクトでは比べない
+- 実装担当のセッションが作業ツリーを変えずに終わった場合は、1回だけやり直す。それでも変わらなければ、そのままレビューとゲートに進む。比較はファイルのパスと内容を直接読んで行い、`.aidev/`・`.git/`・依存とビルド出力（node_modules・dist など、修正ガードと同じ対象）は含めない。git の設定が外部プログラムを起動しうるため、比較に git は使わない
 - notes が「なし」「特になし」だけの場合は、空として扱う
 - セッションが失敗した場合（時間切れ・上限超過・レビュー結果が2回とも不正）は、ゲートを実行せずに終了コード 2 で止まる。試行回数は消費しないので、原因を直して同じコマンドで再開できる
 - 差分をレビューに見せるため、仕様書を含めた作業前の状態を git にコミットしておく
