@@ -8,6 +8,7 @@ import { checked, content, safeName } from './files.js';
 import { stopTree } from './react.js';
 import { ignoredDirectories } from './repair-guard.js';
 import { readReview, REVIEW_GATES } from './review.js';
+import { checkSpec, type SpecIssue } from './spec.js';
 import { readWorkflowStatus, runWorkflow } from './workflow.js';
 
 /**
@@ -232,6 +233,7 @@ export interface LoopResult {
   notes?: string[];
   steps: LoopStep[];
   costUsd: number;
+  specWarnings?: SpecIssue[];
 }
 
 function save(root: string, relative: string, text: string): string {
@@ -309,7 +311,12 @@ export interface LoopOptions {
 /** Runs implementation, review and gate until the task leaves the repair state. */
 export async function runLoop(root: string, task: string, spec: string, options: LoopOptions): Promise<LoopResult> {
   safeName(task);
-  if (content(checked(root, spec)) === undefined) throw new Error('仕様書がありません: ' + spec);
+  // The specification is checked before any session starts, so an incomplete one costs nothing.
+  const specReport = checkSpec(root, spec);
+  if (specReport.errors.length) {
+    throw new Error('仕様書に不備があるため開始しません（aidev spec check ' + spec + ' で詳細を確認できます）: ' +
+      specReport.errors.map(issue => issue.message).join(' '));
+  }
   let status: ReturnType<typeof readWorkflowStatus> | undefined;
   try {
     status = readWorkflowStatus(root, task);
@@ -320,7 +327,7 @@ export async function runLoop(root: string, task: string, spec: string, options:
   const steps: LoopStep[] = [];
   let costUsd = 0;
   const done = (result: {state: string; reason: string; attempts: number | null; exitCode: number; handoff?: string; notes?: string[]}) =>
-    ({task, ...result, steps, costUsd});
+    ({task, ...result, steps, costUsd, ...(specReport.warnings.length ? {specWarnings: specReport.warnings} : {})});
   if (status && status.state !== 'repair') return done(status);
   const reports = '.aidev/runs/' + task + '/reports';
   mkdirSync(checked(root, reports), {recursive: true});

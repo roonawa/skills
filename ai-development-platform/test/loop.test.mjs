@@ -10,7 +10,7 @@ function project(t) {
   const root = mkdtempSync(join(tmpdir(), 'aidev-loop-'));
   t.after(() => rmSync(root, {recursive: true, force: true}));
   mkdirSync(join(root, 'docs'));
-  writeFileSync(join(root, 'docs', 'spec.md'), '- AC-001: 新しい順に並べる\n');
+  writeFileSync(join(root, 'docs', 'spec.md'), '## 受け入れ条件\n- AC-001: 新しい順に並べる\n\n## やらないこと\n- 並べ替えの切り替え\n');
   return root;
 }
 const pass = () => [{name: 'build', status: 'passed'}];
