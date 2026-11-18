@@ -4,7 +4,15 @@ import { listSkills, loadSkill } from '../dist/registry.js';
 
 // Writing rules shared by every QA Skill (design 5.2). Short ASCII tokens use word boundaries so that
 // generic words do not match by accident.
-const forbidden = /信州|信大|\bcampus\b|\bcapi\b|Allcampus|OneLogin|ailesys|wkozu|ailegit/i;
+const forbiddenPatterns = [
+  '信州', '信大', '\\bcampus\\b', '\\bcapi\\b', 'Allcampus', 'OneLogin', 'ailesys', 'wkozu', 'ailegit',
+  // 旧 Skill の案件固有の語（移行メモに移したもの）。LoginView や Shibboleth のような一般的な語は入れない
+  'allcweb', 'onelogin\\.com', 'nas01', 'gakumu', '学務共有', 'キャンパス情報システム',
+  'campus-(api|login|syllabus)', 'capi-changes', 'test-regression-branch',
+  'DesktopS[TU]', 'CsAuthClient', 'WebResourceForwarder', 'JOBOB', 'KIGYOU', 'DaimokuKensaku',
+  'Syuutyuu', 'Syuutoku', 'SeisekiInput', 'TblBuseiseki', 'mst_kengen', 'shinshu', 'E2E_TARGET',
+];
+const forbidden = new RegExp(forbiddenPatterns.join('|'), 'i');
 for (const s of listSkills().filter(s => s.category === 'qa')) {
   test(s.name + ' follows the writing rules', () => {
     const {files} = loadSkill(s.name);

@@ -47,6 +47,7 @@ CLI は既存プロジェクトの AGENTS.md を上書きしない。既存プ�
 |verify|プロジェクト直下。登録した Skill の欠損・内容差・版差を検出。未登録なら空配列|
 |check|プロジェクト直下。aidev.json の template に対応するアプリの検査結果を JSON で返す。qa では knowledge/<製品>/profile.md ごとに、--skill なしの qa profile check と同じ検査（形式・秘密情報・product の有無）を行う。Skill ごとの必須項目は見ない。1件もなければ 2 を返す|
 |qa profile check FILE [--skill NAME]|任意の場所。FILE は実行場所から下の相対パスで指定する（絶対パスや .. は使えない）。QA の案件プロファイルの形式と秘密情報らしい値を検査し、--skill を付けるとその Skill の必須項目も検査する|
+|qa compare-report MANIFEST OUT [--link]|任意の場所。新旧の証跡を並べた自己完結の比較 HTML を作る。MANIFEST は比較マニフェスト（JSON）、OUT は .html か .htm で終わり、MANIFEST と別のファイル。画像は png・jpg・jpeg・gif・webp で1枚20 MiB まで、マニフェストと同じディレクトリの下に置く。既定は画像を HTML に埋め込み、--link を付けると OUT のディレクトリの assets/ へ複製して参照する|
 |spec check FILE|任意の場所。FILE は実行場所から下の相対パスで指定する（絶対パスや .. は使えない）。実装ループに渡す仕様書の形式（受け入れ条件・やらないこと・判断待ち）を検査する|
 |workflow check TASK --review FILE|一つの実装タスクに対し、単体テスト・セキュリティ・仕様乖離と過剰実装のゲート結果と修正回数を記録して次の作業を決める|
 |workflow run TASK --spec FILE|実装・レビュー・ゲートを別々の Claude Code セッションで自動で回し、review か needs-human で止まる|
@@ -266,5 +267,35 @@ claude mcp login c-hub
 
 設計は [QA Skill 汎用化の設計書](docs/superpowers/specs/2026-11-18-qa-skills-generalization-design.md)、段階1の確認結果は [qa-phase1-verification](docs/qa-phase1-verification.md) にある。
 
+### 段階2で足したもの
+
+段階2では、新しい7つの Skill、比較レポートのコマンド、動作確認用の見本アプリ、QA リポジトリの automation/ を足した。
+
+|Skill|用途|
+|---|---|
+|aidev-qa-login-session|ロールごとに Playwright でログインし、認証済みのセッション（storageState）を automation/web/.auth/ に作る。SAML・OIDC・フォーム認証を扱い、証明書方式は拇印の確認まで行う|
+|aidev-qa-characterization|改修の前に、既存の画面の今の挙動を Playwright の特性テストとして記録する。画面マニフェストで網羅の分母を決め、画面表示・API の応答・帳票の3点を runs/ に残す|
+|aidev-qa-test-run|cases/*.md のテストケースを実行し、runs/<YYYYMMDD>-<run-id>/result.md に OK・NG・実行不能で記録する。実行方法は案件プロファイルの test_commands から読む|
+|aidev-qa-desktop-gui|Windows のデスクトップアプリを FlaUI（UIA3）で操作するテストを automation/desktop/ に書いて流す。メッセージボックスや保存・印刷のダイアログも扱う|
+|aidev-qa-regression-compare|旧版と新版、または設定段階の前後を照合し、差異を「一致／意図した差分／要確認」に分けて runs/<run>/compare.md に残す。顧客向けの横並び HTML は `aidev qa compare-report` で作る|
+|aidev-qa-authz-test|ロールと操作の可否、行レベルの所有者の検証を、画面を通さない直接の HTTP リクエストで確かめる。認可の表は automation/web/authz/<機能>.json に置く|
+|aidev-qa-screen-verification|改修が終わった画面について、基準の確認、認可の検証、新旧の照合、証跡の確認、画面ごとのまとめを順に回す。各工程の手順は上の Skill に任せる|
+
+共通の決まりは次のとおり。
+
+- 実行する環境と対象は環境変数で渡す。QA_ENV は案件プロファイルの環境名、QA_BASE_URL は対象の URL、QA_RUN_DIR は証跡の出力先の run ディレクトリ。
+- 証跡は最終の実行の分だけを残す。複数回の実行を比べるための round1・round2 のようなフォルダは作らない。
+- storageState は automation/web/.auth/ に置き、コミットしない。init が作る .gitignore がこのフォルダを除外している。
+- 資格情報はプロファイルに書かず、プロファイルにある `*_env` の名前の環境変数から読む。
+
+`aidev init NAME --template qa` は、段階1の雛形に automation/（README.md）と .gitignore を加える。
+
+### 見本アプリで動作を確かめる
+
+templates/qa/samples/ に、Skill の動作確認用の見本アプリを置く。各フォルダの EXPECTED.md は Skill には渡さず、人が結果を答え合わせするために使う。
+
+- web: 貸出の一覧と詳細を持つ Web アプリ。`node templates/qa/samples/web/app/server.mjs --version old --port 4101` で旧版、`--version new` で新版を起動する。`--port` を省略すると旧版は 4101、新版は 4102 を使う。ログインの資格情報は、見本のプロファイル（knowledge/sample-web/profile.md）の user_env・password_env に書かれた環境変数（SAMPLE_STAFF_USER、SAMPLE_STAFF_PASSWORD など）で渡す。
+- desktop: 在庫を表示する Windows のデスクトップアプリ。`dotnet build templates/qa/samples/desktop/app` でビルドする。基盤のテストは、Windows で環境変数 `AIDEV_TEST_DESKTOP=1` を設定したときだけこのビルドを確かめ、設定しなければ skip する。
+
 ## 設計と次の開発
-[構成](docs/architecture.md) / [技術選定と調査元](docs/technical-decisions.md) / [実装計画](docs/implementation-plan.md) / [バックログ](docs/initial-backlog.md) / [無人実行ランナーと C-HUB 連携（案）](docs/autonomous-runner-design.md) / [QA Skill 汎用化の設計書](docs/superpowers/specs/2026-11-18-qa-skills-generalization-design.md) / [QA Skill 段階1の確認結果](docs/qa-phase1-verification.md)
+[構成](docs/architecture.md) / [技術選定と調査元](docs/technical-decisions.md) / [実装計画](docs/implementation-plan.md) / [バックログ](docs/initial-backlog.md) / [無人実行ランナーと C-HUB 連携（案）](docs/autonomous-runner-design.md) / [QA Skill 汎用化の設計書](docs/superpowers/specs/2026-11-18-qa-skills-generalization-design.md) / [QA Skill 段階1の確認結果](docs/qa-phase1-verification.md) / [旧 QA Skill の案件固有の知見の移行メモ](docs/qa-migration-notes/README.md)
