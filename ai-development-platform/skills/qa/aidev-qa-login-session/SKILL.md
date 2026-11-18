@@ -1,8 +1,8 @@
 ---
 name: aidev-qa-login-session
-description: Web アプリのテストの前提として、ロールごとに Playwright でログインし、認証済みのセッション（storageState）を QA リポジトリの automation/web/.auth/ に作るときに使う。案件プロファイルの login.method に従い、SAML、OIDC、フォーム認証を扱う。資格情報はプロファイルに名前がある環境変数から読む。ログインの成否を「アプリに着いた」「アプリのログイン画面かエラー画面に戻された」「IdP で止まった」に分けて判定し、保存したセッションでログインが必要なページを開けることまで確かめる。「ロールごとにログインした状態を用意して」「SAML でログインしてセッションを取って」「storageState を作り直して」「ログインのセットアップが通らない」という相談で使う。証明書方式は拇印の確認までを行い、ログインの操作は aidev-qa-desktop-gui に渡す。セッションを使った画面の特性テストには aidev-qa-characterization を、ロールごとの可否の検証には aidev-qa-authz-test を、新旧の照合には aidev-qa-regression-compare を使う。
+description: Web アプリのテストの前提として、ロールごとに Playwright でログインし、認証済みのセッション（storageState）を QA リポジトリの automation/web/.auth/ に作るときに使う。案件プロファイルの login.method に従い、SAML、OIDC、フォーム認証を扱う。資格情報はプロファイルに名前がある環境変数から読む。ログインの成否を「アプリに着いた」「アプリのログイン画面かエラー画面に戻された」「IdP で止まった」に分けて判定し、保存したセッションでログインが必要なページを開けることまで確かめる。「ロールごとにログインした状態を用意して」「SAML でログインしてセッションを取って」「storageState を作り直して」「ログインのセットアップが通らない」という相談で使う。証明書方式は拇印の確認までを行い、ログインの操作は aidev-qa-desktop-gui に渡す。デスクトップアプリ自身のログイン画面に入力する native-form は、この Skill では扱わず aidev-qa-desktop-gui に渡す。セッションを使った画面の特性テストには aidev-qa-characterization を、ロールごとの可否の検証には aidev-qa-authz-test を、新旧の照合には aidev-qa-regression-compare を使う。
 metadata:
-  version: "0.1.3"
+  version: "0.1.4"
 ---
 # 認証済みセッションの取得
 
@@ -56,6 +56,7 @@ setup のプロジェクトでは、Playwright のトレース、動画、スク
 - `saml`：`references/saml.md`。アプリから IdP へ移り、SAML の応答でアプリに戻る
 - `oidc`：`references/oidc.md`。IdP の認可エンドポイントへ移り、コードを受け取ってアプリに戻る
 - `certificate`：この文書の「証明書方式」の節
+- `native-form`：この文書の「ネイティブのログイン画面」の節
 
 setup のコードを書いたら、ロールを1つだけ選んで流し、判定と確認が通ることを見てから全ロールに広げる。最初から全ロールで流すと、セレクタの誤りでも全ロールの失敗が並び、共有アカウントのロックアウトを招くことがある。
 
@@ -117,6 +118,12 @@ setup のコードを書いたら、ロールを1つだけ選んで流し、判�
 この Skill が行うのは、証明書が作業者の PC にあり使える状態かの確認までである。PowerShell で `Get-ChildItem Cert:\CurrentUser\My`（端末全体の証明書なら `Cert:\LocalMachine\My`）を拇印で絞り込み、証明書があること、有効期限内であること、秘密鍵を持つこと（`HasPrivateKey`）を確かめる。見つからなければ、拇印の誤りか、証明書がまだ入っていないかを作業者に確かめる。
 
 証明書の選択ダイアログやネイティブのログイン画面の操作は、デスクトップの GUI を扱う aidev-qa-desktop-gui に渡す。ブラウザで動く画面でも、OS の証明書選択ダイアログが出る場合はブラウザの外の操作になるため、同じく aidev-qa-desktop-gui で扱う。その場合、この Skill の setup はブラウザを画面付き（headed）で起動し、起動したブラウザのプロセスの ID を `.qa-scratch/` の下に書いてアプリのページに着くのを待つ。`test-results/` の下は Playwright が実行のたびに消すので使わない。aidev-qa-desktop-gui はその PID のブラウザが出したダイアログだけを操作し、ダイアログが閉じた後のセッションの保存（`.auth/`）と確認はこの Skill が行う。
+
+## ネイティブのログイン画面
+
+`login.method` が `native-form` のとき、ログインはデスクトップアプリ自身のログイン画面（WPF や WinForms の画面）に ID とパスワードを入れて行う。ブラウザを通らないので storageState は作れず、この Skill の setup の対象にならない。ログインの操作もセッションの確認も aidev-qa-desktop-gui に渡す。
+
+渡す前に、この Skill では次の2つだけを確かめる。対象のロールの `user_env` と `password_env` の環境変数が設定されているか（名前だけで確かめる）と、プロファイルの本文に到達手順と「ログイン中の目印」があるかである。足りなければ作業者に伝える。
 
 ## よくある誤り
 

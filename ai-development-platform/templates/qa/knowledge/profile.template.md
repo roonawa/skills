@@ -11,14 +11,18 @@ product: your-product
 # roles:
 #   - {name: staff, user_env: SAMPLE_STAFF_USER, password_env: SAMPLE_STAFF_PASSWORD}
 
-# method は saml、oidc、form、certificate、none から選ぶ
+# method は saml、oidc、form、native-form、certificate、none から選ぶ
+# native-form はデスクトップアプリ自身のログイン画面に ID とパスワードを入れる方式。entry_url は要らない
 # 証明書方式なら certificate_thumbprint（40桁の16進数）を書いてよい
 # login: {method: form, entry_url: http://localhost:4101/login}
 
 # stack: [node, html-form]
 
+# Skill ごとにプロジェクトで絞る。何も絞らない npx playwright test は、ほかの Skill の spec まで流す
 # test_commands:
-#   - {name: e2e, run: npx playwright test}
+#   - {name: characterization, run: npx playwright test -c automation/web --project=characterization}
+#   - {name: authz, run: npx playwright test -c automation/web --project=authz}
+#   - {name: cases, run: npx playwright test -c automation/web --project=cases}
 
 # method は lfs、external、local から選ぶ。個人情報が映る案件では lfs を選ばない
 # evidence: {method: local, retention: 90d}

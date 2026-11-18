@@ -2,7 +2,7 @@
 name: aidev-qa-authz-test
 description: ロールと操作の可否（許可・拒否）と、行レベルの所有者の検証（本人の分と他人の分、担当内と担当外、ID の差し替え、検索や一覧への他人のデータの混入）を、画面を通さない直接の HTTP リクエストで確かめるときに使う。ロール、操作、所有の関係、期待（許可か拒否かと確かめ方）を1行ずつ書いた認可の表を automation/web/authz/<機能>.json に作り、ロールごとのセッションと未ログインの状態で、拒否されるべきリクエストを実際に送る。ボタンが出ないことは拒否の根拠にしない。拒否は、状態コードに加えて、本文に守るべき内容が出ないこと、書き込みなら記録が変わっていないことまで確かめる。対象の操作を絞り込んで優先順位を付け、今の版の振る舞いを基準として残す。結果は runs/<YYYYMMDD>-<run-id>/result.md に OK・NG・実行不能で書く。「ロールごとの権限を確かめて」「他人のデータが見えないか確かめて」「ID を書き換えたら他人の記録を更新できないか」「認可の回帰テストを作って」という相談で使う。ログイン済みのセッションの用意は aidev-qa-login-session、期待結果を正とした通常のケースの実行は aidev-qa-test-run、旧版と新版の照合は aidev-qa-regression-compare、画面の挙動の記録は aidev-qa-characterization を使う。
 metadata:
-  version: "0.1.2"
+  version: "0.1.3"
 ---
 # ロールと所有者の認可の検証
 
@@ -126,7 +126,7 @@ metadata:
 
 テストは、ロールごとの storageState を読み込んだ API のリクエストのコンテキストで、表の行のリクエストを送る。ブラウザで画面を開いてボタンの有無を見ることはしない。書き方の例は `references/authz-matrix.md` にある。要点は次のとおり。
 
-- 環境は `QA_ENV`（プロファイルの環境名）と `QA_BASE_URL` で渡し、URL をテストに書かない。storageState は aidev-qa-login-session の `authFile()` で、環境を分けるときは `automation/web/.auth/<environment>/<role>.json` を選ぶ。`anonymous` は storageState を読み込まない
+- 環境は `QA_ENV`（プロファイルの環境名）と `QA_BASE_URL` で渡し、URL をテストに書かない。storageState は、aidev-qa-login-session の `authFile(role, process.env.QA_ENV)` でいつも環境を渡して選ぶ（`automation/web/.auth/<environment>/<role>.json`）。環境を省くと、setup が書いた場所と読む場所が食い違い、別の環境や古いセッションを読む。`anonymous` は storageState を読み込まない
 - リダイレクトは自動でたどらない（`maxRedirects: 0`）。たどると、ログイン画面への転送が 200 のログイン画面に化け、拒否と許可の区別がつかなくなる
 - 状態の変わる操作（POST、PUT、DELETE）は、アプリの CSRF 対策のトークンを、画面が送るのと同じ形で付ける。トークンの取り方は、同じセッションでフォームの画面を GET して hidden の入力欄から取る、meta タグから取る、Cookie の値をヘッダーに写す、トークンを返す API を呼ぶ、のどれかで、どれを使っているかはアプリの画面の送信を一度観察して決める。トークンがないと、認可の判定の前に CSRF の検査で拒否される。それは認可が効いている証拠にならない。拒否の行と同じ書き方で送った許可の行が通ることで、トークンの扱いが正しいことを確かめる
 - GraphQL のように、拒否を 200 とエラーの本文で返す API では、エラーの分類（認可の拒否を表すコードや種類）で判定する。空の応答や `null` は拒否と区別できないので、拒否の判定に使わない。想定外のエラーの種類（内部エラー、検証エラー）が返ったら、拒否とせず、別の不具合を疑って NG の候補にする

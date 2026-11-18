@@ -1,8 +1,8 @@
 ---
 name: aidev-qa-desktop-gui
-description: Windows のデスクトップアプリを実際の GUI で操作するテストを、FlaUI（UIA3）の C# のテストとして QA リポジトリの automation/desktop/ に書き、流して証跡を残すときに使う。行の選択やボタンの操作に加え、メッセージボックス、保存・フォルダ選択・印刷のダイアログ、帳票のビューアや外部アプリ、IME、証明書の選択や PIN のダイアログが出るログインを扱う。モーダルは所有ウィンドウをたどって探し、操作は今回起動したアプリとそのダイアログだけに絞る。PC の操作を占有するので、Web のテストとは分けて、作業者と決めた時間に流す。新しいテストは一度失敗させて検出できることを確かめ、結果は aidev-qa-test-run と同じ result.md に OK・NG・実行不能で書く。「保存ダイアログを含めて画面を操作するテストを書いて」「WPF や WinForms のアプリを FlaUI で自動化して」「メッセージボックスが検出できない」「WebView2 の外のダイアログを確かめて」という相談で使う。書かれたテストを他のケースと一緒に流して結果をまとめるのは aidev-qa-test-run、WebView2 の中の画面の記録は aidev-qa-characterization、ブラウザのログインのセッションと証明書の有無の確認は aidev-qa-login-session を使う。
+description: Windows のデスクトップアプリを実際の GUI で操作するテストを、FlaUI（UIA3）の C# のテストとして QA リポジトリの automation/desktop/ に書き、流して証跡を残すときに使う。行の選択やボタンの操作に加え、メッセージボックス、保存・フォルダ選択・印刷のダイアログ、帳票のビューアや外部アプリ、IME、アプリ自身のネイティブのログイン画面（login.method が native-form）、証明書の選択や PIN のダイアログが出るログインを扱う。モーダルは所有ウィンドウをたどって探し、操作は今回起動したアプリとそのダイアログだけに絞る。PC の操作を占有するので、Web のテストとは分けて、作業者と決めた時間に流す。新しいテストは一度失敗させて検出できることを確かめ、結果は aidev-qa-test-run と同じ result.md に OK・NG・実行不能で書く。「保存ダイアログを含めて画面を操作するテストを書いて」「WPF や WinForms のアプリを FlaUI で自動化して」「メッセージボックスが検出できない」「WebView2 の外のダイアログを確かめて」という相談で使う。書かれたテストを他のケースと一緒に流して結果をまとめるのは aidev-qa-test-run、WebView2 の中の画面の記録は aidev-qa-characterization、ブラウザのログインのセッションと証明書の有無の確認は aidev-qa-login-session を使う。
 metadata:
-  version: "0.1.2"
+  version: "0.1.3"
 ---
 # Windows の GUI のテスト
 
@@ -34,7 +34,7 @@ Windows のデスクトップアプリのテストケースを、実際に動い
 
 入力は次のとおり。
 
-- 案件プロファイル `knowledge/<product>/profile.md`。`stack`（WPF、WinForms、WebView2 などの画面の技術）と `evidence`（証跡の保存方式）を使う。あれば `test_commands`（テストの実行方法）、`environments`（アプリがつながるサーバー）、`roles`（ログインのアカウントの環境変数の名前）、`login`（証明書方式なら `certificate_thumbprint`）も使う。本文のビルドと起動の手順、AutomationId の一覧、落とし穴も読む
+- 案件プロファイル `knowledge/<product>/profile.md`。`stack`（WPF、WinForms、WebView2 などの画面の技術）と `evidence`（証跡の保存方式）を使う。あれば `test_commands`（テストの実行方法）、`environments`（アプリがつながるサーバー）、`roles`（ログインのアカウントの環境変数の名前）、`login`（`method`。証明書方式なら `certificate_thumbprint`）も使う。本文のビルドと起動の手順、AutomationId の一覧、到達手順、「ログイン中の目印」、落とし穴も読む
 - `cases/*.md` の対象の TC-ID と、`plan/acceptance.md`
 - 対象のアプリのソース（ダイアログのタイトルと文言、AutomationId を確かめる）と、起動する exe
 - aidev-qa-characterization の画面マニフェストのうち、`native-required` として渡された項目（あれば）
@@ -159,6 +159,10 @@ result.md の実行の条件には、aidev-qa-test-run の項目に加えて次�
 プロファイルの `login.method` が `none` でなければ、アプリのログインもこの Skill で扱う。
 
 ネイティブのログイン画面に ID とパスワードを入れるのは、テストのコードがプロファイルの `roles` に名前がある環境変数から読んで行う。値を会話、ログ、証跡に出さない。パスワードの欄が写る画像を撮らない。テスト用の環境だと名前で判断できない接続先では、自動で入れない。テスト用のインスタンスを起動し、どのウィンドウ（プロセスの ID）にどのロールでログインするかを作業者に示して、ログインしてもらう。
+
+`login.method` が `native-form` なら、アプリ自身のログイン画面（WPF や WinForms のネイティブの画面）に ID とパスワードを入れてログインする。ID は `roles[].user_env`、パスワードは `roles[].password_env` に名前がある環境変数から、テストのコードが読んで入れる。ログイン画面の要素（ID の欄、パスワードの欄、ログインのボタン）と、ログインできたと判断する要素は、プロファイルの本文の到達手順と「ログイン中の目印」から読む。本文に AutomationId が書かれていなければ、アプリのソースで確かめ、本文に書き足すよう作業者に伝える。ログインのボタンを押した後は、「ログイン中の目印」が出ることと、エラーの表示が出ることの早いほうを待つ。目印が出ればログインできたとする。エラーが出たか時間切れなら、その文言を記録して止める。
+
+`native-form` でも、アプリのログイン画面の外で求められる入力は別に扱う。OS の資格情報の画面（「Windows セキュリティ」など）、証明書やスマートカードの PIN、Windows のサインインには、エージェントもテストのコードも値を入れず、作業者に入れてもらう。テストのコードが入れてよいのは、アプリ自身のログイン画面の ID とパスワードの欄だけである。
 
 `login.method` が `certificate` なら、先に aidev-qa-login-session で `login.certificate_thumbprint` の証明書が PC にあり、期限内で、秘密鍵を持つことを確かめてもらう。そのうえで、ブラウザやアプリが出す証明書の選択のダイアログを `references/dialogs.md` の「証明書の選択と PIN のダイアログ」のとおりに扱う。拇印から引いた証明書の発行先と期限で一覧の項目を選び、決められなければ止める。PIN やパスワード、OS の資格情報の入力は、エージェントもテストのコードも行わず、作業者に入れてもらう。
 

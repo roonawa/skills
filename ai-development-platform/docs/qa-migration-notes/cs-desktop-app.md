@@ -32,8 +32,8 @@ environments:
 # roles:
 #   - {name: <アカウントの区分>, user_env: <ID の環境変数>, password_env: <パスワードの環境変数>}
 login:
-  method: certificate
-  # 旧 Skill に拇印は書かれていない。使う場合は certificate_thumbprint（40桁の16進数）を担当者が確認して書く
+  method: native-form
+  # LoginView に ID とパスワードを入れる運用に合わせた案。OS の証明書ストアと選択ダイアログを使うなら certificate にし、certificate_thumbprint（40桁の16進数）を担当者が確かめて書く
 stack: [winforms, webview2, vue, graphql]
 test_commands:
   - {name: cs-webview, run: bash frontend/gakumu/e2e-cs/run-cs.sh <launch-json> <specの相対パス>}
@@ -43,8 +43,9 @@ evidence: {method: external, retention: 90d}
 
 書き写すときの注意は次のとおりです。
 
-- `login.method` は証明書方式のネイティブのログイン画面（LoginView、mTLS）に合わせて `certificate` にしています。ただし、このアプリは OS の証明書ストアを使わず、証明書の選択ダイアログも出しません。ログインは、ログイン ID とパスワードを LoginView に入力する形です。設計書 5.9 は証明書方式のとき、証明書ストアの証明書を拇印で指定するとしていますが、このアプリには当てはまらない可能性があります。方式の選び方は担当者が確かめてください。
-- `certificate` を選ぶと、aidev-qa-login-session と aidev-qa-desktop-gui は、証明書ストアにある拇印指定の証明書を必要とします。desktop-gui は最初に、その拇印の証明書が存在して有効かを確かめ、証明書の選択ダイアログが出ることを前提にします。このアプリは LoginView に ID とパスワードを入力する運用で、選択ダイアログも出ません。そのため、存在しない証明書を新しい Skill が要求して止まるおそれがあります。実際の運用が ID とパスワードの入力なら、ログインの手順は本文の「ログイン」の節を正とします。profile の方式は担当者が選んでください（例：`none` にして、手順を本文に書く）。
+- `login.method` は `native-form` にしています。旧 Skill はこのログイン画面（LoginView、mTLS）を証明書方式と呼んでいますが、このアプリは OS の証明書ストアを使わず、証明書の選択ダイアログも出しません。ログインは、ログイン ID とパスワードを LoginView に入れる形です。`native-form` は、アプリ自身のログイン画面に、`roles` の環境変数から読んだ ID とパスワードをテストのコードが入れる方式で、この運用に合います。aidev-qa-login-session はこの方式を aidev-qa-desktop-gui に渡し、desktop-gui が LoginView の操作を受け持ちます。
+- `native-form` で自動で入れるのは、LoginView の ID とパスワードの欄だけです。OS の資格情報の画面、証明書の PIN、Windows のサインインが出たら、エージェントもテストのコードも入れず、作業者が入れます。`certificate` にすると、Skill は証明書ストアにある拇印指定の証明書と選択ダイアログを前提にし、このアプリでは存在しない証明書を求めて止まります。
+- `native-form` では `roles` が要ります。上の `roles` はコメントのままなので、担当者がアカウントの区分と環境変数の名前を決めて書いてください。LoginView の ID の欄、パスワードの欄、ログインのボタンの AutomationId と、ログイン中の目印は、プロファイルの本文の到達手順と「ログイン中の目印」に書きます（下の「ログイン」の節の手順3）。
 - ホストの記述が旧 Skill で揃っていません。旧 Skill には、`app.PT.config` の `DefaultUrl` が PT は allcweb1、ST は allcweb3 の `/CS/` だと、短いホスト名で書かれています。`local.ailesys.co.jp` を付けた完全なドメインは、ST（allcweb3）は campus の記述にありますが、PT（allcweb1）は旧 Skill に書かれておらず、allcweb2 と allcweb3 の形からの推定です。PT の Web 版の campus（`allcweb2`）とは別のホストです。
 - `test_commands` の `run-cs.sh` は、旧 Skill の標準ハーネス（`frontend/gakumu/e2e-cs/`）のものです。新しい QA リポジトリで作り直す場合は、実際のコマンドに書き換えてください。
 - `evidence` の方式は案です。個人情報が映る画面を扱うので、`lfs` は避けています。
@@ -84,7 +85,7 @@ evidence: {method: external, retention: 90d}
 
 ## ログイン
 
-CS アプリは、起動時に WebView2 の外のネイティブのログイン画面（WinForms の LoginView、証明書方式）を出します。ログインは、WebView2 の回帰とは別の認証の準備として行います。
+CS アプリは、起動時に WebView2 の外のネイティブのログイン画面（WinForms の LoginView。旧 Skill は証明書方式と呼ぶ。プロファイルの方式は `native-form`）を出します。ログインは、WebView2 の回帰とは別の認証の準備として行います。
 
 1. 実行の前に、占有する時間の目安、起動するアプリ、入力するアカウントの区分を利用者に示します。
 2. 専用の TEMP、CDP のポートを子プロセスにだけ渡して起動し、PID を記録します。

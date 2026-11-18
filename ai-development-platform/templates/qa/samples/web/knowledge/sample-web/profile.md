@@ -12,7 +12,9 @@ roles:
 login: {method: form, entry_url: http://localhost:4101/login}
 stack: [node, html-form]
 test_commands:
-  - {name: e2e, run: npx playwright test}
+  - {name: characterization, run: npx playwright test -c automation/web --project=characterization}
+  - {name: authz, run: npx playwright test -c automation/web --project=authz}
+  - {name: cases, run: npx playwright test -c automation/web --project=cases}
 evidence: {method: local, retention: 90d}
 ---
 # 観点
