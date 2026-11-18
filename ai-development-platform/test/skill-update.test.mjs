@@ -117,7 +117,7 @@ test('add installs SKILL.md and references to both hosts', t => {
 test('update treats CRLF copies of a qa skill as released', t => {
   const project = qaProject(t);
   for (const host of qaHosts) {
-    for (const file of qaFiles) writeFileSync(join(project, qaPath(host, file)), read(project, qaPath(host, file)).replace(/\n/g, '\r\n'));
+    for (const file of qaFiles) writeFileSync(join(project, qaPath(host, file)), read(project, qaPath(host, file)).replace(/\r?\n/g, '\r\n'));
   }
   assert.deepEqual(run(project, ['skill', 'update', qa]).pending, []);
 });
