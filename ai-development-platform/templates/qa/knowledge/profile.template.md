@@ -26,6 +26,11 @@ product: your-product
 
 # method は lfs、external、local から選ぶ。個人情報が映る案件では lfs を選ばない
 # evidence: {method: local, retention: 90d}
+
+# NG のケースを起票する Gitea のリポジトリ。aidev-qa-bug-ticket と aidev qa issue create が使う
+# url は https:// で書く（http:// は localhost と 127.0.0.1 だけ）。repo は owner/name の形
+# トークンはここに書かず、作業者個人のものを環境変数 GITEA_TOKEN で渡す
+# issue_tracker: {type: gitea, url: https://gitea.example.internal, repo: your-org/your-product}
 ---
 # 観点
 

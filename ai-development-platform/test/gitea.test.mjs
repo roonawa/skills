@@ -73,7 +73,7 @@ test('find issues by query', async () => {
   const fake = fakeGitea(() => ({status: 200, body: JSON.stringify(list)}));
   const client = createGiteaClient({baseUrl: BASE, token: TOKEN, transport: fake.transport});
   const found = await client.findIssues('org', 'app', '日本語 & q=1');
-  assert.deepEqual(found, [{number: 1, title: 'a', html_url: 'https://h/1', state: 'open'}]);
+  assert.deepEqual(found, [{number: 1, title: 'a', body: '', html_url: 'https://h/1', state: 'open'}]);
   const url = new URL(fake.calls[0].url);
   assert.equal(fake.calls[0].method, 'GET');
   assert.equal(url.pathname, '/api/v1/repos/org/app/issues');
@@ -180,4 +180,22 @@ test('fetchGiteaTransport reports only an error code when the connection fails',
     assert.ok(!error.message.includes('secret-path') && !error.message.includes('127.0.0.1'));
     return true;
   });
+});
+
+test('the token is checked at the client boundary and never echoed', () => {
+  for (const token of [undefined, '', ' ', 'has space', 'tab\tx', 'line\nbreak', 'トークン', 'x\u007f']) {
+    assert.throws(() => createGiteaClient({baseUrl: BASE, token, transport: fakeGitea().transport}), error => {
+      assert.ok(error instanceof GiteaError);
+      assert.equal(error.message, 'GITEA_TOKEN が未設定、または形式が違います');
+      return true;
+    }, JSON.stringify(token));
+  }
+  assert.doesNotThrow(() => createGiteaClient({baseUrl: BASE, token: TOKEN, transport: fakeGitea().transport}));
+});
+
+test('findIssues reads only the first page of 50', async () => {
+  const fake = fakeGitea(() => ({status: 200, body: '[]'}));
+  await createGiteaClient({baseUrl: BASE, token: TOKEN, transport: fake.transport}).findIssues('o', 'r', 'x');
+  assert.equal(new URL(fake.calls[0].url).searchParams.get('limit'), '50');
+  assert.equal(new URL(fake.calls[0].url).searchParams.get('page'), null);
 });

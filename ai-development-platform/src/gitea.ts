@@ -81,7 +81,7 @@ export interface GiteaClientOptions {
   token: string;
   transport?: GiteaTransport;
 }
-export interface GiteaIssueSummary {number: number; title: string; html_url: string; state: string}
+export interface GiteaIssueSummary {number: number; title: string; body: string; html_url: string; state: string}
 export type GiteaClient = ReturnType<typeof createGiteaClient>;
 
 const namePattern = /^[A-Za-z0-9_.-]+$/;
@@ -106,8 +106,15 @@ function checkBaseUrl(baseUrl: string): string {
   return (url.origin + url.pathname).replace(/\/+$/, '');
 }
 
+/** A token is printable ASCII without spaces. The message is fixed so the value is never echoed. */
+function checkToken(token: unknown): string {
+  if (typeof token !== 'string' || !/^[!-~]+$/.test(token)) throw new GiteaError('GITEA_TOKEN が未設定、または形式が違います');
+  return token;
+}
+
 export function createGiteaClient(options: GiteaClientOptions) {
   const root = checkBaseUrl(options.baseUrl);
+  const token = checkToken(options.token);
   const transport = options.transport ?? fetchGiteaTransport;
 
   async function send(request: GiteaRequest, success: number): Promise<unknown> {
@@ -130,19 +137,23 @@ export function createGiteaClient(options: GiteaClientOptions) {
     }
   }
 
-  const headers = (): Record<string, string> => ({Authorization: 'token ' + options.token, Accept: 'application/json'});
+  const headers = (): Record<string, string> => ({Authorization: 'token ' + token, Accept: 'application/json'});
   const issuesPath = (owner: string, repo: string) =>
     root + '/api/v1/repos/' + checkName(owner, 'owner') + '/' + checkName(repo, 'repo') + '/issues';
 
   return Object.freeze({
+    /**
+     * Searches open and closed issues. Only the first page (up to 50) is read: callers pass a narrow query
+     * (the duplicate check searches for its marker line), so a match beyond the first page is not expected.
+     */
     async findIssues(owner: string, repo: string, query: string): Promise<GiteaIssueSummary[]> {
-      const url = issuesPath(owner, repo) + '?' + new URLSearchParams({type: 'issues', state: 'all', q: query}).toString();
+      const url = issuesPath(owner, repo) + '?' + new URLSearchParams({type: 'issues', state: 'all', q: query, limit: '50'}).toString();
       const json = await send({method: 'GET', url, headers: headers()}, 200);
       if (!Array.isArray(json)) throw new GiteaError('Gitea の Issue 一覧の形式が想定と違います。');
       return json.flatMap(item => {
         const issue = item as Record<string, unknown> | null;
         if (typeof issue !== 'object' || issue === null || typeof issue.number !== 'number') return [];
-        return [{number: issue.number, title: String(issue.title ?? ''), html_url: String(issue.html_url ?? ''), state: String(issue.state ?? '')}];
+        return [{number: issue.number, title: String(issue.title ?? ''), body: String(issue.body ?? ''), html_url: String(issue.html_url ?? ''), state: String(issue.state ?? '')}];
       });
     },
     async createIssue(owner: string, repo: string, issue: {title: string; body: string}): Promise<{number: number; html_url: string}> {

@@ -23,7 +23,7 @@ export const profileRequirements: Record<string, string[]> = {
   'aidev-qa-screen-verification': onlyProduct,
   'aidev-qa-fix-verify': onlyProduct,
   'aidev-qa-cause-repro': onlyProduct,
-  'aidev-qa-bug-ticket': onlyProduct,
+  'aidev-qa-bug-ticket': ['product', 'issue_tracker'],
   'aidev-qa-report': onlyProduct,
 };
 const minimum: Record<string, Record<string, number>> = {
@@ -34,6 +34,8 @@ const loginMethods = ['saml', 'oidc', 'form', 'native-form', 'certificate', 'non
 const evidenceMethods = ['lfs', 'external', 'local'];
 const envName = /^[A-Z][A-Z0-9_]*$/;
 const productName = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+/** owner/name with the same name rule as the Gitea client ("." and ".." alone are refused). */
+const giteaRepo = /^(?!\.+\/)[A-Za-z0-9_.-]+\/(?!\.+$)[A-Za-z0-9_.-]+$/;
 
 const secretPatterns: {name: string; pattern: RegExp}[] = [
   {name: 'Bearer トークン', pattern: /\bBearer\s+[A-Za-z0-9._~+/=-]{10,}/},
@@ -98,6 +100,16 @@ function secretIn(line: string): string | undefined {
     return key + ' に値が書かれています';
   }
   return undefined;
+}
+
+/** The same rule as the Gitea client: https, or http only to this machine; no user info, query or fragment. */
+function giteaUrl(value: unknown): boolean {
+  try {
+    if (typeof value !== 'string') return false;
+    const url = new URL(value);
+    const local = url.protocol === 'http:' && (url.hostname === 'localhost' || url.hostname === '127.0.0.1');
+    return (url.protocol === 'https:' || local) && !url.username && !url.password && !url.search && !url.hash;
+  } catch { return false; }
 }
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
@@ -210,6 +222,20 @@ export function checkProfileText(file: string, text: string, skill?: string): Pr
     else {
       if (!evidenceMethods.includes(evidence.method as string)) shape('evidence.method', 'evidence.method は ' + evidenceMethods.join('・') + ' のどれかにしてください。');
       if (evidence.retention !== undefined && typeof evidence.retention !== 'string') shape('evidence.retention', 'evidence.retention は 90d のような文字列で書いてください。');
+    }
+  }
+
+  if (data.issue_tracker !== undefined) {
+    const tracker = data.issue_tracker;
+    if (!isObject(tracker)) shape('issue_tracker', 'issue_tracker はキーと値の組（type、url、repo）で書いてください。');
+    else {
+      if (tracker.type !== 'gitea') shape('issue_tracker.type', 'issue_tracker.type は gitea にしてください。');
+      if (!giteaUrl(tracker.url)) {
+        error('url', 'issue_tracker.url は https:// で始まる URL にしてください（http:// は localhost と 127.0.0.1 だけ）。ユーザー名、パスワード、クエリ、# は含めません。', 'issue_tracker.url');
+      }
+      if (!(typeof tracker.repo === 'string' && giteaRepo.test(tracker.repo))) {
+        shape('issue_tracker.repo', 'issue_tracker.repo は owner/name の形（英数字、_、.、-）で書いてください。');
+      }
     }
   }
 
