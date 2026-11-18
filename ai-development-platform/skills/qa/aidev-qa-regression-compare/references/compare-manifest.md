@@ -38,12 +38,12 @@ aidev qa compare-report runs/20261120-new-orders.compare.json reports/20261120-n
       "testCases": [
         {
           "name": "TC-orders-001 一般のロールで一覧の初期表示",
-          "note": "AC-030。判定: 意図した差分",
+          "note": "AC-030。判定: 要確認",
           "results": [
             { "round": 0, "status": "OK", "screenshots": [
               "20261120-old-orders/evidence/TC-orders-001/01-initial.png",
               "20261120-old-orders/evidence/TC-orders-001/02-page2.png" ] },
-            { "round": 1, "status": "OK", "note": "意図した差分 D-001（基本設計書 5.2）", "screenshots": [
+            { "round": 1, "status": "NG", "note": "意図した差分 D-001（基本設計書 5.2）。要確認 D-003 注文日時の元の値が実行の時間帯より 9 時間前", "screenshots": [
               "20261120-new-orders/evidence/TC-orders-001/01-initial.png",
               "20261120-new-orders/evidence/TC-orders-001/02-page2.png" ] }
           ]
@@ -58,9 +58,9 @@ aidev qa compare-report runs/20261120-new-orders.compare.json reports/20261120-n
         },
         {
           "name": "TC-orders-030 一覧の絞り込み",
-          "note": "照合できない: 比較先で新しく足したケースで、基準の run にない",
+          "note": "照合できない（比較先の結果は実行不能）: 比較先の環境に絞り込みの前提のデータがなく、比較先で実行できなかった",
           "results": [
-            { "round": 1, "status": "OK", "screenshot": "20261120-new-orders/evidence/TC-orders-030/01-filtered.png" }
+            { "round": 0, "status": "OK", "screenshot": "20261120-old-orders/evidence/TC-orders-030/01-filtered.png" }
           ]
         }
       ]
@@ -69,7 +69,7 @@ aidev qa compare-report runs/20261120-new-orders.compare.json reports/20261120-n
 }
 ```
 
-この例のマニフェストは `runs/20261120-new-orders.compare.json` にあるので、画像のパスは `runs/` からの相対パスになる。例の値は説明のためのもので、実際の値は compare.md と証跡から書く。
+この例のマニフェストは `runs/20261120-new-orders.compare.json` にあるので、画像のパスは `runs/` からの相対パスになる。例の値は説明のためのもので、実際の値は compare.md と証跡から書く。TC-orders-030 は照合できなかったケースの書き方の例で、比較先の列は要素を入れずに「対象外」と出す。
 
 ## 項目
 
@@ -86,13 +86,13 @@ aidev qa compare-report runs/20261120-new-orders.compare.json reports/20261120-n
 - `testCases`（必須、配列）：その画面のケース。1件が HTML の1行になる
 - `testCases[].name`（必須、文字列）：`<TC-ID> <ケース名>` にする。TC-ID を先頭に置くと、compare.md と result.md から引ける
 - `testCases[].note`（任意、文字列）：ケースの補足。AC、ケースの判定、照合できなかった理由を書く
-- `testCases[].results`（必須、配列）：列ごとの結果。その列で実行していないケースは要素を入れない。HTML には「対象外」と出る
+- `testCases[].results`（必須、配列）：列ごとの結果。その列で実行していないケースと、照合できなかったケースの比較先の列は、要素を入れない。HTML には「対象外」と出る
 
 `results` の要素は次のとおり。
 
 - `round`（必須、整数）：0 以上、`rounds` の件数未満
 - `status`（必須、文字列）：`OK` か `NG`。大文字と小文字は問わず、`pass`、`passed` は OK、`fail`、`failed` は NG と同じに扱われる。それ以外の値はすべて「未実施」と表示されるので使わない
-- `note`（任意、文字列）：その列の補足。差異の ID と分類、根拠の箇所を書く
+- `note`（任意、文字列）：その列の補足。差異の ID と分類、根拠の箇所を書く。`note` は顧客に渡るので、個人情報や機微な項目の値は写さず、差の性質（「値あり→空」「形式 YYYY/MM/DD→YYYY-MM-DD」など）で書く。書き方は `diff-classification.md` の compare.md の形式と同じである
 - `screenshot`（任意、文字列）か `screenshots`（任意、文字列の配列）：その列のそのケースのスクリーンショット。両方を書くと `screenshots` が使われる。どちらもなければ「スクリーンショットなし」と出る
 
 ## 状態の決め方
@@ -101,8 +101,8 @@ aidev qa compare-report runs/20261120-new-orders.compare.json reports/20261120-n
 
 | 列 | 状態 |
 |---|---|
-| 基準 | 基準の run の result.md の結果。OK は OK、NG は NG。実行不能は要素を入れず、ケースの `note` に理由を書く |
-| 比較先 | compare.md のケースの判定。一致と意図した差分は OK、要確認は NG。照合できなかったケースは、比較先の結果があれば result.md の結果を入れ、ケースの `note` に「照合できない」と理由を書く |
+| 基準 | 基準の run の result.md の結果で、照合に進んだケースは OK だけになる（基準の NG は照合の前提の崩れとして、分類の前に片付けている）。実行不能は要素を入れず、ケースの `note` に理由を書く |
+| 比較先 | compare.md のケースの判定。一致と意図した差分は OK、要確認は NG。照合できなかったケース（比較先の result.md では実行不能）は要素を入れず、ケースの `note` に「照合できない」と理由を書く。比較先の画像があっても入れない。入れると状態の札が付き、照合したように見える |
 
 生の成否と状態が食い違うケース（テストは失敗したが意図した差分で OK にした、など）は、`note` に差異の ID と根拠を書く。黙って上書きしたように見せない。
 
@@ -134,6 +134,6 @@ aidev qa compare-report runs/20261120-new-orders.compare.json reports/20261120-n
 
 - 画面とケースが意図どおりにまとまり、同じケースが列をまたいで同じ行に並んでいる
 - 各列の状態が compare.md と result.md に合っている。要確認のケースが OK に見えていない
-- 状態の札と冒頭の件数に「未実施」が出ていない（`status` の綴りの誤り）。札が「対象外」の列（本文は「このラウンドでは未実施」）は、実際に実行していない列だけである
+- 状態の札と冒頭の件数に「未実施」が出ていない（`status` の綴りの誤り）。札が「対象外」の列（本文は「このラウンドでは未実施」）は、実際に実行していない列か、照合できなかった（実行不能の）列だけで、どちらもケースの `note` に理由がある
 - スクリーンショットに、資格情報、トークン、テスト用アカウントの個人情報が写っていない
 - ファイルの大きさが渡し方（メールの添付など）に合っている。大きすぎれば `--link` で作り直す
