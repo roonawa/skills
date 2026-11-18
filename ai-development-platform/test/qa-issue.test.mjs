@@ -69,7 +69,7 @@ const result = `# 実行結果 20261118-new-cases
 
 ### TC-order-003
 - 理由: 前提の在庫切れの商品が環境にない
-`;
+`.replace(/\r\n/g, '\n'); // A CRLF checkout must not change the fixture.
 
 function sandbox(t, text = result, profileText = profile()) {
   const root = mkdtempSync(join(tmpdir(), 'aidev-issue-'));
