@@ -9,6 +9,7 @@ import { readReview } from './review.js';
 import { claudeRunner, runLoop, type ClaudeOptions } from './loop.js';
 import { checkSpec } from './spec.js';
 import { checkProfile } from './qa-profile.js';
+import { compareReport } from './qa-compare.js';
 
 /** Session limits for `workflow run`, from the environment. Invalid values stop before any session starts. */
 function sessionOptions(env: NodeJS.ProcessEnv): ClaudeOptions {
@@ -45,6 +46,10 @@ async function run(args: string[]) {
     const report = checkProfile(root,words[3],words[5]);
     process.exitCode = report.errors.length ? 1 : 0;
     return {ok:!report.errors.length,...report};
+  }
+  if (command === 'qa' && action === 'compare-report' && !dryRun &&
+      (words.length === 4 || (words.length === 5 && words[4] === '--link'))) {
+    return compareReport(root,words[2],words[3],words.length === 5);
   }
   if (!dryRun) {
     if (command === 'skill' && action === 'eval' && (words.length === 3 ||
@@ -84,7 +89,7 @@ async function run(args: string[]) {
       return {node:process.versions.node,platform:process.platform,registryCount:listSkills().length,...config};
     }
   }
-  throw new Error('使用法: aidev init NAME [--template core|react|unity|qa] | skill list | skill add NAME | skill update NAME | skill validate NAME | skill eval NAME [--observations FILE] | doctor | verify | check | spec check FILE | qa profile check FILE [--skill NAME] | workflow check TASK --review FILE | workflow run TASK --spec FILE | workflow status TASK。init/add/update は末尾に --dry-run を指定できます。');
+  throw new Error('使用法: aidev init NAME [--template core|react|unity|qa] | skill list | skill add NAME | skill update NAME | skill validate NAME | skill eval NAME [--observations FILE] | doctor | verify | check | spec check FILE | qa profile check FILE [--skill NAME] | qa compare-report MANIFEST OUT [--link] | workflow check TASK --review FILE | workflow run TASK --spec FILE | workflow status TASK。init/add/update は末尾に --dry-run を指定できます。');
 }
 try {
   console.log(JSON.stringify({ok:true,...await run(process.argv.slice(2))}));
