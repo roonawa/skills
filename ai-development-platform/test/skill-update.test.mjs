@@ -132,6 +132,28 @@ test('update keeps an edited reference file', t => {
   assert.equal(read(project, qaReceipt), '0.0.9\n');
 });
 
+test('update keeps an edited reference in a host whose SKILL.md is missing', t => {
+  const project = qaProject(t, '0.0.9');
+  unlinkSync(join(project, qaPath('.claude/skills', 'SKILL.md')));
+  const edited = qaPath('.claude/skills', 'references/strategy-outline.md');
+  writeFileSync(join(project, edited), read(project, edited) + '社内の追記\n');
+  const failed = run(project, ['skill', 'update', qa], 1);
+  assert.match(failed.error, /references\/strategy-outline\.md/);
+  assert.match(read(project, edited), /社内の追記/);
+  assert.equal(existsSync(join(project, qaPath('.claude/skills', 'SKILL.md'))), false);
+  assert.equal(read(project, qaReceipt), '0.0.9\n');
+});
+
+test('update completes a host left by an interrupted add', t => {
+  const project = qaProject(t, '0.0.9');
+  // skill add stopped after the reference: the host has the bundled reference and no SKILL.md.
+  unlinkSync(join(project, qaPath('.claude/skills', 'SKILL.md')));
+  const updated = run(project, ['skill', 'update', qa]);
+  assert.ok(updated.pending.includes(qaPath('.claude/skills', 'SKILL.md')));
+  for (const host of qaHosts) for (const file of qaFiles) assert.equal(read(project, qaPath(host, file)), loadSkill(qa).files[file]);
+  assert.equal(read(project, qaReceipt), qaVersion + '\n');
+});
+
 test('verify reports a missing reference file', t => {
   const project = qaProject(t);
   unlinkSync(join(project, qaPath('.agents/skills', 'references/strategy-outline.md')));

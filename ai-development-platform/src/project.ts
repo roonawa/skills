@@ -48,19 +48,22 @@ function skillFiles(name: string): Record<string,string> {
   result[receipts+'/'+name] = info.version+'\n';
   return result;
 }
-/** The SKILL.md and references/*.md actually present in one host's copy of a Skill; undefined when there is no SKILL.md. */
+/**
+ * The SKILL.md and references/*.md actually present in one host's copy of a Skill, even when SKILL.md is missing;
+ * undefined only when the host has none of them.
+ */
 function installedFiles(root: string, host: string, name: string): Record<string,string> | undefined {
   const base = host+'/'+name;
+  const files: Record<string,string> = {};
   const skill = content(checked(root,base+'/SKILL.md'));
-  if (skill === undefined) return undefined;
-  const files: Record<string,string> = {'SKILL.md':skill};
+  if (skill !== undefined) files['SKILL.md'] = skill;
   const references = checked(root,base+'/references');
   if (lstatSync(references,{throwIfNoEntry:false})) {
     for (const entry of readdirSync(references).sort()) {
       if (entry.endsWith('.md')) files['references/'+entry] = content(checked(root,base+'/references/'+entry)) as string;
     }
   }
-  return files;
+  return Object.keys(files).length ? files : undefined;
 }
 export function addSkill(root: string, name: string, dryRun: boolean) {
   readConfig(root);
@@ -92,7 +95,11 @@ export function updateSkill(root: string, name: string, dryRun: boolean) {
     const base = host+'/'+name+'/';
     const current = installedFiles(root,host,name);
     if (current !== undefined && skillSetHash(current) === target) { released.push(host); continue; }
-    if (current !== undefined && !known.includes(skillSetHash(current)) && !verified.includes(host)) {
+    // A host without SKILL.md was left by an interrupted add. It is completed only when every file it has is the
+    // bundled one; any other partial copy may hold the user's edits.
+    const partialAdd = current !== undefined && !Object.hasOwn(current,'SKILL.md') &&
+      Object.entries(current).every(([path,text]) => Object.hasOwn(files,path) && skillHash(text) === skillHash(files[path]));
+    if (current !== undefined && !partialAdd && !known.includes(skillSetHash(current)) && !verified.includes(host)) {
       edited.push(...Object.keys(current).map(path => base+path));
       continue;
     }
