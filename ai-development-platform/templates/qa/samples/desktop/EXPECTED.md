@@ -2,6 +2,8 @@
 
 このファイルは Skill に渡さない。Skill が出した結果を、人が答え合わせに使う。
 
+優先度を高とする期待は、先に aidev-qa-strategy が plan/strategy.md を作っている前提である。確認では aidev-qa-strategy から aidev-qa-test-design までを通しで動かす。plan/strategy.md がなければ、aidev-qa-test-design は優先度を推測せず、中にして「⚠ 要確認」を付ける。
+
 ## qa-test-design が必ず作るべき観点
 
 AC-001 は起動時の列構成。AC-002 は行の選択とステータスバー。AC-003 は選択の入れ替わり。AC-004 は保存ダイアログと既定のファイル名。AC-005 は保存の成功、CSV の見出し行、列順、行の内容、UTF-8、ステータスバー。AC-006 は保存のキャンセル。AC-007 は削除の確認メッセージボックス。AC-008 は確認の「はい」と「いいえ」の両方。

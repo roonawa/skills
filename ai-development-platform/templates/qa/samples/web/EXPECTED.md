@@ -2,6 +2,8 @@
 
 このファイルは Skill に渡さない。Skill が出した結果を、人が答え合わせに使う。
 
+優先度を高とする期待は、先に aidev-qa-strategy が plan/strategy.md を作っている前提である。確認では aidev-qa-strategy から aidev-qa-test-design までを通しで動かす。plan/strategy.md がなければ、aidev-qa-test-design は優先度を推測せず、中にして「⚠ 要確認」を付ける。
+
 ## qa-test-design が必ず作るべき観点
 
 次の観点が、各 AC に対応するテストケースとして出ていること。
