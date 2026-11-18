@@ -74,6 +74,9 @@
   "aidev-qa-screen-verification": {
     "0.1.0": [
       "e91de1f35b45a358d9938217c55722f2a38ec449f5acb47c735a71857703c07a"
+    ],
+    "0.1.1": [
+      "fe1c4565272af1f10b3c6f697504def13184fedaa61162d6bdbbcbfbebcacf9e"
     ]
   },
   "aidev-qa-strategy": {
