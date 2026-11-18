@@ -39,13 +39,14 @@ CLI は既存プロジェクトの AGENTS.md を上書きしない。既存プ�
 ## コマンド
 |操作|実行場所と結果|
 |---|---|
-|init NAME [--template core/react/unity]|親ディレクトリ。子に共通設定と選択したテンプレートを配置。既定は core|
-|skill list / skill validate NAME|任意の場所。同梱原本の名前・説明・版を取得|
+|init NAME [--template core/react/unity/qa]|親ディレクトリ。子に共通設定と選択したテンプレートを配置。既定は core。qa は QA リポジトリの雛形|
+|skill list / skill validate NAME|任意の場所。同梱原本の名前・説明・版・区分（core / qa）を取得|
 |skill add NAME|プロジェクト直下。両ホストの Skill と .aidev/installed の版記録を作成|
 |skill update NAME|プロジェクト直下。登録済みの Skill を同梱の版に置き換える。利用者が編集したコピーは置き換えない|
 |doctor|プロジェクト直下。Node、OS、設定版、Registry 件数を取得|
 |verify|プロジェクト直下。登録した Skill の欠損・内容差・版差を検出。未登録なら空配列|
-|check|プロジェクト直下。aidev.json の template に対応するアプリの検査結果を JSON で返す|
+|check|プロジェクト直下。aidev.json の template に対応するアプリの検査結果を JSON で返す。qa では knowledge/<製品>/profile.md ごとに profile を検査し、1件もなければ 2 を返す|
+|qa profile check FILE [--skill NAME]|任意の場所。QA の案件プロファイルの形式、Skill ごとの必須項目、秘密情報らしい値を検査する|
 |spec check FILE|任意の場所。実装ループに渡す仕様書の形式（受け入れ条件・やらないこと・判断待ち）を検査する|
 |workflow check TASK --review FILE|一つの実装タスクに対し、単体テスト・セキュリティ・仕様乖離と過剰実装のゲート結果と修正回数を記録して次の作業を決める|
 |workflow run TASK --spec FILE|実装・レビュー・ゲートを別々の Claude Code セッションで自動で回し、review か needs-human で止まる|
@@ -257,5 +258,13 @@ claude mcp login c-hub
 
 公式 MCP の書き込み系の道具は、権限があれば確認なしで実行される。許可の画面では `task-manager:read` だけを与え、書き込みの権限が付いたキーやトークンを対話に使わない。Claude Code 側でも書き込み系の道具を「常に許可」にしない。キーを使う場合も、コマンドの引数や共有の設定ファイルに書かない。
 
+## QA Skill
+
+テスト戦略・テスト仕様書・仕様書のレビューを支える Skill は `skills/qa/` に置く。aidev-qa-strategy、aidev-qa-test-design、aidev-qa-test-review の3つで、core の Skill と同じく `aidev skill add NAME` で配布する。`skill list` は区分（core / qa）を返す。qa の Skill は `references/*.md` を持てる。`skill update` は複数ファイルの Skill も置き換え、途中で止まった場合は `.aidev/updating/NAME` の印から同じコマンドで再開する。
+
+`aidev init NAME --template qa` は QA リポジトリの雛形（plan/、cases/、runs/、reports/、knowledge/profile.template.md）を作る。製品ごとのプロファイルは `knowledge/<製品>/profile.md` に置き、`aidev qa profile check FILE [--skill NAME]` で検査する。検査するのは形式、Skill ごとの必須項目、秘密情報らしい値で、`*_env` の項目に書く環境変数名と証明書の拇印だけは許可する。qa プロジェクトの `aidev check` は、すべての profile.md に同じ検査を行う。
+
+設計は [QA Skill 汎用化の設計書](docs/superpowers/specs/2026-11-18-qa-skills-generalization-design.md)、段階1の確認結果は [qa-phase1-verification](docs/qa-phase1-verification.md) にある。
+
 ## 設計と次の開発
-[構成](docs/architecture.md) / [技術選定と調査元](docs/technical-decisions.md) / [実装計画](docs/implementation-plan.md) / [バックログ](docs/initial-backlog.md) / [無人実行ランナーと C-HUB 連携（案）](docs/autonomous-runner-design.md)
+[構成](docs/architecture.md) / [技術選定と調査元](docs/technical-decisions.md) / [実装計画](docs/implementation-plan.md) / [バックログ](docs/initial-backlog.md) / [無人実行ランナーと C-HUB 連携（案）](docs/autonomous-runner-design.md) / [QA Skill 汎用化の設計書](docs/superpowers/specs/2026-11-18-qa-skills-generalization-design.md) / [QA Skill 段階1の確認結果](docs/qa-phase1-verification.md)
