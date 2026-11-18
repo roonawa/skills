@@ -33,6 +33,9 @@
     ],
     "0.1.1": [
       "910028dd3eb539bd8a93741e0b3b5aa45dd2fb7db52ebf87efb3c07f9bb425be"
+    ],
+    "0.1.2": [
+      "b139cb467b291444c8192e2c34305e531994cc66b1b72ed7af67587364adf908"
     ]
   },
   "aidev-repair-workflow": {

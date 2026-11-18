@@ -79,11 +79,11 @@ PR、マージ、デプロイ、定期実行のそれぞれで、合否の閾値
 
 | 起こりやすさ＼影響度 | 1 | 2 | 3 | 4 | 5 |
 |---|---|---|---|---|---|
-| 5 | 5 LOW | 10 HIGH | 15 CRIT | 20 CRIT | 25 CRIT |
+| 5 | 5 MED | 10 HIGH | 15 CRIT | 20 CRIT | 25 CRIT |
 | 4 | 4 LOW | 8 MED | 12 HIGH | 16 CRIT | 20 CRIT |
 | 3 | 3 LOW | 6 MED | 9 MED | 12 HIGH | 15 CRIT |
 | 2 | 2 LOW | 4 LOW | 6 MED | 8 MED | 10 HIGH |
-| 1 | 1 LOW | 2 LOW | 3 LOW | 4 LOW | 5 LOW |
+| 1 | 1 LOW | 2 LOW | 3 LOW | 4 LOW | 5 MED |
 
 ## テストの形の診断
 
