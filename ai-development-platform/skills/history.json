@@ -41,6 +41,11 @@
       "2fd33e1b43a55cf61aee1bb9e4516f33384768077ca7f09d06de4587414e757e"
     ]
   },
+  "aidev-qa-cause-repro": {
+    "0.1.0": [
+      "98850e6f3bab18729ddc09f66bce465a103c34de937c15ea0fee6d41b825148d"
+    ]
+  },
   "aidev-qa-characterization": {
     "0.1.0": [
       "529f10aa978d863213a08bd1bc6ee942649a8f84da88dde964d91055d37a250a"
