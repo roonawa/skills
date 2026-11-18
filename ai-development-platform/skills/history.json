@@ -36,6 +36,9 @@
     ],
     "0.1.2": [
       "b139cb467b291444c8192e2c34305e531994cc66b1b72ed7af67587364adf908"
+    ],
+    "0.1.3": [
+      "453d9f74877752be0521e0fd7f40106bca38e2c570895205a64d03f6e32d8920"
     ]
   },
   "aidev-qa-test-design": {
@@ -44,6 +47,9 @@
     ],
     "0.1.1": [
       "800e5b21e75dd723549ebb1fb02afedadd0d587aae17da20092346bc513cdf59"
+    ],
+    "0.1.2": [
+      "27d4bf1e1c8a39f2c7a0ffcd3d56716113a545647873376e4f3cfa97d48620e2"
     ]
   },
   "aidev-qa-test-review": {
@@ -52,6 +58,9 @@
     ],
     "0.1.1": [
       "27210f09dfea539f6d7183b367103f985553ce528a790f73fdc73b75eb95538a"
+    ],
+    "0.1.2": [
+      "acabbd3ad5f91ebcb558b9809460d18c028a52115f5eb8d067bc3d14de084e79"
     ]
   },
   "aidev-repair-workflow": {
