@@ -27,6 +27,11 @@
       "ac4b453482b4da338d41d09341573a625104690bdd928bc4a0297256a89f58f4"
     ]
   },
+  "aidev-qa-authz-test": {
+    "0.1.0": [
+      "42132f5bf3705938697ae5dea729cb1d2cc50a0541ca6fc623356b819c5c53f1"
+    ]
+  },
   "aidev-qa-characterization": {
     "0.1.0": [
       "529f10aa978d863213a08bd1bc6ee942649a8f84da88dde964d91055d37a250a"
