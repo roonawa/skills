@@ -265,7 +265,7 @@ claude mcp login c-hub
 
 `aidev init NAME --template qa` は QA リポジトリの雛形（plan/、cases/、runs/、reports/、knowledge/profile.template.md）を作る。製品ごとのプロファイルは `knowledge/<製品>/profile.md` に置き、`aidev qa profile check FILE [--skill NAME]` で検査する。検査するのは形式、Skill ごとの必須項目、秘密情報らしい値で、`*_env` の項目に書く環境変数名と証明書の拇印だけは許可する。qa プロジェクトの `aidev check` は、すべての profile.md に --skill なしの検査（形式・秘密情報・product の有無）を行い、Skill ごとの必須項目は見ない。
 
-設計は [QA Skill 汎用化の設計書](docs/superpowers/specs/2026-11-18-qa-skills-generalization-design.md)、段階1の確認結果は [qa-phase1-verification](docs/qa-phase1-verification.md) にある。
+設計は [QA Skill 汎用化の設計書](docs/superpowers/specs/2026-11-18-qa-skills-generalization-design.md)、段階1の確認結果は [qa-phase1-verification](docs/qa-phase1-verification.md)、段階2の確認結果は [qa-phase2-verification](docs/qa-phase2-verification.md) にある。
 
 ### 段階2で足したもの
 
@@ -298,4 +298,4 @@ templates/qa/samples/ に、Skill の動作確認用の見本アプリを置く�
 - desktop: 在庫を表示する Windows のデスクトップアプリ。`dotnet build templates/qa/samples/desktop/app` でビルドする。基盤のテストは、Windows で環境変数 `AIDEV_TEST_DESKTOP=1` を設定したときだけこのビルドを確かめ、設定しなければ skip する。
 
 ## 設計と次の開発
-[構成](docs/architecture.md) / [技術選定と調査元](docs/technical-decisions.md) / [実装計画](docs/implementation-plan.md) / [バックログ](docs/initial-backlog.md) / [無人実行ランナーと C-HUB 連携（案）](docs/autonomous-runner-design.md) / [QA Skill 汎用化の設計書](docs/superpowers/specs/2026-11-18-qa-skills-generalization-design.md) / [QA Skill 段階1の確認結果](docs/qa-phase1-verification.md) / [旧 QA Skill の案件固有の知見の移行メモ](docs/qa-migration-notes/README.md)
+[構成](docs/architecture.md) / [技術選定と調査元](docs/technical-decisions.md) / [実装計画](docs/implementation-plan.md) / [バックログ](docs/initial-backlog.md) / [無人実行ランナーと C-HUB 連携（案）](docs/autonomous-runner-design.md) / [QA Skill 汎用化の設計書](docs/superpowers/specs/2026-11-18-qa-skills-generalization-design.md) / [QA Skill 段階1の確認結果](docs/qa-phase1-verification.md) / [QA Skill 段階2の確認結果](docs/qa-phase2-verification.md) / [旧 QA Skill の案件固有の知見の移行メモ](docs/qa-migration-notes/README.md)
