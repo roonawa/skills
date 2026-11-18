@@ -2,7 +2,7 @@
 name: aidev-qa-login-session
 description: Web アプリのテストの前提として、ロールごとに Playwright でログインし、認証済みのセッション（storageState）を QA リポジトリの automation/web/.auth/ に作るときに使う。案件プロファイルの login.method に従い、SAML、OIDC、フォーム認証を扱う。資格情報はプロファイルに名前がある環境変数から読む。ログインの成否を「アプリに着いた」「アプリのログイン画面かエラー画面に戻された」「IdP で止まった」に分けて判定し、保存したセッションでログインが必要なページを開けることまで確かめる。「ロールごとにログインした状態を用意して」「SAML でログインしてセッションを取って」「storageState を作り直して」「ログインのセットアップが通らない」という相談で使う。証明書方式は拇印の確認までを行い、ログインの操作は aidev-qa-desktop-gui に渡す。デスクトップアプリ自身のログイン画面に入力する native-form は、この Skill では扱わず aidev-qa-desktop-gui に渡す。セッションを使った画面の特性テストには aidev-qa-characterization を、ロールごとの可否の検証には aidev-qa-authz-test を、新旧の照合には aidev-qa-regression-compare を使う。
 metadata:
-  version: "0.1.4"
+  version: "0.1.5"
 ---
 # 認証済みセッションの取得
 
@@ -123,7 +123,7 @@ setup のコードを書いたら、ロールを1つだけ選んで流し、判�
 
 `login.method` が `native-form` のとき、ログインはデスクトップアプリ自身のログイン画面（WPF や WinForms の画面）に ID とパスワードを入れて行う。ブラウザを通らないので storageState は作れず、この Skill の setup の対象にならない。ログインの操作もセッションの確認も aidev-qa-desktop-gui に渡す。
 
-渡す前に、この Skill では次の2つだけを確かめる。対象のロールの `user_env` と `password_env` の環境変数が設定されているか（名前だけで確かめる）と、プロファイルの本文に到達手順と「ログイン中の目印」があるかである。足りなければ作業者に伝える。
+渡す前に、この Skill では次の2つだけを確かめる。対象のロールの `user_env` と `password_env` の環境変数が設定されているか（名前だけで確かめ、値は出力しない）と、プロファイルの本文に到達手順と「ログイン中の目印」があるかである。足りなければ作業者に伝える。
 
 ## よくある誤り
 

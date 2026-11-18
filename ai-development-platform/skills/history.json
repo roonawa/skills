@@ -67,6 +67,9 @@
     ],
     "0.1.3": [
       "b5e8fe1e03a8b596fcfb03d8c03d06743fe4e40040dc8cf3d2130221ee311bcd"
+    ],
+    "0.1.4": [
+      "d6555b31c6cee0a687e6319e8a075d234ed567442be7444c74729580c99815a0"
     ]
   },
   "aidev-qa-login-session": {
@@ -84,6 +87,9 @@
     ],
     "0.1.4": [
       "b20c6c816024fdf2598a2eb596ad889f6836d4cef61ddd18bcb6160a6227cce4"
+    ],
+    "0.1.5": [
+      "1885f8e9ae6c270ee668e7c582b91f7c185daffbb097118058f7babc996c973e"
     ]
   },
   "aidev-qa-regression-compare": {
