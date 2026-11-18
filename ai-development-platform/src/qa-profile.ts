@@ -30,7 +30,7 @@ const minimum: Record<string, Record<string, number>> = {
   'aidev-qa-regression-compare': {environments: 2},
   'aidev-qa-authz-test': {roles: 2},
 };
-const loginMethods = ['saml', 'oidc', 'form', 'certificate', 'none'];
+const loginMethods = ['saml', 'oidc', 'form', 'native-form', 'certificate', 'none'];
 const evidenceMethods = ['lfs', 'external', 'local'];
 const envName = /^[A-Z][A-Z0-9_]*$/;
 const productName = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;

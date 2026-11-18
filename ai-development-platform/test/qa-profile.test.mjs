@@ -125,3 +125,7 @@ test('a value padded past the length cap is still a secret', () => {
     assert.ok(r.errors.some(e => e.code === 'secret' && typeof e.line === 'number'), line.slice(0, 40));
   }
 });
+test('accept native-form login and reject an unknown login method', () => {
+  assert.deepEqual(checkProfileText('p.md', valid.replace('evidence:', 'login: {method: native-form}\nevidence:')).errors, []);
+  assert.ok(checkProfileText('p.md', valid.replace('evidence:', 'login: {method: native}\nevidence:')).errors.some(e => e.path === 'login.method'));
+});
