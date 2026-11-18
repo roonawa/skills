@@ -2,14 +2,16 @@
 // `aidev skill update` replaces an installed copy only when its hash is a known release of the recorded version,
 // so a copy the user edited is never overwritten. Run after changing a Skill: `node scripts/skill-history.mjs`.
 // The current working-tree versions are always included; earlier ones come from git history and the existing file.
+// A qa Skill has several files and is recorded only as it is now (skillSetHash of the whole set), without git history.
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
-import { skillHash, parseSkill } from '../dist/registry.js';
+import { skillHash, skillSetHash, parseSkill, loadSkill } from '../dist/registry.js';
 
 const platform = fileURLToPath(new URL('..', import.meta.url));
 const core = join(platform, 'skills', 'core');
+const qa = join(platform, 'skills', 'qa');
 const output = join(platform, 'skills', 'history.json');
 const history = existsSync(output) ? JSON.parse(readFileSync(output, 'utf8')) : {};
 
@@ -22,6 +24,13 @@ function record(name, source) {
   }
   const hashes = (history[name] ??= {})[version] ??= [];
   const hash = skillHash(source);
+  if (!hashes.includes(hash)) hashes.push(hash);
+}
+
+function recordSet(name) {
+  const {files, info} = loadSkill(name);
+  const hashes = (history[name] ??= {})[info.version] ??= [];
+  const hash = skillSetHash(files);
   if (!hashes.includes(hash)) hashes.push(hash);
 }
 
@@ -41,6 +50,8 @@ for (const name of readdirSync(core).sort()) {
   }
   record(name, readFileSync(path, 'utf8'));
 }
+
+if (existsSync(qa)) for (const name of readdirSync(qa).sort()) recordSet(name);
 
 const sorted = Object.fromEntries(Object.keys(history).sort().map(name => [name,
   Object.fromEntries(Object.keys(history[name]).sort((a, b) => a.localeCompare(b, 'en', {numeric: true}))

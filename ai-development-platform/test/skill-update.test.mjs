@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
-import { listSkills, loadSkill, releasedHashes, skillHash } from '../dist/registry.js';
+import { listSkills, loadSkill, releasedHashes, skillSetHash } from '../dist/registry.js';
 
 const cli = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
 // A released copy of an earlier version, as a project registered before the update would have it.
@@ -35,10 +35,10 @@ const read = (project, path) => readFileSync(join(project, path), 'utf8');
 
 test('every bundled version is recorded, so the next release can update it', () => {
   for (const skill of listSkills()) {
-    assert.ok(releasedHashes(skill.name)[skill.version]?.includes(skillHash(loadSkill(skill.name).source)),
+    assert.ok(releasedHashes(skill.name)[skill.version]?.includes(skillSetHash(loadSkill(skill.name).files)),
       skill.name + ' ' + skill.version + ': run node scripts/skill-history.mjs');
   }
-  assert.ok(releasedHashes(name)['0.6.0'].includes(skillHash(previous)));
+  assert.ok(releasedHashes(name)['0.6.0'].includes(skillSetHash({'SKILL.md': previous})));
 });
 
 test('verify points to skill update, and update replaces released copies and the receipt', t => {
@@ -86,4 +86,70 @@ test('a Skill that is not registered must be added first', t => {
   t.after(() => rmSync(root, {recursive: true, force: true}));
   run(root, ['init', 'demo']);
   assert.match(run(join(root, 'demo'), ['skill', 'update', name], 1).error, /skill add/);
+});
+
+const qa = 'aidev-qa-strategy';
+const qaFiles = ['SKILL.md', 'references/strategy-outline.md'];
+const qaHosts = ['.claude/skills', '.agents/skills'];
+const qaPath = (host, file) => host + '/' + qa + '/' + file;
+const qaReceipt = '.aidev/installed/' + qa;
+/** A project with the qa Skill added and its recorded version set, so an update may be pending. */
+function qaProject(t, version = '0.1.0') {
+  const root = mkdtempSync(join(tmpdir(), 'aidev-update-'));
+  t.after(() => rmSync(root, {recursive: true, force: true}));
+  run(root, ['init', 'demo']);
+  const project = join(root, 'demo');
+  run(project, ['skill', 'add', qa]);
+  writeFileSync(join(project, qaReceipt), version + '\n');
+  return project;
+}
+
+test('add installs SKILL.md and references to both hosts', t => {
+  const project = qaProject(t);
+  const bundled = loadSkill(qa).files;
+  for (const host of qaHosts) {
+    for (const file of qaFiles) assert.equal(read(project, qaPath(host, file)), bundled[file]);
+  }
+  assert.ok(run(project, ['verify']).skills.includes(qa));
+});
+
+test('update treats CRLF copies of a qa skill as released', t => {
+  const project = qaProject(t);
+  for (const host of qaHosts) {
+    for (const file of qaFiles) writeFileSync(join(project, qaPath(host, file)), read(project, qaPath(host, file)).replace(/\n/g, '\r\n'));
+  }
+  assert.deepEqual(run(project, ['skill', 'update', qa]).pending, []);
+});
+
+test('update keeps an edited reference file', t => {
+  const project = qaProject(t, '0.0.9');
+  const edited = qaPath('.claude/skills', 'references/strategy-outline.md');
+  writeFileSync(join(project, edited), read(project, edited) + '社内の追記\n');
+  const failed = run(project, ['skill', 'update', qa], 1);
+  assert.match(failed.error, /references\/strategy-outline\.md/);
+  assert.match(read(project, edited), /社内の追記/);
+  assert.equal(read(project, qaReceipt), '0.0.9\n');
+});
+
+test('verify reports a missing reference file', t => {
+  const project = qaProject(t);
+  unlinkSync(join(project, qaPath('.agents/skills', 'references/strategy-outline.md')));
+  assert.match(run(project, ['verify'], 1).error, /配置ファイルが不足しています/);
+});
+
+test('update removes a reference that the new release no longer has', t => {
+  const project = qaProject(t);
+  // Record a past release whose file set had an extra reference, as an installed copy of it would.
+  const history = fileURLToPath(new URL('../skills/history.json', import.meta.url));
+  const original = readFileSync(history, 'utf8');
+  t.after(() => writeFileSync(history, original));
+  const recorded = JSON.parse(original);
+  recorded[qa]['0.0.9'] = [skillSetHash({...loadSkill(qa).files, 'references/old.md': '古い\n'})];
+  writeFileSync(history, JSON.stringify(recorded));
+  for (const host of qaHosts) writeFileSync(join(project, qaPath(host, 'references/old.md')), '古い\n');
+  writeFileSync(join(project, qaReceipt), '0.0.9\n');
+  const updated = run(project, ['skill', 'update', qa]);
+  for (const host of qaHosts) assert.equal(existsSync(join(project, qaPath(host, 'references/old.md'))), false);
+  assert.ok(updated.pending.includes(qaPath('.claude/skills', 'references/old.md')));
+  assert.equal(read(project, qaReceipt), '0.1.0\n');
 });

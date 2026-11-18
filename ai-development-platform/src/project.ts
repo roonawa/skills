@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import { readdirSync, lstatSync, mkdirSync, renameSync, writeFileSync } from 'node:fs';
+import { readdirSync, lstatSync, mkdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { checked, content, install, safeName } from './files.js';
-import { listSkills, loadSkill, releasedHashes, skillHash } from './registry.js';
+import { listSkills, loadSkill, releasedHashes, skillHash, skillSetHash } from './registry.js';
 import { parseTemplate, templateFiles, type Template } from './adapter.js';
 
 const config = 'aidev.json';
@@ -40,10 +40,24 @@ export function readConfig(root: string) {
   return {schemaVersion:1, template:parseTemplate(data.template)};
 }
 function skillFiles(name: string): Record<string,string> {
-  const {info,source} = loadSkill(name);
-  const files: Record<string,string> = {};
-  for (const host of hosts) files[host+'/'+name+'/SKILL.md'] = source;
-  files[receipts+'/'+name] = info.version+'\n';
+  const {info,files} = loadSkill(name);
+  const result: Record<string,string> = {};
+  for (const host of hosts) for (const [path,text] of Object.entries(files)) result[host+'/'+name+'/'+path] = text;
+  result[receipts+'/'+name] = info.version+'\n';
+  return result;
+}
+/** The SKILL.md and references/*.md actually present in one host's copy of a Skill; undefined when there is no SKILL.md. */
+function installedFiles(root: string, host: string, name: string): Record<string,string> | undefined {
+  const base = host+'/'+name;
+  const skill = content(checked(root,base+'/SKILL.md'));
+  if (skill === undefined) return undefined;
+  const files: Record<string,string> = {'SKILL.md':skill};
+  const references = checked(root,base+'/references');
+  if (lstatSync(references,{throwIfNoEntry:false})) {
+    for (const entry of readdirSync(references).sort()) {
+      if (entry.endsWith('.md')) files['references/'+entry] = content(checked(root,base+'/references/'+entry)) as string;
+    }
+  }
   return files;
 }
 export function addSkill(root: string, name: string, dryRun: boolean) {
@@ -57,40 +71,50 @@ export function addSkill(root: string, name: string, dryRun: boolean) {
  */
 export function updateSkill(root: string, name: string, dryRun: boolean) {
   readConfig(root);
-  const {info,source} = loadSkill(name);
+  const {info,files} = loadSkill(name);
   const receipt = content(checked(root,receipts+'/'+name));
   if (receipt === undefined) throw new Error('Skill ' + name + ' は登録されていません。skill add を使ってください。');
   const from = receipt.trim();
-  const released = releasedHashes(name);
-  const known = released[from] ?? [];
-  const target = skillHash(source);
-  const pending: string[] = [];
+  const known = releasedHashes(name)[from] ?? [];
+  const target = skillSetHash(files);
+  const writes: [string,string][] = [];
+  const removed: string[] = [];
   const edited: string[] = [];
   for (const host of hosts) {
-    const path = host+'/'+name+'/SKILL.md';
-    const current = content(checked(root,path));
-    if (current !== undefined && skillHash(current) === target) continue;
-    if (current === undefined || known.includes(skillHash(current))) pending.push(path);
-    else edited.push(path);
+    const base = host+'/'+name+'/';
+    const current = installedFiles(root,host,name);
+    if (current !== undefined && skillSetHash(current) === target) continue;
+    if (current !== undefined && !known.includes(skillSetHash(current))) {
+      edited.push(...Object.keys(current).map(path => base+path));
+      continue;
+    }
+    for (const [path,text] of Object.entries(files)) {
+      if (current?.[path] === undefined || skillHash(current[path]) !== skillHash(text)) writes.push([base+path,text]);
+    }
+    // A reference that an earlier release had and this one does not is removed with the replacement.
+    for (const path of Object.keys(current ?? {})) if (!Object.hasOwn(files,path)) removed.push(base+path);
   }
   if (edited.length) {
     throw new Error((known.length ? '登録時の版 ' + from + ' から内容が変わっている' : '登録時の版 ' + from + ' の内容が記録にない') +
       'ため、更新しません: ' + edited.join(', ') + '。変更を確認して必要なら退避し、該当ファイルと .aidev/installed/' + name +
       ' を削除してから skill add ' + name + ' を実行してください。');
   }
-  if (from !== info.version) pending.push(receipts+'/'+name);
+  const receiptWrite: [string,string][] = from !== info.version ? [[receipts+'/'+name,info.version+'\n']] : [];
   if (!dryRun) {
-    // Write each file completely before it replaces the old one; the receipt goes last, so an interrupted update
-    // leaves copies that are either the old or the new release and can be retried.
-    for (const path of pending) {
+    // Write each file completely before it replaces the old one; stale references go next and the receipt last, so an
+    // interrupted update leaves copies that are either the old or the new release and can be retried.
+    const replace = ([path,text]: [string,string]) => {
       const target = checked(root,path);
       mkdirSync(dirname(target),{recursive:true});
       const temp = join(dirname(target),'.aidev-'+randomUUID());
-      writeFileSync(temp,path.startsWith(receipts) ? info.version+'\n' : source,{flag:'wx'});
+      writeFileSync(temp,text,{flag:'wx'});
       renameSync(temp,target);
-    }
+    };
+    writes.forEach(replace);
+    for (const path of removed) unlinkSync(checked(root,path));
+    receiptWrite.forEach(replace);
   }
-  return {name,from,to:info.version,pending};
+  return {name,from,to:info.version,pending:[...writes.map(([path]) => path),...removed,...receiptWrite.map(([path]) => path)]};
 }
 export function verify(root: string): string[] {
   readConfig(root);

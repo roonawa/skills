@@ -21,7 +21,7 @@ function observed(cases,fixture) {
     cases:cases.map(s=>({id:s.id,withSkill:record(s.expected),withoutSkill:record('unknown')}))};
 }
 test('each bundled skill has all five distinct decision cases',()=>{
-  for (const {name} of listSkills()) {
+  for (const {name} of listSkills().filter(skill => skill.category === 'core')) {
     const cases=scenariosFor(name);
     assert.deepEqual(cases.map(s=>s.id),['normal','ambiguous','conflict','test-failure','out-of-scope']);
     assert.equal(new Set(cases.map(s=>s.prompt)).size,5);

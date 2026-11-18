@@ -27,6 +27,11 @@
       "ac4b453482b4da338d41d09341573a625104690bdd928bc4a0297256a89f58f4"
     ]
   },
+  "aidev-qa-strategy": {
+    "0.1.0": [
+      "7736dea0803ca91276b09b114fa2c5f575a436d06d6a6f3373474679b8264993"
+    ]
+  },
   "aidev-repair-workflow": {
     "0.5.0": [
       "a7d44302c55a3ea1a7639cd98c6c230c92992b9b61eb9b9b790146d1c32ec011"
