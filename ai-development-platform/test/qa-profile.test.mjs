@@ -115,3 +115,13 @@ test('very long lines are scanned in linear time and still report the secret', (
     assert.equal(r.errors.some(e => e.code === 'secret'), i === 2, 'line ' + i);
   });
 });
+test('a value padded past the length cap is still a secret', () => {
+  const pad = 'a'.repeat(1100);
+  for (const line of ['password_reset_url: https://h/' + pad + '?abcdef123', 'password_reset_url: "https://h/' + pad + '#abcdef123"',
+    'password_reset_url: https://h/' + pad + '/x?s=1', 'password: "' + ' '.repeat(1100) + 'hunter2"', "password: '" + ' '.repeat(1100) + "hunter2'"]) {
+    const started = Date.now();
+    const r = checkProfileText('p.md', valid + line + '\n');
+    assert.ok(Date.now() - started < 1000);
+    assert.ok(r.errors.some(e => e.code === 'secret' && typeof e.line === 'number'), line.slice(0, 40));
+  }
+});

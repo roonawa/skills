@@ -85,12 +85,16 @@ function secretIn(line: string): string | undefined {
   for (const match of line.matchAll(keyValue)) {
     const key = match[1];
     if (!isSecretKey(key, undefined)) continue;
-    // The value is read only for a secret key, and capped; a capped value is never treated as a plain URL.
-    const start = match.index + match[0].length;
+    // The value is read only for a secret key. Leading quotes and spaces are skipped before the cap is applied,
+    // and a value longer than the cap is treated as a secret outright (no *_url exemption, no empty-value skip).
+    let start = match.index + match[0].length;
+    while (start < line.length && (line[start] === '"' || line[start] === "'" || line[start] === ' ' || line[start] === '\t')) start++;
     const rest = line.slice(start, start + valueLimit + 1);
     const raw = rest.split(/[,}\n]/, 1)[0];
-    const value = raw.replace(/\s+#.*$/, '').replace(/[\s,}\]'"]+$/, '').replace(/^['"\s]+/, '');
-    if (!value || !isSecretKey(key, rest.length > valueLimit ? value + '#' : value)) continue;
+    if (!(raw.length > valueLimit)) {
+      const value = raw.replace(/\s+#.*$/, '').replace(/[\s,}\]'"]+$/, '');
+      if (!value || !isSecretKey(key, value)) continue;
+    }
     return key + ' に値が書かれています';
   }
   return undefined;
