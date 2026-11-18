@@ -75,6 +75,9 @@
   "aidev-qa-fix-verify": {
     "0.1.0": [
       "c01572b70edc19dcb7af3b42bc9b2a7606fe0a56395809f4183323df7f856a69"
+    ],
+    "0.1.1": [
+      "ac2077f892daeb80d830d07cc47039e0283c7f098eb0dd1f6eb35022b4d4a7d7"
     ]
   },
   "aidev-qa-login-session": {
