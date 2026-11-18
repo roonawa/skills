@@ -24,7 +24,7 @@ PT を常に新版、ST を常に旧版と決めつけません。比較元と�
 ```yaml
 ---
 product: allcampus-cs
-# ドメインは旧 Skill に省略形でしか書かれていないものがある。app.PT.config、app.ST.config の DefaultUrl で確かめる
+# 旧 Skill に書かれているのは PT が allcweb1、ST が allcweb3 という短いホスト名と /CS/ のパスまで。PT の local.ailesys.co.jp の部分は campus 側のホストからの推定。app.PT.config、app.ST.config の DefaultUrl で確かめる
 environments:
   - {name: PT, url: https://allcweb1.local.ailesys.co.jp/CS/, purpose: 社内の検証環境。CS アプリの PT 構成の接続先}
   - {name: ST, url: https://allcweb3.local.ailesys.co.jp/CS/, purpose: ステージング。CS アプリの ST 構成の接続先}
@@ -44,8 +44,8 @@ evidence: {method: external, retention: 90d}
 書き写すときの注意は次のとおりです。
 
 - `login.method` は証明書方式のネイティブのログイン画面（LoginView、mTLS）に合わせて `certificate` にしています。ただし、このアプリは OS の証明書ストアを使わず、証明書の選択ダイアログも出しません。ログインは、ログイン ID とパスワードを LoginView に入力する形です。設計書 5.9 は証明書方式のとき、証明書ストアの証明書を拇印で指定するとしていますが、このアプリには当てはまらない可能性があります。方式の選び方は担当者が確かめてください。
-- `certificate` を選ぶと、aidev-qa-login-session と aidev-qa-desktop-gui は、証明書ストアにある拇印指定の証明書を必要とします。desktop-gui は最初に、その拇印の証明書が存在して有効かを確かめ、証明書の選択ダイアログが出ることを前提にします。このアプリは LoginView に ID とパスワードを入力する運用で、選択ダイアログも出ないため、存在しない証明書を新しい Skill が要求して止まるおそれがあります。実際の運用が ID とパスワードの入力なら、ログインの手順は本文の「ログイン」の節を正とし、profile の方式は担当者が選んでください（例：`none` にして、手順を本文に書く）。
-- ホストの記述が旧 Skill で揃っていません。`app.PT.config` の `DefaultUrl` が PT は allcweb1、ST は allcweb3 の `/CS/` です。PT の Web 版の campus（`allcweb2`）とは別のホストです。
+- `certificate` を選ぶと、aidev-qa-login-session と aidev-qa-desktop-gui は、証明書ストアにある拇印指定の証明書を必要とします。desktop-gui は最初に、その拇印の証明書が存在して有効かを確かめ、証明書の選択ダイアログが出ることを前提にします。このアプリは LoginView に ID とパスワードを入力する運用で、選択ダイアログも出ません。そのため、存在しない証明書を新しい Skill が要求して止まるおそれがあります。実際の運用が ID とパスワードの入力なら、ログインの手順は本文の「ログイン」の節を正とします。profile の方式は担当者が選んでください（例：`none` にして、手順を本文に書く）。
+- ホストの記述が旧 Skill で揃っていません。旧 Skill には、`app.PT.config` の `DefaultUrl` が PT は allcweb1、ST は allcweb3 の `/CS/` だと、短いホスト名で書かれています。`local.ailesys.co.jp` を付けた完全なドメインは、ST（allcweb3）は campus の記述にありますが、PT（allcweb1）は旧 Skill に書かれておらず、allcweb2 と allcweb3 の形からの推定です。PT の Web 版の campus（`allcweb2`）とは別のホストです。
 - `test_commands` の `run-cs.sh` は、旧 Skill の標準ハーネス（`frontend/gakumu/e2e-cs/`）のものです。新しい QA リポジトリで作り直す場合は、実際のコマンドに書き換えてください。
 - `evidence` の方式は案です。個人情報が映る画面を扱うので、`lfs` は避けています。
 

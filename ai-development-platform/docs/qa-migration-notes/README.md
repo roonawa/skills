@@ -7,7 +7,7 @@
 - [university-campus.md](university-campus.md)：信州大学キャンパス情報システムのリニューアル（Web）
 - [cs-desktop-app.md](cs-desktop-app.md)：Allcampus の CS アプリ（WinForms と WebView2）
 
-このメモは旧 Skill の記述を移したものです。ファイル名と本文の案件名、ホスト名は旧 Skill の書き方のままにしてあります。ただし一部のホスト名（CS アプリの PT のドメインなど）は、旧 Skill に省略形でしか書かれていないため推定で補っています。確認の方法は cs-desktop-app.md の front matter の案に書いてあります。日付や環境の状態は記録した時点のもので、実行するときは現物で確かめ直してください。
+このメモは旧 Skill の記述を移したものです。ファイル名と本文の案件名、ホスト名は旧 Skill の書き方のままにしてあります。ただし CS アプリの PT のホスト（allcweb1）は、旧 Skill に短い名前でしか書かれていません。`local.ailesys.co.jp` を付けた完全なドメインは、campus 側のホストからの推定です。確認の方法は cs-desktop-app.md の front matter の案に書いてあります。日付や環境の状態は記録した時点のもので、実行するときは現物で確かめ直してください。
 
 ## 旧 Skill と新しい Skill の対応
 
