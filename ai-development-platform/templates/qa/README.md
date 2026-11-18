@@ -14,6 +14,7 @@
   ```
 
 - cases/ にはテストケースを機能ごとのファイルで置きます。
+- automation/ には自動で実行するテストのコードを置きます。Web は Playwright、Desktop は FlaUI です。
 - runs/ には実行ごとの結果と証跡を置きます。
 - reports/ には報告書を置きます。
 - knowledge/ には製品ごとの案件プロファイルを置きます。

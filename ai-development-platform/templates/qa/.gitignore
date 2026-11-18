@@ -1,0 +1,7 @@
+# 認証済みセッション（storageState）には Cookie が入っているため、コミットしない
+automation/web/.auth/
+node_modules/
+test-results/
+playwright-report/
+automation/desktop/**/bin/
+automation/desktop/**/obj/

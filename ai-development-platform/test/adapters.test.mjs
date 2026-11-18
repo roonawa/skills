@@ -47,6 +47,17 @@ test('init --template qa creates the QA repository skeleton', t => {
   const check = invoke(project,['check'],2);
   assert.equal(check.checks[0].status,'unavailable');
 });
+test('init --template qa creates automation/README.md and a .gitignore that keeps sessions out of git', t => {
+  const dir = workspace(t);
+  invoke(dir,['init','demo','--template','qa']);
+  const project = join(dir,'demo');
+  assert.ok(existsSync(join(project,'automation','README.md')));
+  const ignore = readFileSync(join(project,'.gitignore'),'utf8').split(/\r?\n/);
+  for (const line of ['automation/web/.auth/','node_modules/','test-results/','playwright-report/','automation/desktop/**/bin/','automation/desktop/**/obj/']) {
+    assert.ok(ignore.includes(line), line);
+  }
+  assert.ok(!ignore.some(line => line.includes('evidence')));
+});
 test('check runs profile checks for each product', t => {
   const dir = workspace(t);
   invoke(dir,['init','demo','--template','qa']);

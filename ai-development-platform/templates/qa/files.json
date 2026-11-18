@@ -5,5 +5,7 @@
   "runs/README.md",
   "reports/README.md",
   "knowledge/README.md",
-  "knowledge/profile.template.md"
+  "knowledge/profile.template.md",
+  ".gitignore",
+  "automation/README.md"
 ]
