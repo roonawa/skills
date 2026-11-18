@@ -30,6 +30,9 @@
   "aidev-qa-authz-test": {
     "0.1.0": [
       "42132f5bf3705938697ae5dea729cb1d2cc50a0541ca6fc623356b819c5c53f1"
+    ],
+    "0.1.1": [
+      "23e163828e614127193525ba4eaeb241e4d3f60bdaaa9280e372e8059f1fa20d"
     ]
   },
   "aidev-qa-characterization": {

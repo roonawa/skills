@@ -4,7 +4,7 @@
 
 ## 置き場所と単位
 
-- 置き場所は QA リポジトリの `automation/web/authz/<機能>.json` で、機能ごとに1ファイルにする。`<機能>` は英小文字、数字、ハイフンで書き、TC-ID の機能名とそろえる
+- 置き場所は QA リポジトリの `automation/web/authz/<機能>.json` で、機能ごとに1ファイルにする。`<機能>` は英小文字、数字、ハイフンで書き、表のファイル名、`area`、ケースのファイル `cases/<機能>.md`、テスト `automation/web/tests/<機能>.spec.ts`、TC-ID の機能名で同じ名前にする。通常のケースと分けるため `-authz` を付けると扱いやすい。例では `expenses-authz` で、TC-ID は `TC-expenses-authz-001` の形になる
 - 単位は画面ではなく操作である。同じ操作を複数の画面が呼ぶなら、表の操作は1つで、`calledFrom` に画面を並べる
 - 表はコミットする。資格情報、Cookie、トークン、個人情報、実在のデータの ID は書かない。対象は `targets` の名前で指し、実際の ID はテストの実行時に作るか探す
 - ケースの正本は `cases/<機能>.md` で、表の行の `tc` はそこにある TC-ID と一致させる。行を足したらケースも足す
@@ -13,7 +13,7 @@
 
 ```json
 {
-  "area": "expenses",
+  "area": "expenses-authz",
   "title": "経費の申請",
   "sources": ["plan/acceptance.md", "基本設計書 5.3 権限の表"],
   "scope": {
@@ -26,6 +26,7 @@
   "targets": [
     { "id": "own-1", "description": "applicant が作った申請", "how": "setup で applicant が作る。件名に QA-<run-id>-own-1", "marker": "件名" },
     { "id": "other-1", "description": "applicant-other が作った申請", "how": "setup で applicant-other が作る。件名に QA-<run-id>-other-1", "marker": "件名" },
+    { "id": "other-write-1", "description": "applicant-other が作った、書き込みの拒否の行の専用の申請", "how": "setup で applicant-other が作る。件名に QA-<run-id>-other-write-1。参照の行では使わない", "marker": "件名" },
     { "id": "missing", "description": "存在しない申請", "how": "accountant の一覧に出る最大の ID より大きい値" }
   ],
   "operations": [
@@ -66,10 +67,11 @@
       "failsIfChanged": "CSV の出力でロールの判定を外すと、200 と件名の行が返って失敗する"
     },
     {
-      "tc": "TC-expenses-authz-007", "op": "OP-04", "role": "applicant", "target": "other-1", "ownership": "others",
-      "expected": "deny", "verify": { "status": [403], "mustNotContain": ["other-1"], "reread": { "as": "applicant-other", "op": "OP-01", "unchanged": ["title", "amount"] } },
+      "tc": "TC-expenses-authz-007", "op": "OP-04", "role": "applicant", "target": "other-write-1", "ownership": "others",
+      "expected": "deny", "verify": { "status": [403], "mustNotContain": ["other-write-1"], "reread": { "as": "applicant-other", "op": "OP-01", "unchanged": ["title", "amount"] } },
       "basis": "AC-036", "baseline": "未確認",
-      "failsIfChanged": "更新で既存の記録の所有者を比べないと、other-1 の件名が書き換わり、読み直しで失敗する"
+      "resolvesKnownIssue": "expense-edit#担当外の申請を更新できる",
+      "failsIfChanged": "更新で既存の記録の所有者を比べないと、other-write-1 の件名が書き換わり、読み直しで失敗する"
     },
     {
       "tc": "TC-expenses-authz-009", "op": "OP-01", "role": "anonymous", "target": "own-1", "ownership": "none",
@@ -84,7 +86,7 @@
 }
 ```
 
-例は行を一部だけ載せている。実際の表では、操作とロールの組のうち行を作らないものを `uncovered` に理由付きで書き、行と `uncovered` で組をすべて覆う。
+例は行を一部だけ載せている。書き込みの拒否の行（007）は、参照の行（002、003）と別の対象 `other-write-1` を使う。書き込みの不具合で other-1 の件名が変わると、002 の「目印がない」が何も確かめずに通るためである。実際の表では、操作とロールの組のうち行を作らないものを `uncovered` に理由付きで書き、行と `uncovered` で組をすべて覆う。
 
 ## 項目
 
@@ -92,11 +94,11 @@
 
 | 項目 | 内容 |
 |---|---|
-| `area` | 機能名。ファイル名と TC-ID の機能名にそろえる |
+| `area` | 機能名。ファイル名、`cases/` のファイル名、テストのファイル名、TC-ID の機能名と同じにする |
 | `sources` | 期待の根拠にした文書 |
 | `scope` | 対象にした操作（`included`）と、後回しにした操作と理由（`deferred`） |
 | `roles` | 表に出るロール。プロファイルの `roles` の name と `anonymous`（未ログイン）。属性で期待が変わるロールは分けてプロファイルに載せる |
-| `targets` | 行レベルの行で使う対象。`how` に作り方か探し方、`marker` に本文で探す目印の項目を書く。値は書かない |
+| `targets` | 行レベルの行で使う対象。`how` に作り方か探し方、`marker` に本文で探す目印の項目を書く。値は書かない。書き込みの拒否の行の対象は、参照の行と共有しない |
 | `operations` | 操作。`kind` は read、list、export、create、update、delete、action（承認などの状態の変更）。`request` にメソッド、パス、送る本文の形、CSRF のトークンの取り方（`csrf`） |
 | `rows` | 1行が1つの TC-ID |
 | `uncovered` | 行を作らない操作とロールの組と理由 |
@@ -118,6 +120,7 @@
 | `basis` | 期待の根拠（AC-ID か設計書の節）。ないときは「⚠ 要確認」と書き、行を流す前に作業者に確かめる |
 | `baseline` | 今の版で観測した振る舞い（allow、deny、未確認）。期待ではない |
 | `failsIfChanged` | この行を失敗させる実装の変更を一文で |
+| `resolvesKnownIssue` | 省略できる。この行が確かめる、画面マニフェストの既知の認可の不具合（`excluded` の `reason` が `known-authz-bug` の項目）か `acceptedRisks` の項目。マニフェストの項目には ID がないので、`<画面マニフェストのファイル名>#<項目の target>` の形で、`target` の文字列をそのまま書く。aidev-qa-screen-verification がこの欄で認可の結果を既知の不具合に結び付ける |
 
 網羅は、行の数と `uncovered` の数を分母にして数える。result.md の「認可の表の集計」は、この表から操作ごとに数える。
 
@@ -126,17 +129,20 @@
 表を読み、行ごとにテストを生成する。Playwright なら API のリクエストのコンテキストを使う。次は書き方の例で、QA リポジトリの決まりがあればそれに合わせる。
 
 ```ts
-// automation/web/tests/authz-expenses.spec.ts
+// automation/web/tests/expenses-authz.spec.ts
 import { test, expect, request, type APIRequestContext } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
 import { authFile } from './auth-path';
-import table from '../authz/expenses.json';
+import table from '../authz/expenses-authz.json';
 
 const env = process.env.QA_ENV;
 const baseURL = process.env.QA_BASE_URL;
 const runDir = process.env.QA_RUN_DIR;
 if (!env || !baseURL || !runDir) throw new Error('QA_ENV、QA_BASE_URL、QA_RUN_DIR を設定してください');
+
+// 書き込みの行と参照の行が同じ記録に並行して触れないよう、表のテストは直列に流す
+test.describe.configure({ mode: 'serial' });
 
 /** ロールごとの API のコンテキスト。anonymous は storageState を読み込まない */
 async function contextFor(role: string): Promise<APIRequestContext> {
@@ -147,11 +153,18 @@ async function contextFor(role: string): Promise<APIRequestContext> {
   });
 }
 
-/** 状態コードと本文だけを保存する。ヘッダーは保存しない */
-function saveResponse(tc: string, name: string, status: number, body: string) {
+/**
+ * 状態コードと本文だけを保存する。ヘッダーは保存しない。
+ * 本文を残すのは、拒否の行か、対象がテストの作った記録だけの行か、証跡の方式が local か external のとき。
+ * それ以外（lfs、既存のデータを返す許可の行）は、見つかった目印の名前と行の件数だけを残す。
+ */
+const evidenceMethod = process.env.QA_EVIDENCE_METHOD;  // プロファイルの evidence.method
+function saveResponse(tc: string, name: string, status: number, body: string, keepBody: boolean, found: string[]) {
   const dir = path.join(runDir!, 'evidence', tc);
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, `${name}.json`), JSON.stringify({ status, body }, null, 2));
+  const record = keepBody ? { status, body } : { status, markersFound: found, lines: body.split('
+').filter(Boolean).length };
+  fs.writeFileSync(path.join(dir, `${name}.json`), JSON.stringify(record, null, 2));
 }
 
 for (const row of table.rows) {
@@ -160,7 +173,10 @@ for (const row of table.rows) {
     try {
       const res = await send(api, row);            // 表の request と targets から組み立てて送る（CSRF のトークンも付ける）
       const body = await res.text();
-      saveResponse(row.tc, '01-response', res.status(), body);  // 判定より先に保存する
+      const found = [...(row.verify.mustContain ?? []), ...(row.verify.mustNotContain ?? [])].filter(t => body.includes(markerOf(t)));
+      const keepBody = row.expected === 'deny' ? evidenceMethod !== 'lfs' || found.length === 0
+        : evidenceMethod === 'local' || evidenceMethod === 'external' || onlySelfCreated(row);
+      saveResponse(row.tc, '01-response', res.status(), body, keepBody, found);  // 判定より先に保存する
 
       if (row.expected === 'allow' || row.expected === 'deny-filtered') {
         expect(res.status()).toBe(row.verify.status);
@@ -178,7 +194,7 @@ for (const row of table.rows) {
 }
 ```
 
-`send`、`markerOf`、`assertUnchanged` は、表の `operations` と `targets` から組み立てる関数で、QA リポジトリの `automation/web/tests/support/` などに置く。`markerOf` は setup が作った対象の目印の値を返す。値は実行ごとに作るので、表にもコードにも書かない。
+`send`、`markerOf`、`onlySelfCreated`、`assertUnchanged` は、表の `operations` と `targets` から組み立てる関数で、QA リポジトリの `automation/web/tests/support/` などに置く。`markerOf` は setup が作った対象の目印の値を返す。`onlySelfCreated` は、その行の応答がテストの作った記録だけを返す操作か（詳細で対象がテストの作った記録のとき）を返し、一覧、検索、CSV では偽にする。`QA_EVIDENCE_METHOD` がプロファイルから決まらなければ、流す前に作業者に確かめる。値は実行ごとに作るので、表にもコードにも書かない。
 
 `location` のパスは、判定に使うだけで証跡には書かない。書くときはパスだけにし、クエリを落とす。リターン URL やトークンがクエリに入ることがある。
 
