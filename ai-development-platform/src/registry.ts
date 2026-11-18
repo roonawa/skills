@@ -1,12 +1,17 @@
 import { createHash } from 'node:crypto';
-import { readdirSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseDocument } from 'yaml';
 import { checked, content, safeName } from './files.js';
 
-const root = fileURLToPath(new URL('../skills/core/',import.meta.url));
-export interface Skill { name: string; description: string; version: string }
-export function parseSkill(name: string, source: string): Skill {
+export type SkillCategory = 'core' | 'qa';
+const categories: {category: SkillCategory; root: string}[] = [
+  {category:'core',root:fileURLToPath(new URL('../skills/core/',import.meta.url))},
+  {category:'qa',root:fileURLToPath(new URL('../skills/qa/',import.meta.url))},
+];
+export interface Skill { name: string; description: string; version: string; category: SkillCategory }
+export function parseSkill(name: string, source: string): Omit<Skill,'category'> {
   safeName(name);
   const parts = /^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]+)$/.exec(source);
   if (!parts || !parts[2].trim()) throw new Error('Skill のメタデータまたは本文がありません。');
@@ -20,15 +25,50 @@ export function parseSkill(name: string, source: string): Skill {
   }
   return {name,description:data.description.trim(),version};
 }
-export function loadSkill(name: string) {
-  const directory = checked(root,safeName(name));
-  const source = content(checked(directory,'SKILL.md'));
+const unsupported = (path: string) => new Error('Skill に配布できないファイルがあります: ' + path);
+/** Reads SKILL.md and the .md files directly under references/. Anything else (links, nested directories, other files) is rejected. */
+export function readSkillDirectory(directory: string): Record<string, string> {
+  const files: Record<string, string> = {};
+  for (const entry of readdirSync(directory,{withFileTypes:true}).sort((a,b) => a.name < b.name ? -1 : 1)) {
+    if (entry.isFile() && entry.name === 'SKILL.md') files['SKILL.md'] = content(checked(directory,entry.name)) as string;
+    else if (entry.isDirectory() && entry.name === 'references') {
+      const base = checked(directory,'references');
+      for (const child of readdirSync(base,{withFileTypes:true}).sort((a,b) => a.name < b.name ? -1 : 1)) {
+        const path = 'references/' + child.name;
+        if (!child.isFile() || !child.name.endsWith('.md')) throw unsupported(path);
+        files[path] = content(checked(directory,path)) as string;
+      }
+    } else throw unsupported(entry.name);
+  }
+  return files;
+}
+function findSkill(name: string): {category: SkillCategory; directory: string} | undefined {
+  safeName(name);
+  const found = categories.filter(({root}) => existsSync(join(root,name)));
+  if (found.length > 1) throw new Error('Skill 名が core と qa で重複しています: ' + name);
+  return found[0] && {category:found[0].category,directory:checked(found[0].root,name)};
+}
+export function loadSkill(name: string): {source: string; info: Skill; files: Record<string, string>} {
+  const found = findSkill(name);
+  if (!found) throw new Error('同梱 Registry に指定の Skill がありません。');
+  const files = readSkillDirectory(found.directory);
+  const source = files['SKILL.md'];
   if (!source) throw new Error('同梱 Registry に指定の Skill がありません。');
-  if (readdirSync(directory).length !== 1) throw new Error('この版は SKILL.md 単体の配布に対応します。');
-  return {source,info:parseSkill(name,source)};
+  return {source,info:{...parseSkill(name,source),category:found.category},files};
 }
 export function listSkills(): Skill[] {
-  return readdirSync(root).sort().map(name => loadSkill(name).info);
+  const names = new Set<string>();
+  for (const {root} of categories) if (existsSync(root)) for (const name of readdirSync(root)) names.add(name);
+  return [...names].sort().map(name => loadSkill(name).info);
+}
+
+/** Hash of a whole Skill. A SKILL.md-only Skill hashes exactly as skillHash does, so existing release records stay valid. */
+export function skillSetHash(files: Record<string, string>): string {
+  const paths = Object.keys(files).sort();
+  if (paths.length === 1 && paths[0] === 'SKILL.md') return skillHash(files['SKILL.md']);
+  const hash = createHash('sha256');
+  for (const path of paths) hash.update(path + '\0' + files[path].replace(/\r\n/g,'\n') + '\0');
+  return hash.digest('hex');
 }
 
 /** Hash of a Skill's content. Line endings are normalized because a checkout on Windows may convert them. */

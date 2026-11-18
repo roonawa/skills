@@ -10,3 +10,52 @@ test('reject mismatched names, missing body and invalid version', () => {
     assert.throws(() => parseSkill('sample',invalid));
   }
 });
+import { listSkills, loadSkill, skillSetHash, skillHash, readSkillDirectory } from '../dist/registry.js';
+import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+test('list core and qa skills with their category', () => {
+  const skills = listSkills();
+  assert.ok(skills.some(s => s.category === 'core' && s.name === 'aidev-testing'));
+  assert.ok(skills.every(s => s.category === 'core' || s.category === 'qa'));
+  assert.equal(new Set(skills.map(s => s.name)).size, skills.length);
+});
+test('hash of a SKILL.md-only skill is unchanged', () => {
+  const {source, files} = loadSkill('aidev-testing');
+  assert.deepEqual(Object.keys(files), ['SKILL.md']);
+  assert.equal(skillSetHash(files), skillHash(source));
+});
+test('set hash ignores line endings and depends on paths', () => {
+  const a = {'SKILL.md': 'x\n', 'references/a.md': 'y\n'};
+  assert.equal(skillSetHash(a), skillSetHash({'SKILL.md': 'x\r\n', 'references/a.md': 'y\r\n'}));
+  assert.notEqual(skillSetHash(a), skillSetHash({'SKILL.md': 'x\n', 'references/b.md': 'y\n'}));
+});
+test('reject unsupported files in a qa skill', t => {
+  const make = () => {
+    const dir = mkdtempSync(join(tmpdir(), 'aidev-skill-'));
+    writeFileSync(join(dir, 'SKILL.md'), 'x');
+    mkdirSync(join(dir, 'references'));
+    return dir;
+  };
+  const dirs = [];
+  try {
+    const ok = make(); dirs.push(ok);
+    writeFileSync(join(ok, 'references', 'a.md'), 'y');
+    assert.deepEqual(Object.keys(readSkillDirectory(ok)), ['SKILL.md', 'references/a.md']);
+    for (const [name, setup] of [
+      ['nested', d => { mkdirSync(join(d, 'references', 'sub')); writeFileSync(join(d, 'references', 'sub', 'a.md'), 'y'); }],
+      ['txt', d => writeFileSync(join(d, 'references', 'a.txt'), 'y')],
+      ['root file', d => writeFileSync(join(d, 'notes.md'), 'y')],
+    ]) {
+      const d = make(); dirs.push(d); setup(d);
+      assert.throws(() => readSkillDirectory(d), /Skill に配布できないファイルがあります/, name);
+    }
+    const d = make(); dirs.push(d);
+    writeFileSync(join(d, 'target.md'), 'y');
+    try { symlinkSync(join(d, 'target.md'), join(d, 'references', 'l.md')); }
+    catch { t.skip('symlink を作れません'); return; }
+    assert.throws(() => readSkillDirectory(d));
+  } finally {
+    for (const d of dirs) rmSync(d, {recursive: true, force: true});
+  }
+});
