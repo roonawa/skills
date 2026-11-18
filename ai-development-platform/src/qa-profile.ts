@@ -42,7 +42,7 @@ const secretPatterns: {name: string; pattern: RegExp}[] = [
   {name: 'セッション ID', pattern: /\bsessionid\s*=\s*\S/i},
   {name: '秘密鍵', pattern: /-----BEGIN [A-Z ]*PRIVATE KEY-----/},
 ];
-const keyValue = /([A-Za-z0-9_-]*(?:password|passwd|secret|token)[A-Za-z0-9_-]*)["']?\s*[:=]\s*(.+)$/ig;
+const keyValue = /([A-Za-z0-9_-]*(?:password|passwd|secret|token)[A-Za-z0-9_-]*)["']?\s*[:=]\s*([^,}\n]+)/ig;
 
 function secretIn(line: string): string | undefined {
   for (const {name, pattern} of secretPatterns) if (pattern.test(line)) return name;
@@ -50,7 +50,7 @@ function secretIn(line: string): string | undefined {
     const key = match[1];
     if (/_env$/i.test(key)) continue;
     const value = match[2].replace(/\s+#.*$/, '').replace(/[\s,}\]'"]+$/, '').replace(/^['"\s]+/, '');
-    if (!value || envName.test(value)) continue;
+    if (!value) continue;
     return key + ' に値が書かれています';
   }
   return undefined;

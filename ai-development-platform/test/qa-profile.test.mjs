@@ -36,3 +36,8 @@ test('env-name lines and prose are not secrets; missing front matter is an error
   assert.deepEqual(checkProfileText('p.md', valid + 'password_env: SAMPLE_PW\nパスワード(password)は環境変数から読む。\n').errors, []);
   assert.ok(checkProfileText('p.md', '# なし\n').errors.some(e => e.code === 'front-matter'));
 });
+test('flow-style lines: a secret after an _env key is found, env names under _env are not', () => {
+  assert.ok(checkProfileText('p.md', valid + '{password_env: PW, token: abc}\n').errors.some(e => e.code === 'secret'));
+  assert.ok(checkProfileText('p.md', valid + 'password: ADMIN123\n').errors.some(e => e.code === 'secret'));
+  assert.deepEqual(checkProfileText('p.md', valid + 'roles: [{name: a, password_env: A_PW}]\n').errors.filter(e => e.code === 'secret'), []);
+});
