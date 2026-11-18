@@ -44,6 +44,9 @@
   "aidev-qa-cause-repro": {
     "0.1.0": [
       "98850e6f3bab18729ddc09f66bce465a103c34de937c15ea0fee6d41b825148d"
+    ],
+    "0.1.1": [
+      "a841fe5a4cd7e1add18c1ef90d7382c2135923a0fc36865e5e825438a26b9372"
     ]
   },
   "aidev-qa-characterization": {
