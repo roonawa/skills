@@ -20,3 +20,12 @@ evidence: {method: local, retention: 90d}
 # 到達手順
 
 アプリを起動すると、そのまま在庫一覧の画面が開く。保存と削除は、画面下のボタンから行う。
+
+ビルドは `dotnet build templates/qa/samples/desktop/app -c Release --nologo` で行い、`bin/Release/net9.0-windows/SampleStock.exe` を起動する。初期データは同じ場所の stock.csv から読む。
+
+画面の主な要素の AutomationId は次のとおり。
+
+- `StockGrid`: 在庫の表
+- `SaveButton`: 保存ボタン
+- `DeleteButton`: 削除ボタン
+- `StatusText`: ステータスバーの文字
