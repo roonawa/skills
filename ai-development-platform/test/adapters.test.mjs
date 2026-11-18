@@ -53,7 +53,7 @@ test('init --template qa creates automation/README.md and a .gitignore that keep
   const project = join(dir,'demo');
   assert.ok(existsSync(join(project,'automation','README.md')));
   const ignore = readFileSync(join(project,'.gitignore'),'utf8').split(/\r?\n/);
-  for (const line of ['automation/web/.auth/','node_modules/','test-results/','playwright-report/','automation/desktop/**/bin/','automation/desktop/**/obj/']) {
+  for (const line of ['automation/web/.auth/','node_modules/','test-results/','.qa-scratch/','playwright-report/','automation/desktop/**/bin/','automation/desktop/**/obj/']) {
     assert.ok(ignore.includes(line), line);
   }
   assert.ok(!ignore.some(line => line.includes('evidence')));

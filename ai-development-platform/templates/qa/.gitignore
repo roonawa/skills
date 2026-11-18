@@ -2,6 +2,8 @@
 automation/web/.auth/
 node_modules/
 test-results/
+# 診断用の一時ファイル（失敗した実行の証跡、照合の確かめの写し、作った対象の ID など）。証跡にしない
+.qa-scratch/
 playwright-report/
 automation/desktop/**/bin/
 automation/desktop/**/obj/

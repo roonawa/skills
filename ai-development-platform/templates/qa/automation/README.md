@@ -9,7 +9,7 @@
 
 ## Web のテスト
 
-テストは web/tests/機能名.spec.ts に機能ごとに置きます。テスト名の先頭にケースの TC-ID を付けます。次は書き方の例です。
+テストは web/tests/機能名.spec.ts に機能ごとに置きます。テスト名の先頭にケースの TC-ID を付けます。playwright.config.ts は1つだけで、ファイル名の末尾でプロジェクトが分かれます。特性テストは機能名-char.spec.ts（プロジェクト characterization）、認可の表のテストは機能名-authz.spec.ts（authz）、それ以外のテストケースは機能名.spec.ts（cases）です。流すときは --project か、ファイルを指定して絞ります。Playwright の出力（test-results/）は実行のたびに消えるので、残したい診断用のファイルは .qa-scratch/ に置きます。どちらも .gitignore で除外しています。次は書き方の例です。
 
 ```
 test('TC-detail-003 staff が他人の貸出の詳細 URL を直接開くと 403 になる', async ({ page }) => {

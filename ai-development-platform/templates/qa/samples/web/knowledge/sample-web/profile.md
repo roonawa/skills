@@ -33,6 +33,10 @@ staff は 51 件以上の貸出を持つ。staff-fifty は貸出がちょうど 
 
 http://localhost:4101（旧版）または http://localhost:4102（新版）の /login を開き、フォームでログインする。一覧は /loans、詳細は /loans/貸出ID、登録は /loans/new、CSV は /loans.csv である。
 
+# ログイン中の目印
+
+ログインしている間は、画面の上部に `[data-testid="current-user"]` の要素でユーザー名が出る。ログアウトのリンクはない。
+
 # 起動方法
 
 アプリはこのリポジトリの `templates/qa/samples/web/app/` にある。上の `roles` に書いた環境変数をすべて設定してから、旧版と新版を別々のポートで起動する。1 つでも未設定だと起動しない。
