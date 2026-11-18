@@ -8,6 +8,7 @@ import { evaluate } from './evaluator.js';
 import { readReview } from './review.js';
 import { claudeRunner, runLoop, type ClaudeOptions } from './loop.js';
 import { checkSpec } from './spec.js';
+import { checkProfile } from './qa-profile.js';
 
 /** Session limits for `workflow run`, from the environment. Invalid values stop before any session starts. */
 function sessionOptions(env: NodeJS.ProcessEnv): ClaudeOptions {
@@ -36,6 +37,12 @@ async function run(args: string[]) {
   if (command === 'skill' && action === 'update' && words.length === 3) return {...updateSkill(root,name,dryRun),dryRun};
   if (command === 'spec' && action === 'check' && words.length === 3 && !dryRun) {
     const report = checkSpec(root,name);
+    process.exitCode = report.errors.length ? 1 : 0;
+    return {ok:!report.errors.length,...report};
+  }
+  if (command === 'qa' && action === 'profile' && name === 'check' && !dryRun &&
+      (words.length === 4 || (words.length === 6 && words[4] === '--skill'))) {
+    const report = checkProfile(root,words[3],words[5]);
     process.exitCode = report.errors.length ? 1 : 0;
     return {ok:!report.errors.length,...report};
   }
@@ -77,7 +84,7 @@ async function run(args: string[]) {
       return {node:process.versions.node,platform:process.platform,registryCount:listSkills().length,...config};
     }
   }
-  throw new Error('使用法: aidev init NAME [--template core|react|unity] | skill list | skill add NAME | skill update NAME | skill validate NAME | skill eval NAME [--observations FILE] | doctor | verify | check | spec check FILE | workflow check TASK --review FILE | workflow run TASK --spec FILE | workflow status TASK。init/add/update は末尾に --dry-run を指定できます。');
+  throw new Error('使用法: aidev init NAME [--template core|react|unity] | skill list | skill add NAME | skill update NAME | skill validate NAME | skill eval NAME [--observations FILE] | doctor | verify | check | spec check FILE | qa profile check FILE [--skill NAME] | workflow check TASK --review FILE | workflow run TASK --spec FILE | workflow status TASK。init/add/update は末尾に --dry-run を指定できます。');
 }
 try {
   console.log(JSON.stringify({ok:true,...await run(process.argv.slice(2))}));

@@ -100,3 +100,15 @@ test('every bundled skill uses the aidev- prefix and verify explains legacy name
   assert.equal(result.status, 1);
   assert.match(JSON.parse(result.stdout).error, /aidev-debugging に改名/);
 });
+test('qa profile check reports ok and fails on secrets', t => {
+  const root = sandbox(t);
+  const good = '---\nproduct: sample-web\n---\n# 観点\n';
+  writeFileSync(join(root, 'good.md'), good);
+  writeFileSync(join(root, 'bad.md'), good + 'password: hunter2\n');
+  const ok = run(root, ['qa', 'profile', 'check', 'good.md']);
+  assert.equal(ok.ok, true);
+  assert.equal(ok.product, 'sample-web');
+  const bad = run(root, ['qa', 'profile', 'check', 'bad.md'], 1);
+  assert.equal(bad.ok, false);
+  assert.ok(bad.errors.some(e => e.code === 'secret'));
+});
