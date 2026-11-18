@@ -35,6 +35,11 @@
       "608d0124596884d66440654abd46004a91631647af28705bb746df661da709dc"
     ]
   },
+  "aidev-qa-desktop-gui": {
+    "0.1.0": [
+      "4c7db8b37ba036c393bdeeaa4fbd3ea9a49450afae9145db966f129eba924129"
+    ]
+  },
   "aidev-qa-login-session": {
     "0.1.0": [
       "3853f0ffc3a41dbb4225eb747d0becc6971a1eb766159bcecaeace1b2fee32fa"
