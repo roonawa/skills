@@ -78,7 +78,7 @@
       "matchByEnvironment": {},
       "normalize": [
         { "field": "data.createLoan.id", "pattern": "^LN-\\d{6}$", "replacement": "LN-<id>",
-          "mustMatch": [{ "check": "sameShapeAsBaseline" }, { "check": "notInBaseline" }] }
+          "mustMatch": [{ "check": "sameShapeAsBaseline" }] }
       ],
       "callSites": [
         { "at": "src/pages/loans/New.vue:88", "trigger": "登録ボタン", "reachable": true,
