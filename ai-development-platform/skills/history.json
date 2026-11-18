@@ -76,6 +76,11 @@
       "acabbd3ad5f91ebcb558b9809460d18c028a52115f5eb8d067bc3d14de084e79"
     ]
   },
+  "aidev-qa-test-run": {
+    "0.1.0": [
+      "24818ff4229c89d39d109bf1746aa4b95de23eac285fa7c0573d758d4a5a8271"
+    ]
+  },
   "aidev-repair-workflow": {
     "0.5.0": [
       "a7d44302c55a3ea1a7639cd98c6c230c92992b9b61eb9b9b790146d1c32ec011"
