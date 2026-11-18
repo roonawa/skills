@@ -58,6 +58,10 @@
       "id": "API-01", "kind": "rest",
       "match": { "method": "GET", "path": "/api/loans" },
       "matchByEnvironment": {},
+      "normalize": [
+        { "field": "items[].createdAt", "rule": "ISO 8601 の日時であることを確かめ、<datetime> に置き換える" },
+        { "field": "items[].id", "rule": "正の整数であることを確かめ、<id> に置き換える" }
+      ],
       "callSites": [
         { "at": "src/pages/loans/List.vue:42", "trigger": "初期表示とタブの切り替え", "reachable": true,
           "expectAt": [{ "tc": "TC-loans-001", "checkpoint": "01-initial", "min": 1 }] }
@@ -80,6 +84,7 @@
       "match": { "method": "GET", "path": "/loans.csv" },
       "matchByEnvironment": {},
       "depth": "full", "risk": "high",
+      "normalize": [{ "field": "列「出力日時」", "rule": "YYYY/MM/DD HH:mm の形式であることを確かめ、<datetime> に置き換える" }],
       "cases": [{ "tc": "TC-loans-020", "role": "admin", "mode": "全件" }]
     }
   ],
@@ -126,6 +131,7 @@
 - `kind`：`rest`、`graphql` など
 - `match`：記録した環境で応答を捕まえる条件。REST は `method` と `path`、GraphQL は `operationName`。テストはこの値を読み、コードに直接書かない
 - `matchByEnvironment`：記録した環境と別の環境で名前が変わった場合の条件を、プロファイルの環境名ごとに書く（例 `{"new": {"operationName": "listLoans"}}`）。記録の時点では空でよく、分かっていない名前を推測で埋めない。1つの API が分かれた場合は配列、複数が1つにまとまった場合は各項目に同じ条件を書く。改修後に aidev-qa-regression-compare が埋める
+- `normalize`：実行ごとに変わる値の正規化の規則。`field` に項目（応答の JSON のパス、一覧や帳票の列の名前）、`rule` に置き換えの規則を書く。同じ形で `operations`（画面の表示値）と `reports` にも書ける。対象は、同じケースを2回記録して変わった項目に限る。行や表の全体を対象にしない。テストと aidev-qa-regression-compare の両方がこの規則を使う。正規化しない項目しかなければ空の配列にする
 - `callSites`：同じ API でも呼び出し箇所が複数あれば分ける。`at` はファイルと行、`trigger` は呼ばれるきっかけ（画面の表示、ボタン、ダイアログを開いたとき、入力したときの照会）。この画面から届かない呼び出し箇所は `reachable: false` と根拠を書く
 - `expectAt`：その呼び出し箇所を呼ぶケースと checkpoint、最小の回数（`min`）か最大の回数（`max`。呼ばれないことを確かめるなら 0）
 

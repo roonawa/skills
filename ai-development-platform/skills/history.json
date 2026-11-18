@@ -30,6 +30,9 @@
   "aidev-qa-characterization": {
     "0.1.0": [
       "529f10aa978d863213a08bd1bc6ee942649a8f84da88dde964d91055d37a250a"
+    ],
+    "0.1.1": [
+      "608d0124596884d66440654abd46004a91631647af28705bb746df661da709dc"
     ]
   },
   "aidev-qa-login-session": {

@@ -10,7 +10,7 @@
 - `manifests/<画面>.json`：画面マニフェスト
 - `tests/<機能>.spec.ts`：特性テスト。テスト名の先頭に TC-ID を付ける
 - `tests/support/manifest.ts`：マニフェストを読み、実行している環境に合った捕捉の条件を返す
-- `tests/support/record.ts`：checkpoint ごとにスクリーンショット、表示値、API の応答を保存する
+- `tests/support/record.ts`：checkpoint ごとにスクリーンショット、表示値、API の応答を、`QA_RUN_DIR` の `evidence/<TC-ID>/` に保存する
 
 ## 設定
 
@@ -97,14 +97,26 @@ await recorder.saveResponse('02-returned', 'API-01', await listed);
 const download = page.waitForEvent('download');
 await page.getByRole('button', { name: 'CSV 出力' }).click();
 const file = await download;
-await file.saveAs(path.join(evidenceDir, 'TC-loans-020', file.suggestedFilename()));
+const runDir = process.env.QA_RUN_DIR;  // runs/<YYYYMMDD>-<run-id> のパス。テストを流す前に設定する
+if (!runDir) throw new Error('QA_RUN_DIR を設定してください');
+await file.saveAs(path.join(runDir, 'evidence', 'TC-loans-020', file.suggestedFilename()));
 ```
 
 - ダウンロードの待ち受けは、操作の前に登録する
 - ファイルがあることだけで成功としない。CSV は列の名前、行数、値を、PDF は文字の内容を記録してアサートする。並び順が仕様なら順序も見る
-- 作成日時のように毎回変わる値は、正規化の規則を明示して限られた項目だけを置き換える。元のファイルは残す
+- 作成日時のように毎回変わる値は、次の節の正規化の規則で限られた項目だけを置き換える。元のファイルは残す
 - ダウンロードの URL を直接開いて代わりにしない。画面の操作で出ることを記録するのが目的である
 - OS の保存ダイアログが出る実装は、ブラウザの外の操作になる。マニフェストで `native-required` にし、aidev-qa-desktop-gui に渡す
+
+## 実行ごとに変わる値の正規化
+
+画面の文字列をそのまま期待値にすると、作成日時、採番された ID、更新日時、今日の日付、テストデータの接頭辞 `QA-<run-id>-` のように実行ごとに変わる値で、挙動が同じでもテストが落ちる。逆に、これを避けようとして比較から外す範囲を広げると、本当のデータの差まで見えなくなる。次のように扱う。
+
+- 正規化するのは、名前を挙げた項目だけにする（例 `API-01` の `items[].createdAt`、一覧の「更新日」の列、CSV の「出力日時」の列）。項目ごとに、置き換えの規則を明示する（日時は形式だけを確かめて `<datetime>` に置き換える、ID は数字であることだけを確かめる、`QA-<run-id>-` を `QA-<run>-` にそろえる、など）
+- 正規化した値とは別に、元の値も保存する。照合で疑問が出たときに戻れるようにする
+- 規則は画面マニフェストの `normalize`（`screen-manifest.md`）に書き、テストはそこから読む。aidev-qa-regression-compare も同じ規則で照合する。テストの中だけに規則を書くと、照合の側と食い違う
+- 期待値を固める前に、同じケースを2回記録して差を取る。2回で変わった値だけが実行ごとに変わる値の候補で、それ以外の差は挙動として扱う。1回の記録から推測で正規化の対象を決めない
+- データの差を消すために、スクリーンショットの `mask`、値の除外、正規化の対象を広げない。行全体や表全体を外す規則は作らない。広げたくなったら、データの準備（`SKILL.md` の「データやアカウントが足りないとき」）か、記録する条件を見直す
 
 ## 待ち方
 
@@ -136,4 +148,4 @@ await file.saveAs(path.join(evidenceDir, 'TC-loans-020', file.suggestedFilename(
 - 自己署名の証明書の検証環境では、`ignoreHTTPSErrors: true` がないと最初の遷移で失敗する。本番に近い環境では有効にしない
 - 同じルートへの遷移では画面が作り直されないアプリがある。ケースの最初に、メニューやトップから開き直す
 - 通知（トースト）は数秒で消える。出た直後に読むか撮る
-- テストの spec を直したら、結果をまとめる前に全ケースを同じコードで流し直す。更新を伴うケースのうち直した箇所を使わないものは、書き込みを増やさないよう流し直さず、その旨を result.md に書く
+- テストの spec を直したら、結果をまとめる前に全ケースを同じコードで流し直す。その実行を最終の run とし、`runs/` にはその証跡だけを置く（`evidence.md` の「保存先と名前」）。更新を伴うケースのうち直した箇所を使わないものは、書き込みを増やさないよう流し直さず、その旨を result.md に書く
