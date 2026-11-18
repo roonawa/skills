@@ -41,6 +41,11 @@
       "2fd33e1b43a55cf61aee1bb9e4516f33384768077ca7f09d06de4587414e757e"
     ]
   },
+  "aidev-qa-bug-ticket": {
+    "0.1.0": [
+      "076d11900955b32e2d4f354bb952849350f148d576c4e5df9d889bfc66a2118b"
+    ]
+  },
   "aidev-qa-cause-repro": {
     "0.1.0": [
       "98850e6f3bab18729ddc09f66bce465a103c34de937c15ea0fee6d41b825148d"
