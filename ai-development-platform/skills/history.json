@@ -30,6 +30,9 @@
   "aidev-qa-strategy": {
     "0.1.0": [
       "7736dea0803ca91276b09b114fa2c5f575a436d06d6a6f3373474679b8264993"
+    ],
+    "0.1.1": [
+      "910028dd3eb539bd8a93741e0b3b5aa45dd2fb7db52ebf87efb3c07f9bb425be"
     ]
   },
   "aidev-repair-workflow": {

@@ -93,8 +93,9 @@ const qaFiles = ['SKILL.md', 'references/strategy-outline.md'];
 const qaHosts = ['.claude/skills', '.agents/skills'];
 const qaPath = (host, file) => host + '/' + qa + '/' + file;
 const qaReceipt = '.aidev/installed/' + qa;
+const qaVersion = loadSkill(qa).info.version;
 /** A project with the qa Skill added and its recorded version set, so an update may be pending. */
-function qaProject(t, version = '0.1.0') {
+function qaProject(t, version = qaVersion) {
   const root = mkdtempSync(join(tmpdir(), 'aidev-update-'));
   t.after(() => rmSync(root, {recursive: true, force: true}));
   run(root, ['init', 'demo']);
@@ -151,7 +152,7 @@ test('update removes a reference that the new release no longer has', t => {
   const updated = run(project, ['skill', 'update', qa]);
   for (const host of qaHosts) assert.equal(existsSync(join(project, qaPath(host, 'references/old.md'))), false);
   assert.ok(updated.pending.includes(qaPath('.claude/skills', 'references/old.md')));
-  assert.equal(read(project, qaReceipt), '0.1.0\n');
+  assert.equal(read(project, qaReceipt), qaVersion + '\n');
 });
 
 /** A project interrupted mid-update: the old release's reference file, the new SKILL.md, and the receipt still old. */
@@ -176,7 +177,7 @@ test('an update interrupted inside a host can be retried', t => {
   const project = interruptedQaProject(t, qaHosts);
   const updated = run(project, ['skill', 'update', qa]);
   for (const host of qaHosts) for (const file of qaFiles) assert.equal(read(project, qaPath(host, file)), loadSkill(qa).files[file]);
-  assert.equal(read(project, qaReceipt), '0.1.0\n');
+  assert.equal(read(project, qaReceipt), qaVersion + '\n');
   assert.equal(existsSync(join(project, '.aidev/updating/' + qa)), false);
   assert.ok(updated.pending.includes(qaReceipt));
   assert.deepEqual(run(project, ['verify']).skills.filter(skill => skill === qa), [qa]);
