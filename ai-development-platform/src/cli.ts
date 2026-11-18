@@ -57,8 +57,9 @@ async function run(args: string[]) {
     for (let i = 3; i < words.length; i += 2) if (!flags.has(words[i])) flags.set(words[i], words[i + 1]);
     const [profile, run, tc] = ['--profile', '--run', '--tc'].map(flag => flags.get(flag));
     if (profile !== undefined && run !== undefined && tc !== undefined) {
-      // GITEA_TOKEN is read here only and is never part of the output.
-      return createIssueFromRun({root, profile, run, tc, dryRun, token: dryRun ? undefined : process.env.GITEA_TOKEN});
+      // GITEA_TOKEN and GITEA_URL are read here only; the token is never part of the output.
+      return createIssueFromRun({root, profile, run, tc, dryRun, token: dryRun ? undefined : process.env.GITEA_TOKEN,
+        giteaUrl: process.env.GITEA_URL});
     }
   }
   if (!dryRun) {

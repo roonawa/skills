@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { buildIssue, createIssueFromRun } from '../dist/qa-issue.js';
 import { checkProfileText } from '../dist/qa-profile.js';
-import { BASE, TOKEN, fakeGitea } from './gitea-fake.mjs';
+import { BASE, TOKEN, fakeGitea, giteaRepo } from './gitea-fake.mjs';
 
 const RUN = 'runs/20261118-new-cases';
 const MARKER = '<!-- aidev-qa: sample-web TC-order-002 -->';
@@ -80,10 +80,10 @@ function sandbox(t, text = result, profileText = profile()) {
   writeFileSync(join(root, ...RUN.split('/'), 'result.md'), text);
   const file = join(root, ...RUN.split('/'), 'result.md');
   return {root, file, read: () => readFileSync(file, 'utf8'), options: (extra = {}) =>
-    ({root, profile: 'knowledge/sample-web/profile.md', run: RUN, tc: 'TC-order-002', dryRun: false, token: TOKEN, ...extra})};
+    ({root, profile: 'knowledge/sample-web/profile.md', run: RUN, tc: 'TC-order-002', dryRun: false, token: TOKEN, giteaUrl: BASE, ...extra})};
 }
-const created = number => ({status: 201, body: JSON.stringify({number, html_url: BASE + '/qa-org/sample-web/issues/' + number})});
-const handler = (existing = []) => request => request.method === 'GET' ? {status: 200, body: JSON.stringify(existing)} : created(7);
+const handler = (existing = []) => giteaRepo({issues: existing}).handler;
+const methods = fake => fake.calls.map(c => c.method + ' ' + new URL(c.url).pathname.replace('/api/v1/repos/qa-org/sample-web', ''));
 
 test('build a title and body from the NG detail', () => {
   const {title, body} = buildIssue(result, 'TC-order-002', {product: 'sample-web', run: RUN});
@@ -135,13 +135,14 @@ test('do not create a duplicate issue', async t => {
   const box = sandbox(t);
   const fake = fakeGitea(handler([
     {number: 3, title: '[TC-order-0021] x', body: '<!-- aidev-qa: sample-web TC-order-0021 -->', html_url: BASE + '/i/3', state: 'open'},
-    {number: 5, title: '[TC-order-002] 数量', body: MARKER + '\n本文', html_url: BASE + '/i/5', state: 'closed'},
+    {number: 5, title: '[TC-order-002] 数量', body: MARKER + '\n本文', html_url: BASE + '/i/5'},
   ]));
   const out = await createIssueFromRun(box.options({transport: fake.transport}));
   assert.equal(out.created, false);
   assert.deepEqual(out.issue, {number: 5, url: BASE + '/i/5'});
-  assert.deepEqual(fake.calls.map(c => c.method), ['GET']);
-  const query = new URL(fake.calls[0].url).searchParams;
+  assert.deepEqual(methods(fake), ['GET /api/v1/user', 'GET /issues']);
+  assert.deepEqual(out.ignored, []);
+  const query = new URL(fake.calls[1].url).searchParams;
   assert.equal(query.get('q'), 'aidev-qa: sample-web TC-order-002');
   assert.equal(query.get('limit'), '50');
   assert.ok(box.read().includes('| TC-order-002 | NG | runs/20261118-new-cases/evidence/TC-order-002/ | #5 |'));
@@ -171,8 +172,8 @@ test('write back only the issue cell', async t => {
     const out = await createIssueFromRun(box.options({transport: fake.transport}));
     assert.equal(out.created, true);
     assert.deepEqual(out.issue, {number: 7, url: BASE + '/qa-org/sample-web/issues/7'});
-    assert.deepEqual(fake.calls.map(c => c.method), ['GET', 'POST']);
-    const sent = JSON.parse(fake.calls[1].body);
+    assert.deepEqual(methods(fake), ['GET /api/v1/user', 'GET /issues', 'POST /issues']);
+    const sent = JSON.parse(fake.calls[2].body);
     assert.ok(sent.body.startsWith(MARKER));
     const row = '| TC-order-002 | NG | runs/20261118-new-cases/evidence/TC-order-002/ | |';
     assert.equal(box.read(), original.replace(row, row.slice(0, -2) + ' #7 |'));
@@ -181,12 +182,48 @@ test('write back only the issue cell', async t => {
   }
 });
 
+test('the token goes only to GITEA_URL, and the profile must name the same origin', async t => {
+  for (const dryRun of [false, true]) {
+    for (const giteaUrl of [undefined, '', 'https://other.example.internal', 'http://gitea.example.internal',
+      'https://gitea.example.internal:8443', 'not a url', 'https://u:p@gitea.example.internal']) {
+      const box = sandbox(t);
+      const fake = fakeGitea(handler());
+      await assert.rejects(createIssueFromRun(box.options({dryRun, giteaUrl, transport: fake.transport})), error => {
+        assert.match(error.message, /GITEA_URL/);
+        assert.ok(!error.message.includes('other.example') && !error.message.includes(TOKEN) && !error.message.includes('u:p'));
+        return true;
+      }, String(giteaUrl));
+      assert.equal(fake.calls.length, 0);
+      assert.equal(box.read(), result);
+    }
+  }
+  // GITEA_URL (with its path) is the base URL actually used.
+  const box = sandbox(t);
+  const fake = fakeGitea(handler());
+  await createIssueFromRun(box.options({giteaUrl: BASE + '/gitea', transport: fake.transport}));
+  assert.ok(fake.calls.every(call => call.url.startsWith(BASE + '/gitea/api/v1/')));
+});
+
+test('only open issues of the token user count as duplicates', async t => {
+  for (const [seed, reason] of [[{user: {login: 'someone-else'}}, '別のユーザーが作成'], [{state: 'closed'}, '閉じている'],
+    [{user: null}, '別のユーザーが作成']]) {
+    const box = sandbox(t);
+    const fake = fakeGitea(handler([{number: 5, title: '[TC-order-002] 偽', body: MARKER + '\n偽の本文', html_url: BASE + '/i/5', ...seed}]));
+    const out = await createIssueFromRun(box.options({transport: fake.transport}));
+    assert.equal(out.created, true, reason);
+    assert.equal(out.issue.number, 7);
+    assert.deepEqual(out.ignored, [{number: 5, reason}]);
+    assert.ok(!JSON.stringify(out).includes('偽の本文'));
+    assert.ok(box.read().includes('evidence/TC-order-002/ | #7 |'));
+  }
+});
+
 test('stop instead of overwriting a different issue number', async t => {
   const text = result.replace('evidence/TC-order-002/ | |', 'evidence/TC-order-002/ | #3 |');
   const box = sandbox(t, text);
   const fake = fakeGitea(handler());
   await assert.rejects(createIssueFromRun(box.options({transport: fake.transport})), /#3/);
-  assert.deepEqual(fake.calls.map(c => c.method), ['GET']);
+  assert.deepEqual(methods(fake), ['GET /api/v1/user', 'GET /issues']);
   assert.equal(box.read(), text);
   // The same number that the search finds is not a conflict.
   const again = fakeGitea(handler([{number: 3, title: 't', body: MARKER, html_url: BASE + '/i/3', state: 'open'}]));
@@ -257,9 +294,10 @@ test('the CLI creates an issue with GITEA_TOKEN and never prints it', async t =>
     req.on('data', chunk => { raw += chunk; });
     req.on('end', () => {
       if (req.headers.authorization !== 'token ' + TOKEN) { res.writeHead(401); res.end(); return; }
+      if (req.method === 'GET' && req.url === '/api/v1/user') { res.writeHead(200); res.end(JSON.stringify({login: 'qa-worker'})); return; }
       if (req.method === 'GET') { res.writeHead(200); res.end(JSON.stringify(issues)); return; }
       const input = JSON.parse(raw);
-      issues.push({number: 9, title: input.title, body: input.body, html_url: 'http://127.0.0.1/i/9', state: 'open'});
+      issues.push({number: 9, title: input.title, body: input.body, html_url: 'http://127.0.0.1/i/9', state: 'open', user: {login: 'qa-worker'}});
       res.writeHead(201); res.end(JSON.stringify(issues.at(-1)));
     });
   });
@@ -271,6 +309,7 @@ test('the CLI creates an issue with GITEA_TOKEN and never prints it', async t =>
   const invoke = (args, token) => new Promise(resolve => {
     const env = {...process.env};
     delete env.GITEA_TOKEN;
+    env.GITEA_URL = url;
     if (token !== undefined) env.GITEA_TOKEN = token;
     const child = spawn(process.execPath, [cli, 'qa', 'issue', 'create', '--profile', 'knowledge/sample-web/profile.md', '--run', RUN, '--tc', 'TC-order-002', ...args],
       {cwd: box.root, env});
@@ -288,7 +327,7 @@ test('the CLI creates an issue with GITEA_TOKEN and never prints it', async t =>
   const real = await invoke([], TOKEN);
   assert.equal(real.status, 0, real.out);
   assert.ok(!real.out.includes(TOKEN));
-  assert.deepEqual(JSON.parse(real.out), {ok: true, issue: {number: 9, url: 'http://127.0.0.1/i/9'}, created: true, dryRun: false, resultUpdated: true});
+  assert.deepEqual(JSON.parse(real.out), {ok: true, issue: {number: 9, url: 'http://127.0.0.1/i/9'}, created: true, dryRun: false, resultUpdated: true, ignored: []});
   assert.ok(box.read().includes('evidence/TC-order-002/ | #9 |'));
   const repeat = await invoke([], TOKEN);
   assert.equal(JSON.parse(repeat.out).created, false);

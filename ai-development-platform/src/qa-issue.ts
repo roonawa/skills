@@ -1,10 +1,9 @@
 import { renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { parse } from 'yaml';
 import { checked, content } from './files.js';
 import { createGiteaClient, type GiteaTransport } from './gitea.js';
-import { checkProfile, checkProfileText } from './qa-profile.js';
+import { checkProfileText, loadProfile } from './qa-profile.js';
 
 /**
  * `aidev qa issue create`: turns one NG case of `runs/<YYYYMMDD>-<run-id>/result.md` into a Gitea issue.
@@ -165,6 +164,8 @@ export interface IssueRunOptions {
   tc: string;
   dryRun: boolean;
   token?: string;
+  /** GITEA_URL, set by the worker next to GITEA_TOKEN. The token goes only to this origin. */
+  giteaUrl?: string;
   transport?: GiteaTransport;
 }
 export interface IssueRunResult {
@@ -172,6 +173,8 @@ export interface IssueRunResult {
   created: boolean;
   dryRun: boolean;
   resultUpdated?: boolean;
+  /** Issues with the marker that were not counted as duplicates (number and reason only). */
+  ignored?: {number: number; reason: string}[];
   to?: {type: string; url: string; repo: string};
   title?: string;
   body?: string;
@@ -203,21 +206,39 @@ function writeAtomically(path: string, text: string): void {
   }
 }
 
+/**
+ * The token's destination comes from GITEA_URL (set by the worker next to the token), not from the repository's
+ * profile: the profile only has to agree with it. Neither URL is put in the message.
+ */
+function trustedBaseUrl(giteaUrl: string | undefined, profileUrl: string): string {
+  if (!giteaUrl) throw new Error('環境変数 GITEA_URL に起票先の Gitea の URL を設定してください（GITEA_TOKEN と同じ作業者が設定する）。');
+  let trusted: URL;
+  try { trusted = new URL(giteaUrl); } catch { throw new Error('GITEA_URL の形式が違います。'); }
+  if (trusted.username || trusted.password || trusted.search || trusted.hash) {
+    throw new Error('GITEA_URL にはユーザー名、パスワード、クエリ、# を含めないでください。');
+  }
+  if (trusted.origin !== new URL(profileUrl).origin) {
+    throw new Error('プロファイルの issue_tracker.url が GITEA_URL と同じ接続先（スキーム・ホスト・ポート）ではありません。トークンを送らずに止めました。');
+  }
+  return giteaUrl;
+}
+
 export async function createIssueFromRun(options: IssueRunOptions): Promise<IssueRunResult> {
   const run = options.run.replace(/\\/g, '/').replace(/\/+$/, '');
   if (!runPattern.test(run)) throw new Error('--run には runs/<YYYYMMDD>-<run-id> を指定してください。');
   if (!tcPattern.test(options.tc)) throw new Error('--tc には TC-ID（TC- で始まる英数字、_、.、-）を指定してください。');
   const tc = options.tc;
 
-  const report = checkProfile(options.root, options.profile, 'aidev-qa-bug-ticket');
+  const {report, data} = loadProfile(options.root, options.profile, 'aidev-qa-bug-ticket');
   if (report.errors.length) {
     throw new Error('プロファイルを直してください: ' + report.errors.map(issue => issue.path ?? (issue.line ? issue.line + ' 行目' : issue.code)).join('、') +
       '（aidev qa profile check ' + options.profile + ' --skill aidev-qa-bug-ticket で詳しく確かめられます）');
   }
   const product = report.product!;
-  const profileText = content(checked(options.root, options.profile))!;
-  const tracker = parse(/^---\r?\n([\s\S]*?)\r?\n---/.exec(profileText)![1]).issue_tracker as {type: string; url: string; repo: string};
+  // The profile check has already validated issue_tracker (type, url and repo).
+  const tracker = data!.issue_tracker as {type: string; url: string; repo: string};
   const [owner, repo] = tracker.repo.split('/');
+  const baseUrl = trustedBaseUrl(options.giteaUrl, tracker.url);
 
   const path = checked(options.root, run + '/result.md');
   const result = content(path);
@@ -232,13 +253,18 @@ export async function createIssueFromRun(options: IssueRunOptions): Promise<Issu
   const recordedCell = row.cells[row.issue] ?? '';
   const recorded = issueCell.exec(recordedCell);
   if (recordedCell && !recorded) throw new Error('result.md の ' + tc + ' の Issue の列に #番号 以外が書かれています。#番号 か空にしてください。');
-  const to = {type: tracker.type, url: tracker.url, repo: tracker.repo};
+  const to = {type: tracker.type, url: baseUrl, repo: tracker.repo};
   if (options.dryRun) return {issue: null, created: false, dryRun: true, to, title, body};
 
-  const client = createGiteaClient({baseUrl: tracker.url, token: options.token as string, transport: options.transport});
+  const client = createGiteaClient({baseUrl, token: options.token as string, transport: options.transport});
+  const me = await client.currentUser();
   const marker = issueMarker(product, tc);
-  const found = (await client.findIssues(owner, repo, marker.slice(5, -4)))
+  const marked = (await client.findIssues(owner, repo, marker.slice(5, -4)))
     .filter(issue => issue.body.split(/\r?\n/).some(line => line.trim() === marker));
+  // Anyone can write the marker, so only the worker's own open issues count as duplicates.
+  const found = marked.filter(issue => issue.state === 'open' && issue.user.login === me.login);
+  const ignored = marked.filter(issue => !found.includes(issue))
+    .map(issue => ({number: issue.number, reason: issue.state !== 'open' ? '閉じている' : '別のユーザーが作成'}));
   if (recorded && !found.some(issue => issue.number === Number(recorded[1]))) {
     throw new Error('result.md の ' + tc + ' の Issue の列にはすでに ' + recordedCell + ' が書かれています。' +
       (found.length ? '目印から見つかった Issue は #' + found[0].number + ' です。' : '') + '書き換えずに止めました。');
@@ -252,7 +278,7 @@ export async function createIssueFromRun(options: IssueRunOptions): Promise<Issu
     issue = {number: made.number, url: made.html_url};
     created = true;
   }
-  if (recorded) return {issue, created, dryRun: false, resultUpdated: false};
+  if (recorded) return {issue, created, dryRun: false, resultUpdated: false, ignored};
   try {
     const now = content(path);
     if (now !== result) throw new Error('result.md が起票の途中で変わりました');
@@ -262,5 +288,5 @@ export async function createIssueFromRun(options: IssueRunOptions): Promise<Issu
     throw new Error('Issue #' + issue.number + ' は' + (created ? '作りました' : 'すでにあります') + 'が、result.md に書き戻せませんでした（' + reason +
       '）。' + tc + ' の行の Issue の列に #' + issue.number + ' を書いてください。');
   }
-  return {issue, created, dryRun: false, resultUpdated: true};
+  return {issue, created, dryRun: false, resultUpdated: true, ignored};
 }

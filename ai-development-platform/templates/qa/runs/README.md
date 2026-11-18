@@ -23,11 +23,13 @@ Issue の列は、実行したときは空けておきます。NG のケース�
 ```bash
 # 送る題名と本文を確かめる（何も送らず、result.md も変えない）
 aidev qa issue create --profile knowledge/<製品名>/profile.md --run runs/20261118-new-cases --tc TC-order-002 --dry-run
-# 送信先と本文を確かめてから送る。トークンは環境変数 GITEA_TOKEN で渡す
+# 送信先と本文を確かめてから送る。トークンは環境変数 GITEA_TOKEN、接続先は GITEA_URL で渡す
 aidev qa issue create --profile knowledge/<製品名>/profile.md --run runs/20261118-new-cases --tc TC-order-002
 ```
 
-Issue の本文は、表の後の「NG の詳細」にある TC-ID の節から作ります。本文の先頭には `<!-- aidev-qa: <製品名> <TC-ID> -->` の目印が入り、同じ目印の Issue がすでにあれば新しく作らずにその番号を書きます。本文に秘密情報らしい記述があると、送らずに止まります。
+Issue の本文は、表の後の「NG の詳細」にある TC-ID の節から作ります。本文の先頭には `<!-- aidev-qa: <製品名> <TC-ID> -->` の目印が入り、同じ目印を持つ、自分（トークンの持ち主）が作った開いている Issue がすでにあれば、新しく作らずにその番号を書きます。閉じた Issue や他の人が作った Issue は重複とみなさず、番号と理由を出力に出します。
+
+トークンは環境変数 GITEA_URL の接続先にだけ送ります。GITEA_URL は GITEA_TOKEN と一緒に作業者が設定し、プロファイルの issue_tracker.url と接続先（スキーム・ホスト・ポート）が違えば、`--dry-run` でも止まります。本文に秘密情報らしい記述があると、送らずに止まります。
 
 証跡は runs/YYYYMMDD-run-id/evidence/TC-ID/ に、ケースごとのディレクトリで保存します。証跡の列には、リポジトリのルートからの相対パスで、ケースのディレクトリを書きます。
 

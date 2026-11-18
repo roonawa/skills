@@ -116,6 +116,11 @@ const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
 export function checkProfileText(file: string, text: string, skill?: string): ProfileReport {
+  return inspectProfileText(file, text, skill).report;
+}
+
+/** Checks a profile and also returns its parsed front matter (only when it could be parsed as a map). */
+export function inspectProfileText(file: string, text: string, skill?: string): {report: ProfileReport; data?: Record<string, unknown>} {
   if (skill !== undefined && !Object.hasOwn(profileRequirements, skill)) {
     throw new Error('不明な Skill 名です: ' + skill + '（' + Object.keys(profileRequirements).join(', ') + '）');
   }
@@ -130,17 +135,17 @@ export function checkProfileText(file: string, text: string, skill?: string): Pr
   const parts = /^---\n([\s\S]*?)\n---(?:\n|$)/.exec(normalized);
   if (!parts) {
     error('front-matter', '先頭に --- で囲んだ YAML の front matter がありません。');
-    return report;
+    return {report};
   }
   const yaml = parseDocument(parts[1]);
   if (yaml.errors.length || yaml.warnings.length) {
     error('front-matter', 'front matter の YAML が不正です。');
-    return report;
+    return {report};
   }
   const data: unknown = yaml.toJS({maxAliasCount: 0});
   if (!isObject(data)) {
     error('front-matter', 'front matter はキーと値の組で書いてください。');
-    return report;
+    return {report};
   }
   if (typeof data.product === 'string') report.product = data.product;
 
@@ -249,7 +254,14 @@ export function checkProfileText(file: string, text: string, skill?: string): Pr
       error('required', key + ' は ' + least + ' 件以上必要です（' + skill + '）。', key);
     }
   }
-  return report;
+  return {report, data};
+}
+
+/** Reads a profile inside the project, checks it and returns the parsed front matter with the report. */
+export function loadProfile(root: string, file: string, skill?: string): {report: ProfileReport; data?: Record<string, unknown>} {
+  const text = content(checked(root, file));
+  if (text === undefined) throw new Error('プロファイルがありません: ' + file);
+  return inspectProfileText(file, text, skill);
 }
 
 /** Reads and checks a profile inside the project. */

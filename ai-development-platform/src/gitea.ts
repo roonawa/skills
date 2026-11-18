@@ -1,6 +1,6 @@
 /**
  * Minimal Gitea client for `aidev qa issue create` (phase 3).
- * It can read issues and create one; nothing else (no comments, edits, closing, labels or branches).
+ * It can read issues and the token's own user, and create an issue; nothing else (no comments, edits, closing, labels or branches).
  * The token travels only in the Authorization header. Error messages never contain the token or the URL.
  */
 export interface GiteaRequest {
@@ -81,7 +81,7 @@ export interface GiteaClientOptions {
   token: string;
   transport?: GiteaTransport;
 }
-export interface GiteaIssueSummary {number: number; title: string; body: string; html_url: string; state: string}
+export interface GiteaIssueSummary {number: number; title: string; body: string; html_url: string; state: string; user: {login: string}}
 export type GiteaClient = ReturnType<typeof createGiteaClient>;
 
 const namePattern = /^[A-Za-z0-9_.-]+$/;
@@ -142,6 +142,14 @@ export function createGiteaClient(options: GiteaClientOptions) {
     root + '/api/v1/repos/' + checkName(owner, 'owner') + '/' + checkName(repo, 'repo') + '/issues';
 
   return Object.freeze({
+    /** The token's own user (read only). Used to count only the worker's own issues as duplicates. */
+    async currentUser(): Promise<{login: string}> {
+      const json = await send({method: 'GET', url: root + '/api/v1/user', headers: headers()}, 200) as Record<string, unknown> | null;
+      if (typeof json !== 'object' || json === null || typeof json.login !== 'string' || !json.login) {
+        throw new GiteaError('Gitea の応答にユーザー名がありません。');
+      }
+      return {login: json.login};
+    },
     /**
      * Searches open and closed issues. Only the first page (up to 50) is read: callers pass a narrow query
      * (the duplicate check searches for its marker line), so a match beyond the first page is not expected.
@@ -153,7 +161,10 @@ export function createGiteaClient(options: GiteaClientOptions) {
       return json.flatMap(item => {
         const issue = item as Record<string, unknown> | null;
         if (typeof issue !== 'object' || issue === null || typeof issue.number !== 'number') return [];
-        return [{number: issue.number, title: String(issue.title ?? ''), body: String(issue.body ?? ''), html_url: String(issue.html_url ?? ''), state: String(issue.state ?? '')}];
+        const user = issue.user as Record<string, unknown> | null | undefined;
+        const login = typeof user === 'object' && user !== null && typeof user.login === 'string' ? user.login : '';
+        return [{number: issue.number, title: String(issue.title ?? ''), body: String(issue.body ?? ''), html_url: String(issue.html_url ?? ''),
+          state: String(issue.state ?? ''), user: {login}}];
       });
     },
     async createIssue(owner: string, repo: string, issue: {title: string; body: string}): Promise<{number: number; html_url: string}> {

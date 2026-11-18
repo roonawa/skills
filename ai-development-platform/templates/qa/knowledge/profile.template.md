@@ -29,7 +29,7 @@ product: your-product
 
 # NG のケースを起票する Gitea のリポジトリ。aidev-qa-bug-ticket と aidev qa issue create が使う
 # url は https:// で書く（http:// は localhost と 127.0.0.1 だけ）。repo は owner/name の形
-# トークンはここに書かず、作業者個人のものを環境変数 GITEA_TOKEN で渡す
+# トークンはここに書かず、作業者個人のものを環境変数 GITEA_TOKEN で渡す。接続先も GITEA_URL に設定し、url と揃える
 # issue_tracker: {type: gitea, url: https://gitea.example.internal, repo: your-org/your-product}
 ---
 # 観点

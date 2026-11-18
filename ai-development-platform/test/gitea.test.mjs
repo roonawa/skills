@@ -73,7 +73,7 @@ test('find issues by query', async () => {
   const fake = fakeGitea(() => ({status: 200, body: JSON.stringify(list)}));
   const client = createGiteaClient({baseUrl: BASE, token: TOKEN, transport: fake.transport});
   const found = await client.findIssues('org', 'app', '日本語 & q=1');
-  assert.deepEqual(found, [{number: 1, title: 'a', body: '', html_url: 'https://h/1', state: 'open'}]);
+  assert.deepEqual(found, [{number: 1, title: 'a', body: '', html_url: 'https://h/1', state: 'open', user: {login: ''}}]);
   const url = new URL(fake.calls[0].url);
   assert.equal(fake.calls[0].method, 'GET');
   assert.equal(url.pathname, '/api/v1/repos/org/app/issues');
@@ -120,7 +120,7 @@ test('a base URL with a path is kept and trailing slashes are normalized', async
 
 test('the client has no other write method', () => {
   const client = createGiteaClient({baseUrl: BASE, token: TOKEN, transport: fakeGitea().transport});
-  assert.deepEqual(Object.keys(client).sort(), ['createIssue', 'findIssues']);
+  assert.deepEqual(Object.keys(client).sort(), ['createIssue', 'currentUser', 'findIssues']);
   assert.ok(Object.isFrozen(client));
 });
 
@@ -198,4 +198,21 @@ test('findIssues reads only the first page of 50', async () => {
   await createGiteaClient({baseUrl: BASE, token: TOKEN, transport: fake.transport}).findIssues('o', 'r', 'x');
   assert.equal(new URL(fake.calls[0].url).searchParams.get('limit'), '50');
   assert.equal(new URL(fake.calls[0].url).searchParams.get('page'), null);
+});
+
+test('currentUser reads the login of the token user and parses defensively', async () => {
+  const fake = fakeGitea(() => ({status: 200, body: JSON.stringify({id: 1, login: 'qa-worker', email: 'x'})}));
+  assert.deepEqual(await createGiteaClient({baseUrl: BASE, token: TOKEN, transport: fake.transport}).currentUser(), {login: 'qa-worker'});
+  assert.equal(fake.calls[0].method, 'GET');
+  assert.equal(fake.calls[0].url, BASE + '/api/v1/user');
+  for (const body of ['null', '[]', '{}', '{"login":""}', '{"login":5}']) {
+    const client = createGiteaClient({baseUrl: BASE, token: TOKEN, transport: fakeGitea(() => ({status: 200, body})).transport});
+    await assert.rejects(client.currentUser(), GiteaError, body);
+  }
+});
+
+test('findIssues reads the author defensively', async () => {
+  const list = [{number: 1, user: {login: 'a'}}, {number: 2, user: null}, {number: 3, user: {login: 4}}, {number: 4}];
+  const client = createGiteaClient({baseUrl: BASE, token: TOKEN, transport: fakeGitea(() => ({status: 200, body: JSON.stringify(list)})).transport});
+  assert.deepEqual((await client.findIssues('o', 'r', 'x')).map(issue => issue.user.login), ['a', '', '', '']);
 });
