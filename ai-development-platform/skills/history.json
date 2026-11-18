@@ -49,6 +49,9 @@
   "aidev-qa-test-review": {
     "0.1.0": [
       "bee5fcb65bdc6693fd04d61414cc4637f120a790abb39af653ba91a0ec3b2819"
+    ],
+    "0.1.1": [
+      "27210f09dfea539f6d7183b367103f985553ce528a790f73fdc73b75eb95538a"
     ]
   },
   "aidev-repair-workflow": {
