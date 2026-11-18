@@ -400,7 +400,17 @@ test('every value copied from result.md stays inside a fenced block', () => {
   }
   assert.equal(body.split('\n')[0], MARKER);
   assert.doesNotMatch(title, /[@#!<>[\]()\\`]/);
-  assert.equal(title, '［TC-order-002］ 数量 ＠owner ＃99 ！3 o/r＃4 ＜img src=x＞ ［a］（b） ＼ ｀ の上限');
+  assert.equal(title, '［TC-order-002］ 数量 ＠owner ＃99 ！3 o／r＃4 ＜img src=x＞ ［a］（b） ＼ ｀ の上限');
+});
+
+test('no URL or owner/repo form survives in the title', () => {
+  const text = result.replace('### TC-order-002 数量が上限を 1 超えると注文できない',
+    '### TC-order-002 ' + BASE + '/o/r/issues/3 と http://127.0.0.1:3000/o/r/pulls/4 と o/r');
+  const {title} = buildIssue(text, 'TC-order-002', {product: 'sample-web', run: RUN});
+  assert.ok(!title.includes('://'), title);
+  assert.ok(!title.includes('/'), title);
+  assert.ok(!title.includes(':'), title);
+  assert.equal(title, '［TC-order-002］ https：／／gitea.example.internal／o／r／issues／3 と http：／／127.0.0.1：3000／o／r／pulls／4 と o／r');
 });
 
 test('a value is fenced by a run longer than any run inside it', () => {

@@ -126,14 +126,18 @@ function fenced(value: string): string {
   return fence + '\n' + value + '\n' + fence;
 }
 
-/** Full-width forms of the characters that Gitea or Markdown could act on in a title. */
+/**
+ * Full-width forms of the characters that Gitea or Markdown could act on in a title. `:` and `/` are included so
+ * no URL (an issues or pulls URL would add a cross-reference) and no owner/repo form survives.
+ */
 const titleCharacters: Record<string, string> = {
   '@': '＠', '#': '＃', '!': '！', '<': '＜', '>': '＞', '[': '［', ']': '］', '(': '（', ')': '）', '\\': '＼', '`': '｀',
+  ':': '：', '/': '／',
 };
 /** Gitea refuses titles over 255 characters. */
 const titleLimit = 255;
 function plainTitle(title: string): string {
-  const chars = [...title.replace(/[\r\n\t]+/g, ' ').replace(/[@#!<>[\]()\\`]/g, char => titleCharacters[char])];
+  const chars = [...title.replace(/[\r\n\t]+/g, ' ').replace(/[@#!<>[\]()\\`:/]/g, char => titleCharacters[char])];
   return chars.length <= titleLimit ? chars.join('') : chars.slice(0, titleLimit - 1).join('') + '…';
 }
 
