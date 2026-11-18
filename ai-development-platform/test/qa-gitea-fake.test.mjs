@@ -52,7 +52,7 @@ test('作成・検索・確認用の一覧', async t => {
   assert.match(issue.html_url, /^http:\/\/127\.0\.0\.1:\d+\/o\/r\/issues\/1$/);
   await call(url, {method: 'POST', headers: {...auth, 'Content-Type': 'application/json'}, body: JSON.stringify({title: 'other', body: 'x'})});
 
-  const byTitle = await (await call(url + '?type=issues&state=all&q=' + encodeURIComponent('ボタン'), {headers: auth})).json();
+  const byTitle = await (await call(url + '?type=issues&state=all&limit=50&q=' + encodeURIComponent('ボタン'), {headers: auth})).json();
   assert.deepEqual(byTitle.map(i => i.number), [1]);
   const byBody = await (await call(url + '?q=alpha', {headers: auth})).json();
   assert.deepEqual(byBody.map(i => i.number), [1]);
@@ -94,4 +94,12 @@ test('src/gitea.ts の本物の fetch 通信で作成してから探せる', asy
   assert.deepEqual(await client.findIssues('own', 'repo', 'no-such-text'), []);
   const wrong = createGiteaClient({baseUrl: base, token: 'wrong', transport: fetchGiteaTransport});
   await assert.rejects(wrong.findIssues('own', 'repo', 'x'), /401/);
+});
+
+test('不正な URL でもサーバーは落ちず、次の要求に答える', async t => {
+  const base = await start(t);
+  const bad = await call(base + '/api/v1/repos/%E0%A4%A/x/issues', {headers: auth});
+  assert.equal(bad.status, 400);
+  const ok = await call(base + '/api/v1/repos/o/r/issues', {headers: auth});
+  assert.equal(ok.status, 200);
 });

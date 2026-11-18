@@ -46,11 +46,21 @@ function readBody(req) {
 }
 
 const server = createServer(async (req, res) => {
-  const url = new URL(req.url, 'http://localhost');
   if (!timingSafeEqual(digest(req.headers.authorization ?? ''), expected)) {
     req.resume();
     return send(res, 401, {message: 'token is required'});
   }
+  try {
+    await handle(req, res);
+  } catch {
+    // 不正な URL などで落とさない。
+    if (!res.headersSent) send(res, 400, {message: 'bad request'});
+    else res.end();
+  }
+});
+
+async function handle(req, res) {
+  const url = new URL(req.url, 'http://localhost');
   if (req.method === 'GET' && url.pathname === '/__issues') return send(res, 200, issues);
   const m = /^\/api\/v1\/repos\/([^/]+)\/([^/]+)\/issues$/.exec(url.pathname);
   if (!m) { req.resume(); return send(res, 404, {message: 'not found'}); }
@@ -75,7 +85,7 @@ const server = createServer(async (req, res) => {
   }
   req.resume();
   send(res, 405, {message: 'method not allowed'});
-});
+}
 
 server.listen(port, '127.0.0.1', () => {
   console.log('listening http://localhost:' + server.address().port);
