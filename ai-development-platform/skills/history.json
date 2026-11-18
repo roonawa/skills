@@ -48,6 +48,12 @@
       "d55c0f9682b2d1f3724bef01c0e60ab3de5e72d71caaa3c5298d26099a622c09"
     ]
   },
+  "aidev-qa-regression-compare": {
+    "0.1.0": [
+      "d05ffd850b8f79e1750af39b480902e6b5f697dc8f7e8180858956af037017d6",
+      "5dde9768131eb68eb4655ac842157ba27c3bb80d540e75929656ccb2692ee56b"
+    ]
+  },
   "aidev-qa-strategy": {
     "0.1.0": [
       "7736dea0803ca91276b09b114fa2c5f575a436d06d6a6f3373474679b8264993"
