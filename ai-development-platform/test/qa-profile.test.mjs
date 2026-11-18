@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { checkProfileText } from '../dist/qa-profile.js';
 
 const valid = '---\nproduct: sample-web\nroles:\n  - {name: staff, user_env: SAMPLE_STAFF_USER, password_env: SAMPLE_STAFF_PASSWORD}\nevidence: {method: local, retention: 90d}\n---\n# 観点\n一覧は0件のとき空表示になる。\n';
@@ -35,6 +36,27 @@ test('reject an unknown skill name', () => {
 test('env-name lines and prose are not secrets; missing front matter is an error', () => {
   assert.deepEqual(checkProfileText('p.md', valid + 'password_env: SAMPLE_PW\nパスワード(password)は環境変数から読む。\n').errors, []);
   assert.ok(checkProfileText('p.md', '# なし\n').errors.some(e => e.code === 'front-matter'));
+});
+test('secrets in front matter are found in any YAML form, and the value is never echoed', () => {
+  const probes = [
+    ['value on the next line', valid.replace('evidence:', 'password:\n  hunter2\nevidence:')],
+    ['userinfo in a URL', valid.replace('evidence:', 'environments:\n  - {name: st, url: "https://user:S3cretPass@st.example.test"}\nevidence:')],
+    ['api key', valid.replace('evidence:', 'api_key: sk_live_abcdef123456\nevidence:')],
+  ];
+  for (const [label, text] of probes) {
+    const r = checkProfileText('p.md', text);
+    assert.ok(r.errors.some(e => e.code === 'secret' || e.code === 'url'), label);
+    const messages = r.errors.map(e => e.message).join('\n');
+    for (const value of ['hunter2', 'S3cretPass', 'sk_live_abcdef123456']) assert.ok(!messages.includes(value), label + ': ' + value);
+  }
+});
+test('a URL with credentials in the body is a secret', () => {
+  assert.ok(checkProfileText('p.md', valid + 'ST は https://user:S3cretPass@st.example.test で開く。\n').errors.some(e => e.code === 'secret'));
+  assert.deepEqual(checkProfileText('p.md', valid + 'ST は https://st.example.test:8443/login で開く。\n').errors, []);
+});
+test('the profile template has no secret-like entries', () => {
+  const template = readFileSync(new URL('../templates/qa/knowledge/profile.template.md', import.meta.url), 'utf8');
+  assert.deepEqual(checkProfileText('profile.template.md', template).errors.filter(e => e.code === 'secret' || e.code === 'url'), []);
 });
 test('flow-style lines: a secret after an _env key is found, env names under _env are not', () => {
   assert.ok(checkProfileText('p.md', valid + '{password_env: PW, token: abc}\n').errors.some(e => e.code === 'secret'));

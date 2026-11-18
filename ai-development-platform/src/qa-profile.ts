@@ -41,7 +41,10 @@ const secretPatterns: {name: string; pattern: RegExp}[] = [
   {name: 'Cookie', pattern: /^\s*(?:-\s*)?(?:Set-)?Cookie\s*:\s*\S/i},
   {name: 'セッション ID', pattern: /\bsessionid\s*=\s*\S/i},
   {name: '秘密鍵', pattern: /-----BEGIN [A-Z ]*PRIVATE KEY-----/},
+  {name: '認証情報を含む URL', pattern: /:\/\/[^\s/:@]+:[^\s/@]+@/},
 ];
+/** Keys whose value is a credential. Checked on the parsed front matter, so any YAML form of the value is found. */
+const secretKey = /pass(?:word|wd)?|pwd|secret|token|api[_-]?key|credential/i;
 const keyValue = /([A-Za-z0-9_-]*(?:password|passwd|secret|token)[A-Za-z0-9_-]*)["']?\s*[:=]\s*([^,}\n]+)/ig;
 
 function secretIn(line: string): string | undefined {
@@ -101,11 +104,27 @@ export function checkProfileText(file: string, text: string, skill?: string): Pr
   };
   checkEnvNames(data, '');
 
+  // The value itself is never put in the message.
+  const findSecretKeys = (value: unknown, path: string) => {
+    if (Array.isArray(value)) value.forEach((entry, i) => findSecretKeys(entry, path + '[' + i + ']'));
+    else if (isObject(value)) {
+      for (const [key, entry] of Object.entries(value)) {
+        const next = path ? path + '.' + key : key;
+        const scalar = typeof entry === 'number' || typeof entry === 'boolean' || (typeof entry === 'string' && entry.trim() !== '');
+        if (!/_env$/i.test(key) && secretKey.test(key) && scalar) {
+          error('secret', next + ' に値が書かれています。秘密情報は環境変数の名前（' + key + '_env など）だけを書いてください。', next);
+        } else findSecretKeys(entry, next);
+      }
+    }
+  };
+  findSecretKeys(data, '');
+
   const shape = (path: string, message: string) => error('format', message, path);
   const url = (value: unknown, path: string) => {
-    let ok = false;
-    try { ok = typeof value === 'string' && ['http:', 'https:'].includes(new URL(value).protocol); } catch { /* invalid */ }
-    if (!ok) error('url', 'URL は http: か https: で始まる形で書いてください。', path);
+    let parsed: URL | undefined;
+    try { if (typeof value === 'string') parsed = new URL(value); } catch { /* invalid */ }
+    if (!parsed || !['http:', 'https:'].includes(parsed.protocol)) error('url', 'URL は http: か https: で始まる形で書いてください。', path);
+    else if (parsed.username || parsed.password) error('url', path + ' にユーザー名やパスワードを含めないでください。認証情報は環境変数の名前で書いてください。', path);
   };
   const list = (key: string, each: (entry: Record<string, unknown>, path: string) => void) => {
     const value = data[key];
