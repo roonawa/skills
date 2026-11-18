@@ -36,7 +36,7 @@ function readLines(markdown: string): Line[] {
 const splitRow = (text: string) => text.split(/(?<!\\)\|/);
 const cellsOf = (text: string) => splitRow(text).slice(1, -1).map(cell => cell.trim());
 
-interface ResultRow {index: number; cells: string[]; issue: number; result: number; evidence: number}
+interface ResultRow {index: number; cells: string[]; columns: number; issue: number; result: number; evidence: number}
 
 /** The row of `tc` in the result table (the first table whose header has TC-ID, 結果 and Issue). */
 function findRow(lines: Line[], tc: string): ResultRow {
@@ -48,7 +48,7 @@ function findRow(lines: Line[], tc: string): ResultRow {
     const rows: ResultRow[] = [];
     for (let j = i + 2; j < lines.length && !lines[j].fenced && lines[j].text.trim().startsWith('|'); j++) {
       const cells = cellsOf(lines[j].text.trim());
-      if (cells[id] === tc) rows.push({index: j, cells, issue, result, evidence});
+      if (cells[id] === tc) rows.push({index: j, cells, columns: header.length, issue, result, evidence});
     }
     if (rows.length === 0) throw new Error('result.md の表に ' + tc + ' の行がありません。');
     if (rows.length > 1) throw new Error('result.md の表に ' + tc + ' の行が ' + rows.length + ' 行あります。1行にしてください。');
@@ -96,7 +96,9 @@ function findDetail(lines: Line[], tc: string): Detail {
 /** A list item's value: the text after the label, then the continuation lines with their common indent removed. */
 function joinValue(first: string, rest: string[]): string {
   while (rest.length && !rest[rest.length - 1].trim()) rest.pop();
-  const indent = Math.min(...rest.filter(line => line.trim()).map(line => /^\s*/.exec(line)![0].length));
+  // A loop, not Math.min(...lines): a spread of many lines would overflow the call stack.
+  let indent = Infinity;
+  for (const line of rest) if (line.trim()) indent = Math.min(indent, /^\s*/.exec(line)![0].length);
   const body = rest.map(line => line.slice(Number.isFinite(indent) ? indent : 0));
   return [first, ...body].filter((line, index) => index > 0 || line).join('\n');
 }
@@ -108,6 +110,84 @@ function headerValue(lines: Line[], end: number, label: string): string | undefi
     if (match) return match[1].trim();
   }
   return undefined;
+}
+
+export type NeutralizedKind = 'mention' | 'reference' | 'image' | 'html';
+export type Neutralized = Partial<Record<NeutralizedKind, number>>;
+
+/**
+ * Text that would make Gitea do more than create the issue: @mentions notify users, #12, owner/repo#3 and issue
+ * URLs add cross-reference events to other issues, and images or raw HTML load from other hosts when the issue is
+ * viewed. Each match outside code is wrapped in an inline code span, so it is shown as written and does nothing.
+ */
+const sideEffects = new RegExp([
+  '(?<image>!\\[[^\\]\\n]{0,500}\\](?:\\([^)\\n]{0,2000}\\)|\\[[^\\]\\n]{0,500}\\])?)',
+  '(?<html><\\/?[A-Za-z!?][^>\\n]*>?)',
+  '(?<url>https?:\\/\\/[^\\s<>()`]{1,2000}\\/(?:issues|pulls)\\/\\d+[^\\s<>()`]*)',
+  '(?<cross>(?<![\\w.\\/-])[A-Za-z0-9_.-]+\\/[A-Za-z0-9_.-]+#\\d+)',
+  '(?<ref>(?<![\\w&#\\/])#\\d+)',
+  '(?<mention>(?<![\\w.\\/+`-])@[A-Za-z0-9_][\\w.-]*)',
+].join('|'), 'g');
+
+/**
+ * Splits a line into [text, isCode] parts. A run of n backticks opens a code span that the next run of exactly
+ * n backticks closes; a run without a partner is plain text. Linear in the length of the line.
+ */
+function codeSpans(line: string): [string, boolean][] {
+  const runs = [...line.matchAll(/`+/g)].map(match => ({at: match.index, length: match[0].length}));
+  const next = new Map<number, number>();
+  const partner: number[] = new Array<number>(runs.length).fill(-1);
+  for (let i = runs.length - 1; i >= 0; i--) {
+    partner[i] = next.get(runs[i].length) ?? -1;
+    next.set(runs[i].length, i);
+  }
+  const parts: [string, boolean][] = [];
+  let from = 0;
+  for (let i = 0; i < runs.length; i++) {
+    const close = partner[i];
+    if (close < 0) continue;
+    parts.push([line.slice(from, runs[i].at), false]);
+    from = runs[close].at + runs[close].length;
+    parts.push([line.slice(runs[i].at, from), true]);
+    i = close;
+  }
+  parts.push([line.slice(from), false]);
+  return parts;
+}
+
+function inlineCode(text: string): string {
+  let longest = 0;
+  for (const run of text.match(/`+/g) ?? []) longest = Math.max(longest, run.length);
+  const ticks = '`'.repeat(longest + 1);
+  const pad = text.startsWith('`') || text.endsWith('`') ? ' ' : '';
+  return ticks + pad + text + pad + ticks;
+}
+
+/** Wraps side-effect text outside fenced blocks and inline code; counts what was wrapped by kind. */
+export function neutralize(text: string, counts: Neutralized = {}): string {
+  let fence: string | undefined;
+  return text.split('\n').map(line => {
+    const open = /^\s*(`{3,}|~{3,})/.exec(line);
+    if (fence === undefined && open) { fence = open[1]; return line; }
+    if (fence !== undefined) {
+      if (open && open[1][0] === fence[0] && open[1].length >= fence.length && line.trim() === open[1]) fence = undefined;
+      return line;
+    }
+    // Keep inline code spans as they are and rewrite only the text between them.
+    return codeSpans(line).map(([part, code]) => code ? part : part.replace(sideEffects, (match, ...args) => {
+      const groups = args[args.length - 1] as Record<string, string | undefined>;
+      const kind: NeutralizedKind = groups.image ? 'image' : groups.html ? 'html' : groups.mention ? 'mention' : 'reference';
+      counts[kind] = (counts[kind] ?? 0) + 1;
+      return inlineCode(match);
+    })).join('');
+  }).join('\n');
+}
+
+/** Gitea refuses titles over 255 characters. */
+const titleLimit = 255;
+function capTitle(title: string): string {
+  const chars = [...title];
+  return chars.length <= titleLimit ? title : chars.slice(0, titleLimit - 1).join('') + '…';
 }
 
 export const issueMarker = (product: string, tc: string) => '<!-- aidev-qa: ' + product + ' ' + tc + ' -->';
@@ -135,21 +215,31 @@ function renderBody(product: string, tc: string, run: string, values: Record<str
 }
 
 export function buildIssue(result: string, tc: string, context: {product: string; run: string}): {title: string; body: string} {
+  const {title, body} = composeIssue(result, tc, context);
+  return {title, body};
+}
+
+/** buildIssue plus the counts of neutralized text by kind. */
+function composeIssue(result: string, tc: string, context: {product: string; run: string}): {title: string; body: string; neutralized: Neutralized} {
   const lines = readLines(result);
   const row = findRow(lines, tc);
   const outcome = row.cells[row.result] ?? '';
   if (outcome !== 'NG') throw new Error(tc + ' の結果は NG ではありません（' + (outcome || '空') + '）。NG のケースだけを起票します。');
   const detail = findDetail(lines, tc);
   const field = (...labels: string[]) => labels.map(label => detail.fields.get(label)).find(value => value);
-  const values = {
+  const raw: Record<string, string | undefined> = {
     ac: field('AC', 'AC-ID'), test: field('テスト'), steps: field('再現手順'), expected: field('期待結果'),
     actual: field('実際の結果'), repeat: field('再現'), note: field('補足'),
     evidence: field('証跡') ?? (row.evidence >= 0 ? row.cells[row.evidence] || undefined : undefined),
     environment: headerValue(lines, row.index, '環境'), version: headerValue(lines, row.index, '版'),
   };
-  const missing = (['再現手順', '期待結果', '実際の結果'] as const).filter((_, i) => ![values.steps, values.expected, values.actual][i]);
+  const missing = (['再現手順', '期待結果', '実際の結果'] as const).filter((_, i) => ![raw.steps, raw.expected, raw.actual][i]);
   if (missing.length) throw new Error('result.md の NG の詳細（' + tc + '）に ' + missing.join('・') + ' がありません。');
-  return {title: '[' + tc + ']' + (detail.name ? ' ' + detail.name : ''), body: renderBody(context.product, tc, context.run, values)};
+  // Everything copied from result.md is neutralized; the marker and the template's own lines are not.
+  const neutralized: Neutralized = {};
+  const values = Object.fromEntries(Object.entries(raw).map(([key, value]) => [key, value === undefined ? undefined : neutralize(value, neutralized)]));
+  const name = detail.name ? ' ' + neutralize(detail.name.replace(/\n/g, ' '), neutralized) : '';
+  return {title: capTitle('[' + tc + ']' + name), body: renderBody(context.product, tc, context.run, values), neutralized};
 }
 
 /** Line numbers (in the body) that look like secrets. Only the numbers are returned, never the text. */
@@ -173,6 +263,8 @@ export interface IssueRunResult {
   created: boolean;
   dryRun: boolean;
   resultUpdated?: boolean;
+  /** How many mentions, references, images and HTML fragments were wrapped in code (counts only). */
+  neutralized?: Neutralized;
   /** Issues with the marker that were not counted as duplicates (number and reason only). */
   ignored?: {number: number; reason: string}[];
   to?: {type: string; url: string; repo: string};
@@ -243,7 +335,7 @@ export async function createIssueFromRun(options: IssueRunOptions): Promise<Issu
   const path = checked(options.root, run + '/result.md');
   const result = content(path);
   if (result === undefined) throw new Error(run + '/result.md がありません。');
-  const {title, body} = buildIssue(result, tc, {product, run});
+  const {title, body, neutralized} = composeIssue(result, tc, {product, run});
   const bad = secretLines(body);
   if (bad.length || secretLines(title).length) {
     throw new Error('起票する本文に秘密情報らしい記述があるため送りません（' + (bad.length ? '本文の ' + bad.join('、') + ' 行目' : '題名') +
@@ -252,15 +344,21 @@ export async function createIssueFromRun(options: IssueRunOptions): Promise<Issu
   const row = findRow(readLines(result), tc);
   const recordedCell = row.cells[row.issue] ?? '';
   const recorded = issueCell.exec(recordedCell);
+  if (row.cells.length !== row.columns) {
+    throw new Error('result.md の ' + tc + ' の行の列の数（' + row.cells.length + '）が表の見出し（' + row.columns + '）と違います。行の両端の | と列を見出しに揃えてください。');
+  }
   if (recordedCell && !recorded) throw new Error('result.md の ' + tc + ' の Issue の列に #番号 以外が書かれています。#番号 か空にしてください。');
   const to = {type: tracker.type, url: baseUrl, repo: tracker.repo};
-  if (options.dryRun) return {issue: null, created: false, dryRun: true, to, title, body};
+  if (options.dryRun) return {issue: null, created: false, dryRun: true, neutralized, to, title, body};
+  if (typeof options.token === 'string' && options.token && (title.includes(options.token) || body.includes(options.token))) {
+    throw new Error('起票する題名か本文に GITEA_TOKEN の値がそのまま含まれているため送りません。result.md から消してください。');
+  }
 
   const client = createGiteaClient({baseUrl, token: options.token as string, transport: options.transport});
   const me = await client.currentUser();
   const marker = issueMarker(product, tc);
   const marked = (await client.findIssues(owner, repo, marker.slice(5, -4)))
-    .filter(issue => issue.body.split(/\r?\n/).some(line => line.trim() === marker));
+    .filter(issue => issue.body.split(/\r?\n/)[0].trim() === marker);
   // Anyone can write the marker, so only the worker's own open issues count as duplicates.
   const found = marked.filter(issue => issue.state === 'open' && issue.user.login === me.login);
   const ignored = marked.filter(issue => !found.includes(issue))
@@ -278,7 +376,7 @@ export async function createIssueFromRun(options: IssueRunOptions): Promise<Issu
     issue = {number: made.number, url: made.html_url};
     created = true;
   }
-  if (recorded) return {issue, created, dryRun: false, resultUpdated: false, ignored};
+  if (recorded) return {issue, created, dryRun: false, resultUpdated: false, neutralized, ignored};
   try {
     const now = content(path);
     if (now !== result) throw new Error('result.md が起票の途中で変わりました');
@@ -288,5 +386,5 @@ export async function createIssueFromRun(options: IssueRunOptions): Promise<Issu
     throw new Error('Issue #' + issue.number + ' は' + (created ? '作りました' : 'すでにあります') + 'が、result.md に書き戻せませんでした（' + reason +
       '）。' + tc + ' の行の Issue の列に #' + issue.number + ' を書いてください。');
   }
-  return {issue, created, dryRun: false, resultUpdated: true, ignored};
+  return {issue, created, dryRun: false, resultUpdated: true, neutralized, ignored};
 }

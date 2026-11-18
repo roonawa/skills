@@ -327,9 +327,94 @@ test('the CLI creates an issue with GITEA_TOKEN and never prints it', async t =>
   const real = await invoke([], TOKEN);
   assert.equal(real.status, 0, real.out);
   assert.ok(!real.out.includes(TOKEN));
-  assert.deepEqual(JSON.parse(real.out), {ok: true, issue: {number: 9, url: 'http://127.0.0.1/i/9'}, created: true, dryRun: false, resultUpdated: true, ignored: []});
+  assert.deepEqual(JSON.parse(real.out), {ok: true, issue: {number: 9, url: 'http://127.0.0.1/i/9'}, created: true, dryRun: false, resultUpdated: true, neutralized: {}, ignored: []});
   assert.ok(box.read().includes('evidence/TC-order-002/ | #9 |'));
   const repeat = await invoke([], TOKEN);
   assert.equal(JSON.parse(repeat.out).created, false);
   assert.equal(issues.length, 1);
+});
+
+/** The text left after removing fenced blocks and inline code spans (what Gitea would process). */
+function outsideCode(markdown) {
+  let fenced = false;
+  return markdown.split('\n').filter(line => {
+    if (/^\s*(`{3,}|~{3,})/.test(line)) { fenced = !fenced; return false; }
+    return !fenced;
+  }).map(line => line.replace(/(`+)[\s\S]*?\1/g, '')).join('\n');
+}
+
+const probe = '@admin #12 other/repo#3 ![x](https://evil.example/p.png) <img src=https://e/x> ' + BASE + '/o/r/issues/4 ![y][ref] qa@example.com `@keep #7`';
+const probed = result
+  .replace('- 実際の結果: 注文履歴の画面に移り、', '- 実際の結果: ' + probe + ' 注文履歴の画面に移り、')
+  .replace('  - POST /api/orders 201', '  @fenced #8 <b>')
+  .replace('### TC-order-002 数量が上限を 1 超えると注文できない', '### TC-order-002 数量 @owner #99 の上限');
+
+test('mentions, references, images and HTML are neutralized outside code', () => {
+  const {title, body} = buildIssue(probed, 'TC-order-002', {product: 'sample-web', run: RUN});
+  const rest = outsideCode(body.split('\n').slice(1).join('\n')) + '\n' + outsideCode(title);
+  for (const pattern of [/(^|[^\w])@\w/,/(^|[^\w])#\d/, /\w\/\w+#\d/, /!\[/, /<[a-z/!]/i, /\/issues\/\d/]) assert.doesNotMatch(rest, pattern, String(pattern));
+  for (const part of ['`@admin`', '`#12`', '`other/repo#3`', '`![x](https://evil.example/p.png)`', '`<img src=https://e/x>`',
+    '`' + BASE + '/o/r/issues/4`', '`![y][ref]`', ' qa@example.com ', '`@keep #7`', '  @fenced #8 <b>'.trim()]) {
+    assert.ok(body.includes(part), part);
+  }
+  assert.equal(title, '[TC-order-002] 数量 `@owner` `#99` の上限');
+  assert.equal(body.split('\n')[0], MARKER);
+});
+
+test('the output lists what was neutralized by kind, without values', async t => {
+  const box = sandbox(t, probed);
+  const out = await createIssueFromRun(box.options({dryRun: true}));
+  assert.deepEqual(out.neutralized, {mention: 2, reference: 4, image: 2, html: 1});
+  const fake = fakeGitea(handler());
+  const real = await createIssueFromRun(sandbox(t, probed).options({transport: fake.transport}));
+  assert.deepEqual(real.neutralized, out.neutralized);
+  assert.equal(JSON.parse(fake.calls[2].body).body, out.body);
+  assert.ok(!JSON.stringify(real).includes('evil.example'));
+  assert.deepEqual((await createIssueFromRun(sandbox(t).options({dryRun: true}))).neutralized, {});
+});
+
+test('the duplicate marker counts only on the first line of the body', async t => {
+  const box = sandbox(t);
+  const fake = fakeGitea(handler([{number: 5, title: '[TC-order-002] x', body: '引用:\n' + MARKER, html_url: BASE + '/i/5'}]));
+  const out = await createIssueFromRun(box.options({transport: fake.transport}));
+  assert.equal(out.created, true);
+  assert.equal(out.issue.number, 7);
+});
+
+test('a row whose cell count differs from the header is refused before sending', async t => {
+  for (const row of ['| TC-order-002 | NG | runs/20261118-new-cases/evidence/TC-order-002/', '| TC-order-002 | NG | runs/20261118-new-cases/evidence/TC-order-002/ |',
+    '| TC-order-002 | NG | runs/20261118-new-cases/evidence/TC-order-002/ | | x |']) {
+    const text = result.replace('| TC-order-002 | NG | runs/20261118-new-cases/evidence/TC-order-002/ | |', row);
+    for (const dryRun of [false, true]) {
+      const box = sandbox(t, text);
+      const fake = fakeGitea(handler());
+      await assert.rejects(createIssueFromRun(box.options({dryRun, transport: fake.transport})), /列の数/, row);
+      assert.equal(fake.calls.length, 0);
+      assert.equal(box.read(), text);
+    }
+  }
+});
+
+test('a title or body containing the token value is not sent', async t => {
+  for (const text of [result.replace('エラーの表示はなかった', 'エラーの表示はなかった（' + TOKEN + '）'),
+    result.replace('### TC-order-002 数量が', '### TC-order-002 ' + TOKEN + ' 数量が')]) {
+    const box = sandbox(t, text);
+    const fake = fakeGitea(handler());
+    await assert.rejects(createIssueFromRun(box.options({transport: fake.transport})), error => {
+      assert.match(error.message, /GITEA_TOKEN/);
+      assert.ok(!error.message.includes(TOKEN));
+      return true;
+    });
+    assert.equal(fake.calls.length, 0);
+    assert.equal(box.read(), text);
+  }
+});
+
+test('many continuation lines and a long case name are handled', () => {
+  const many = result.replace('  1. カートを開く', Array.from({length: 150000}, () => '  x').join('\n'))
+    .replace('### TC-order-004 送料が表示されない', '### TC-order-004 ' + 'あ'.repeat(400));
+  const {title, body} = buildIssue(many, 'TC-order-004', {product: 'sample-web', run: RUN});
+  assert.ok([...title].length <= 255, String([...title].length));
+  assert.ok(title.startsWith('[TC-order-004] あ'));
+  assert.ok(body.includes('x\nx\nx'));
 });
