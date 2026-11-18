@@ -86,8 +86,11 @@ test('seed has the documented shape', () => {
 
 test('server refuses to start without credentials in env', async () => {
   const child = spawn(process.execPath, [serverPath, '--version', 'new', '--port', '0'], {env: cleanEnv({}), stdio: 'ignore'});
+  // A server that starts anyway would never exit; stop it after a while so the test fails instead of hanging.
+  const timer = setTimeout(() => child.kill(), 10000);
   const code = await new Promise(resolve => child.on('exit', resolve));
-  assert.equal(code, 1);
+  clearTimeout(timer);
+  assert.equal(code, 1, 'the server should exit with code 1 instead of starting');
 });
 
 for (const version of ['old', 'new']) {

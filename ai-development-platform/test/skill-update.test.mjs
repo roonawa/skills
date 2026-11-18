@@ -94,6 +94,28 @@ const qaHosts = ['.claude/skills', '.agents/skills'];
 const qaPath = (host, file) => host + '/' + qa + '/' + file;
 const qaReceipt = '.aidev/installed/' + qa;
 const qaVersion = loadSkill(qa).info.version;
+const trackedHistory = fileURLToPath(new URL('../skills/history.json', import.meta.url));
+/** Points the CLI and releasedHashes at a temporary copy of the release history, so the tracked file is never rewritten. */
+function useHistory(t, recorded) {
+  const dir = mkdtempSync(join(tmpdir(), 'aidev-history-'));
+  const file = join(dir, 'history.json');
+  writeFileSync(file, JSON.stringify(recorded));
+  const before = process.env.AIDEV_HISTORY_FILE;
+  process.env.AIDEV_HISTORY_FILE = file;
+  t.after(() => {
+    if (before === undefined) delete process.env.AIDEV_HISTORY_FILE; else process.env.AIDEV_HISTORY_FILE = before;
+    rmSync(dir, {recursive: true, force: true});
+  });
+}
+
+test('releasedHashes reads the history file named by AIDEV_HISTORY_FILE', t => {
+  const tracked = readFileSync(trackedHistory, 'utf8');
+  const recorded = JSON.parse(tracked);
+  recorded[qa]['0.0.1'] = ['0'.repeat(64)];
+  useHistory(t, recorded);
+  assert.deepEqual(releasedHashes(qa)['0.0.1'], ['0'.repeat(64)]);
+  assert.equal(readFileSync(trackedHistory, 'utf8'), tracked);
+});
 /** A project with the qa Skill added and its recorded version set, so an update may be pending. */
 function qaProject(t, version = qaVersion) {
   const root = mkdtempSync(join(tmpdir(), 'aidev-update-'));
@@ -163,12 +185,9 @@ test('verify reports a missing reference file', t => {
 test('update removes a reference that the new release no longer has', t => {
   const project = qaProject(t);
   // Record a past release whose file set had an extra reference, as an installed copy of it would.
-  const history = fileURLToPath(new URL('../skills/history.json', import.meta.url));
-  const original = readFileSync(history, 'utf8');
-  t.after(() => writeFileSync(history, original));
-  const recorded = JSON.parse(original);
+  const recorded = JSON.parse(readFileSync(trackedHistory, 'utf8'));
   recorded[qa]['0.0.9'] = [skillSetHash({...loadSkill(qa).files, 'references/old.md': '古い\n'})];
-  writeFileSync(history, JSON.stringify(recorded));
+  useHistory(t, recorded);
   for (const host of qaHosts) writeFileSync(join(project, qaPath(host, 'references/old.md')), '古い\n');
   writeFileSync(join(project, qaReceipt), '0.0.9\n');
   const updated = run(project, ['skill', 'update', qa]);
@@ -180,12 +199,9 @@ test('update removes a reference that the new release no longer has', t => {
 /** A project interrupted mid-update: the old release's reference file, the new SKILL.md, and the receipt still old. */
 function interruptedQaProject(t, hosts) {
   const project = qaProject(t, '0.0.9');
-  const history = fileURLToPath(new URL('../skills/history.json', import.meta.url));
-  const original = readFileSync(history, 'utf8');
-  t.after(() => writeFileSync(history, original));
-  const recorded = JSON.parse(original);
+  const recorded = JSON.parse(readFileSync(trackedHistory, 'utf8'));
   recorded[qa]['0.0.9'] = [skillSetHash({'SKILL.md': '旧版の SKILL.md\n', 'references/strategy-outline.md': '旧版\n'})];
-  writeFileSync(history, JSON.stringify(recorded));
+  useHistory(t, recorded);
   for (const host of qaHosts) writeFileSync(join(project, qaPath(host, 'references/strategy-outline.md')), '旧版\n');
   // New SKILL.md written, references not yet: the host's set matches no release.
   if (hosts.length) {

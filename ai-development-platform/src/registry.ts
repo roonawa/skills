@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseDocument } from 'yaml';
 import { checked, content, safeName } from './files.js';
@@ -76,9 +76,13 @@ export function skillHash(source: string): string {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
 }
 
-/** Content hashes of every released version of a Skill (skills/history.json, written by scripts/skill-history.mjs). */
+/**
+ * Content hashes of every released version of a Skill (skills/history.json, written by scripts/skill-history.mjs).
+ * The environment variable AIDEV_HISTORY_FILE names another file instead, so tests can use a copy.
+ */
 export function releasedHashes(name: string): Record<string, string[]> {
-  const file = fileURLToPath(new URL('../skills/history.json', import.meta.url));
+  const override = process.env.AIDEV_HISTORY_FILE;
+  const file = override ? resolve(override) : fileURLToPath(new URL('../skills/history.json', import.meta.url));
   const text = content(file);
   if (text === undefined) throw new Error('Skill の版の記録（skills/history.json）がありません。');
   const versions: unknown = (JSON.parse(text) as Record<string, unknown>)[safeName(name)];
