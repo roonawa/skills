@@ -72,6 +72,11 @@
       "d6555b31c6cee0a687e6319e8a075d234ed567442be7444c74729580c99815a0"
     ]
   },
+  "aidev-qa-fix-verify": {
+    "0.1.0": [
+      "c01572b70edc19dcb7af3b42bc9b2a7606fe0a56395809f4183323df7f856a69"
+    ]
+  },
   "aidev-qa-login-session": {
     "0.1.0": [
       "3853f0ffc3a41dbb4225eb747d0becc6971a1eb766159bcecaeace1b2fee32fa"
