@@ -9,32 +9,58 @@
 - `playwright.config.ts`：`setup` のプロジェクトと、それに依存するテストのプロジェクト
 - `tests/auth.setup.ts`：ロールごとにログインし、storageState を保存する
 - `tests/session.ts`：保存したセッションが使えるかを確かめる関数。setup と、後続のテストの前の確認の両方で使う
+- `tests/auth-path.ts`：storageState のファイルの場所を決める関数。setup と設定の両方で使う
 
 ロール、環境変数の名前、入口の URL、ログインが必要なページは、プロファイルから読み取って setup に渡す。コードに環境変数の値を書かない。
+
+## ファイルの場所
+
+storageState のパスを `'.auth/staff.json'` のような相対パスで書くと、Playwright を起動したディレクトリを基準に解決される。QA リポジトリのルートから `npx playwright test -c automation/web` で流すと、ファイルはルートの `.auth/` にでき、`.gitignore` の `automation/web/.auth/` で除外されない。場所は設定ファイルの位置から組み立てる。
+
+```ts
+// automation/web/tests/auth-path.ts
+import path from 'node:path';
+
+/** automation/web/.auth/<role>.json。環境を分けるときは automation/web/.auth/<environment>/<role>.json */
+export const authFile = (role: string, environment?: string) =>
+  path.join(__dirname, '..', '.auth', ...(environment ? [environment] : []), `${role}.json`);
+```
+
+`__dirname` は、Playwright が TypeScript を CommonJS として読み込む既定の構成で使える。`automation/web/package.json` に `"type": "module"` を書いた構成では、`path.dirname(fileURLToPath(import.meta.url))` に置き換える。
 
 ## 設定の例
 
 ```ts
 // automation/web/playwright.config.ts
 import { defineConfig } from '@playwright/test';
+import { authFile } from './tests/auth-path';
 
 export default defineConfig({
   testDir: './tests',
   use: { baseURL: process.env.QA_BASE_URL },  // プロファイルの environments の url を渡す
   projects: [
-    { name: 'setup', testMatch: /auth\.setup\.ts/, timeout: 60_000 },
-    { name: 'staff', dependencies: ['setup'], use: { storageState: '.auth/staff.json' } },
+    {
+      name: 'setup',
+      testMatch: /auth\.setup\.ts/,
+      timeout: 60_000,
+      // トレースは入力した値（パスワード）と通信（ログインの POST、Set-Cookie）を、動画とスクリーンショットは画面を記録する
+      use: { trace: 'off', video: 'off', screenshot: 'off' },
+    },
+    { name: 'staff', dependencies: ['setup'], use: { storageState: authFile('staff') } },
   ],
 });
 ```
 
-`QA_BASE_URL` のような実行時の値は、作業者がシェルで設定するか、setup が読むプロファイルから決める。どちらにするかは QA リポジトリの決まりに合わせる。ロールが多いときは、プロジェクトをロールごとに作るより、テストの中で `test.use({ storageState: '.auth/<role>.json' })` を指定するほうが見通しがよい。
+setup のプロジェクトでは、トレース、動画、失敗時のスクリーンショットを切る。全体の `use` で `trace: 'on'` や `'retain-on-failure'` にしている QA リポジトリでも、setup だけはプロジェクトの `use` で上書きする。setup のトレースや動画は証跡にしない。失敗の診断には、setup のコードが取る画面の本文のテキストを使う。
+
+`QA_BASE_URL` のような実行時の値は、作業者がシェルで設定するか、setup が読むプロファイルから決める。どちらにするかは QA リポジトリの決まりに合わせる。ロールが多いときは、プロジェクトをロールごとに作るより、テストの中で `test.use({ storageState: authFile('<role>') })` を指定するほうが見通しがよい。
 
 ## setup の例
 
 ```ts
 // automation/web/tests/auth.setup.ts
 import { test as setup } from '@playwright/test';
+import { authFile } from './auth-path';
 import { assertSignedIn } from './session';
 
 // プロファイルの roles と login から作る。値ではなく環境変数の名前を持つ
@@ -43,6 +69,7 @@ const roles = [
 ];
 const loginPath = '/login';      // login.entry_url のパス
 const protectedPath = '/items';  // プロファイルの到達手順にある、ログインが必要なページ
+const waitMs = 30_000;
 
 for (const role of roles) {
   setup(`${role.name} のセッションを作る`, async ({ page, browser, baseURL }) => {
@@ -56,23 +83,30 @@ for (const role of roles) {
     await page.getByLabel('パスワード').fill(password);
     await page.getByRole('button', { name: 'ログイン' }).click();
 
-    // 判定。ログイン画面から離れるか、エラーが出るかを待つ
-    await page.waitForLoadState();
-    const landed = new URL(page.url());
-    if (landed.pathname === loginPath) {
+    // ログイン画面から離れるか、エラーの表示が出るかの早いほうを待つ。どちらも起きなければ timeout
+    const left = page.waitForURL(u => u.pathname !== loginPath, { timeout: waitMs }).then(() => 'left' as const, () => 'timeout' as const);
+    const shown = page.getByRole('alert').waitFor({ state: 'visible', timeout: waitMs }).then(() => 'error' as const, () => 'timeout' as const);
+    const outcome = await Promise.race([left, shown]);
+
+    if (outcome !== 'left') {
+      await page.getByLabel('パスワード').fill('').catch(() => {});  // 診断の前に、入力した値を画面から消す
       const text = (await page.locator('body').innerText()).slice(0, 500);
-      throw new Error(`${role.name}: アプリで拒否（ログイン画面のまま）。資格情報かアカウントの状態を確かめる。画面: ${text}`);
+      if (outcome === 'error') throw new Error(`${role.name}: アプリで拒否（エラーの表示あり）。資格情報かアカウントの状態を確かめる。画面: ${text}`);
+      throw new Error(`${role.name}: 着地点が不明（${waitMs / 1000} 秒待っても ${new URL(page.url()).pathname} のまま、エラーの表示なし）。画面: ${text}`);
     }
+    const landed = new URL(page.url());
     if (landed.origin !== appOrigin || landed.pathname === '/') {
-      throw new Error(`${role.name}: 着地点が不明（${landed.pathname}）`);
+      throw new Error(`${role.name}: 着地点が不明（${landed.origin}${landed.pathname}）`);
     }
 
-    const path = `.auth/${role.name}.json`;
-    await page.context().storageState({ path });
-    await assertSignedIn(browser, baseURL, path, protectedPath, loginPath);
+    const file = authFile(role.name);
+    await page.context().storageState({ path: file });
+    await assertSignedIn(browser, baseURL, file, protectedPath, loginPath);
   });
 }
 ```
+
+`waitForLoadState()` で待ってから URL を見る書き方にしない。フォームを XHR で送る画面では読み込みがすぐに終わり、まだログイン画面の URL のまま判定して、成功するはずのログインを「アプリで拒否」と誤る。エラーの表示の探し方（例では `role="alert"`）は、対象のアプリで失敗したときに実際に出る要素に合わせる。エラーを同じ URL のまま出すアプリも、`/login?error` のように別のクエリで出すアプリもあるため、URL ではなく表示で拒否を判定する。
 
 ```ts
 // automation/web/tests/session.ts
@@ -99,7 +133,7 @@ export async function assertSignedIn(browser: Browser, baseURL: string | undefin
 ## 落とし穴
 
 - ログインの失敗を、HTTP の状態コードだけで判定しない。失敗してもログイン画面を 200 で返すアプリも、401 で返すアプリもある。着地点と画面で判定する
-- 送信の後に `waitForURL` で一覧などの特定のパスを待つと、失敗したときにタイムアウトの例外になり、どの判定かが分からない。ログイン画面から離れるのを待つか、読み込みの完了を待ってから URL を見る
+- 送信の後に `waitForURL` で一覧などの特定のパスを待つと、失敗したときにタイムアウトの例外になり、どの判定かが分からない。上の例のように、ログイン画面から離れることとエラーの表示が出ることの早いほうを待ち、その後で判定する
 - ログインの後の遷移先が、直前に開こうとしたページ（リターン URL）で変わるアプリがある。入口は毎回同じ URL から始める
 - 入力欄はラベルやロールで探す。CSS のクラス名はデザインの変更で変わりやすい。ラベルがない画面では、`name` 属性や `data-testid` を使う
 - ユーザー名とパスワードが2段階に分かれた画面では、2段目の入力欄が現れるのを待ってから入力する。どちらの段のボタンも同じ表示名のことがある

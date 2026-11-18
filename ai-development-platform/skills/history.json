@@ -30,6 +30,9 @@
   "aidev-qa-login-session": {
     "0.1.0": [
       "3853f0ffc3a41dbb4225eb747d0becc6971a1eb766159bcecaeace1b2fee32fa"
+    ],
+    "0.1.1": [
+      "d55c0f9682b2d1f3724bef01c0e60ab3de5e72d71caaa3c5298d26099a622c09"
     ]
   },
   "aidev-qa-strategy": {
