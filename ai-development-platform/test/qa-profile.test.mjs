@@ -63,3 +63,20 @@ test('flow-style lines: a secret after an _env key is found, env names under _en
   assert.ok(checkProfileText('p.md', valid + 'password: ADMIN123\n').errors.some(e => e.code === 'secret'));
   assert.deepEqual(checkProfileText('p.md', valid + 'roles: [{name: a, password_env: A_PW}]\n').errors.filter(e => e.code === 'secret'), []);
 });
+test('detect secrets written as a list', () => {
+  const r = checkProfileText('p.md', valid.replace('evidence:', 'api_key:\n  - sk_live_abcdef123456\nevidence:'));
+  assert.ok(r.errors.some(e => e.code === 'secret' && e.path === 'api_key'));
+  assert.ok(!JSON.stringify(r).includes('sk_live'));
+});
+test('allow keys that merely contain pass', () => {
+  for (const line of ['pass_rate: 0.95', 'passing_score: 80', 'bypass_login: true', 'compass_view: north', 'tokenizer: kuromoji', 'password_reset_url: "https://localhost/reset"']) {
+    const r = checkProfileText('p.md', valid.replace('evidence:', line + '\nevidence:'));
+    assert.deepEqual(r.errors.filter(e => e.code === 'secret'), [], line);
+  }
+});
+test('still detect whole-word secret keys', () => {
+  for (const line of ['pass: hunter2', 'db_password: x1', 'auth_token: abc', 'api-key: abc', 'client_secret: abc', 'credentials: abc']) {
+    const r = checkProfileText('p.md', valid.replace('evidence:', line + '\nevidence:'));
+    assert.ok(r.errors.some(e => e.code === 'secret'), line);
+  }
+});

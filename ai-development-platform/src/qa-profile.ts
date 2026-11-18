@@ -43,17 +43,44 @@ const secretPatterns: {name: string; pattern: RegExp}[] = [
   {name: '秘密鍵', pattern: /-----BEGIN [A-Z ]*PRIVATE KEY-----/},
   {name: '認証情報を含む URL', pattern: /:\/\/[^\s/:@]+:[^\s/@]+@/},
 ];
-/** Keys whose value is a credential. Checked on the parsed front matter, so any YAML form of the value is found. */
-const secretKey = /pass(?:word|wd)?|pwd|secret|token|api[_-]?key|credential/i;
-const keyValue = /([A-Za-z0-9_-]*(?:password|passwd|secret|token)[A-Za-z0-9_-]*)["']?\s*[:=]\s*([^,}\n]+)/ig;
+const secretWords = new Set(['password', 'passwd', 'pwd', 'secret', 'token', 'apikey', 'credential', 'credentials']);
+const keyValue = /([A-Za-z0-9_-]+)["']?\s*[:=]\s*([^,}\n]+)/g;
+
+/** A URL that is valid for the profile (http or https) and carries no user name or password. */
+function plainUrl(value: unknown): boolean {
+  try {
+    if (typeof value !== 'string') return false;
+    const parsed = new URL(value.trim());
+    return ['http:', 'https:'].includes(parsed.protocol) && !parsed.username && !parsed.password;
+  } catch { return false; }
+}
+
+/**
+ * Whether a key names a credential, judged by the words of the key (split at _ and -), so `pass_rate` or
+ * `tokenizer` are not credentials. `*_env` keys hold environment variable names and are never credentials.
+ * The one exception: a `*_url` key whose value is a plain URL (for example `password_reset_url`).
+ * Used by both the front matter walk and the line scan so they agree.
+ */
+function isSecretKey(key: string, value: unknown): boolean {
+  const words = key.toLowerCase().split(/[_-]+/).filter(Boolean);
+  if (words.length === 0 || words[words.length - 1] === 'env') return false;
+  const named = words.join('_') === 'pass' || words.some((word, i) => secretWords.has(word) || (word === 'api' && words[i + 1] === 'key'));
+  if (!named) return false;
+  return !(words[words.length - 1] === 'url' && plainUrl(value));
+}
+
+/** A non-empty scalar, or a list holding at least one (at any depth). */
+function hasScalar(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(hasScalar);
+  return typeof value === 'number' || typeof value === 'boolean' || (typeof value === 'string' && value.trim() !== '');
+}
 
 function secretIn(line: string): string | undefined {
   for (const {name, pattern} of secretPatterns) if (pattern.test(line)) return name;
   for (const match of line.matchAll(keyValue)) {
     const key = match[1];
-    if (/_env$/i.test(key)) continue;
     const value = match[2].replace(/\s+#.*$/, '').replace(/[\s,}\]'"]+$/, '').replace(/^['"\s]+/, '');
-    if (!value) continue;
+    if (!value || !isSecretKey(key, value)) continue;
     return key + ' に値が書かれています';
   }
   return undefined;
@@ -110,8 +137,7 @@ export function checkProfileText(file: string, text: string, skill?: string): Pr
     else if (isObject(value)) {
       for (const [key, entry] of Object.entries(value)) {
         const next = path ? path + '.' + key : key;
-        const scalar = typeof entry === 'number' || typeof entry === 'boolean' || (typeof entry === 'string' && entry.trim() !== '');
-        if (!/_env$/i.test(key) && secretKey.test(key) && scalar) {
+        if (isSecretKey(key, entry) && hasScalar(entry)) {
           error('secret', next + ' に値が書かれています。秘密情報は環境変数の名前（' + key + '_env など）だけを書いてください。', next);
         } else findSecretKeys(entry, next);
       }
