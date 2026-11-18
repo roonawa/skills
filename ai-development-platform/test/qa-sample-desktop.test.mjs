@@ -26,3 +26,13 @@ test('desktop sample stock.csv has header and 5 rows', () => {
   assert.equal(lines[0], '品名,数量,置き場所');
   assert.equal(lines.length, 6);
 });
+// Not in requirements.md (the AC count stays within the sample's range); the app only must not crash on a failed save.
+test('desktop sample shows an error message instead of crashing when saving fails', () => {
+  const source = readFileSync(join(appDir, 'MainWindow.xaml.cs'), 'utf8');
+  const expected = readFileSync(join(sampleDir, 'EXPECTED.md'), 'utf8');
+  const message = '保存できませんでした';
+  assert.ok(expected.includes(message), 'EXPECTED.md explains the save error is not a planted defect');
+  const save = source.slice(source.indexOf('void OnSave'), source.indexOf('void OnDelete'));
+  assert.match(save, /catch \(.*(IOException|UnauthorizedAccessException)/);
+  assert.ok(save.includes(message), 'OnSave shows ' + message);
+});

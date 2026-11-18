@@ -56,7 +56,15 @@ public partial class MainWindow : Window
 
         var lines = new List<string> { Header };
         lines.AddRange(items.Select(i => string.Join(",", Escape(i.Name), Escape(i.Quantity), Escape(i.Location))));
-        File.WriteAllLines(dialog.FileName, lines, new UTF8Encoding(false));
+        try
+        {
+            File.WriteAllLines(dialog.FileName, lines, new UTF8Encoding(false));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            MessageBox.Show(this, "保存できませんでした", "在庫一覧", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
         StatusText.Text = "保存しました";
     }
 
