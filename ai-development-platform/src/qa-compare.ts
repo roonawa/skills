@@ -45,11 +45,14 @@ function validate(manifest: unknown): asserts manifest is CompareManifest {
       const at = 'screens['+s+'].testCases['+c+']';
       if (!isObject(tc) || !Array.isArray(tc.results)) throw new Error('マニフェストの形式が不正です: ' + at + ' に name と results が必要です。');
       text(tc.name,at+'.name'); text(tc.note,at+'.note',true);
+      const seen = new Set<number>();
       tc.results.forEach((r: unknown, i: number) => {
         const rat = at+'.results['+i+']';
         if (!isObject(r) || !Number.isInteger(r.round) || (r.round as number) < 0 || (r.round as number) >= count) {
           throw new Error('マニフェストの形式が不正です: ' + rat + '.round は 0 以上 ' + count + ' 未満の整数にしてください。');
         }
+        if (seen.has(r.round as number)) throw new Error('マニフェストの形式が不正です: ' + at + ' に round ' + String(r.round) + ' の結果が 2 件あります。1 つの round に 1 件にしてください。');
+        seen.add(r.round as number);
         text(r.status,rat+'.status'); text(r.note,rat+'.note',true); text(r.screenshot,rat+'.screenshot',true);
         if (r.screenshots !== undefined && (!Array.isArray(r.screenshots) || r.screenshots.some(p => typeof p !== 'string'))) {
           throw new Error('マニフェストの形式が不正です: ' + rat + '.screenshots は文字列の配列にしてください。');
@@ -157,7 +160,7 @@ export function compareReport(root: string, manifestFile: string, outFile: strin
   const manifestPath = checked(root, manifestFile);
   const out = checked(root, outFile);
   if (out.toLowerCase() === manifestPath.toLowerCase()) throw new Error('出力先がマニフェストと同じです: ' + outFile);
-  if (!/\.html?$/i.test(outFile)) throw new Error('出力先は .html で終わるファイル名にしてください: ' + outFile);
+  if (!/\.html?$/i.test(outFile)) throw new Error('出力先は .html か .htm で終わるファイル名にしてください: ' + outFile);
   const raw = content(manifestPath);
   if (raw === undefined) throw new Error('マニフェストが見つかりません: ' + manifestFile);
   let manifest: unknown;

@@ -47,7 +47,7 @@ CLI は既存プロジェクトの AGENTS.md を上書きしない。既存プ�
 |verify|プロジェクト直下。登録した Skill の欠損・内容差・版差を検出。未登録なら空配列|
 |check|プロジェクト直下。aidev.json の template に対応するアプリの検査結果を JSON で返す。qa では knowledge/<製品>/profile.md ごとに、--skill なしの qa profile check と同じ検査（形式・秘密情報・product の有無）を行う。Skill ごとの必須項目は見ない。1件もなければ 2 を返す|
 |qa profile check FILE [--skill NAME]|任意の場所。FILE は実行場所から下の相対パスで指定する（絶対パスや .. は使えない）。QA の案件プロファイルの形式と秘密情報らしい値を検査し、--skill を付けるとその Skill の必須項目も検査する|
-|qa compare-report MANIFEST OUT [--link]|任意の場所。新旧の証跡を並べた自己完結の比較 HTML を作る。MANIFEST は比較マニフェスト（JSON）、OUT は .html か .htm で終わり、MANIFEST と別のファイル。画像は png・jpg・jpeg・gif・webp で1枚20 MiB まで、マニフェストと同じディレクトリの下に置く。既定は画像を HTML に埋め込み、--link を付けると OUT のディレクトリの assets/ へ複製して参照する|
+|qa compare-report MANIFEST OUT [--link]|任意の場所。新旧の証跡を並べた自己完結の比較 HTML を作る。MANIFEST は比較マニフェスト（JSON）、OUT は .html か .htm で終わり、MANIFEST と別のファイル。MANIFEST と OUT はカレントディレクトリの下を指す相対パスにする（絶対パスや .. は使えない）。画像は png・jpg・jpeg・gif・webp で1枚20 MiB まで、マニフェストと同じディレクトリの下に置く。既定は画像を HTML に埋め込み、--link を付けると OUT のディレクトリの assets/ へ複製して参照する|
 |spec check FILE|任意の場所。FILE は実行場所から下の相対パスで指定する（絶対パスや .. は使えない）。実装ループに渡す仕様書の形式（受け入れ条件・やらないこと・判断待ち）を検査する|
 |workflow check TASK --review FILE|一つの実装タスクに対し、単体テスト・セキュリティ・仕様乖離と過剰実装のゲート結果と修正回数を記録して次の作業を決める|
 |workflow run TASK --spec FILE|実装・レビュー・ゲートを別々の Claude Code セッションで自動で回し、review か needs-human で止まる|

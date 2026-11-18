@@ -89,6 +89,11 @@ test('reject a round index out of range, negative or fractional, and a bad manif
   manifest(root, {rounds:[]}); fails(root, /rounds は 1 件以上/);
   manifest(root); fails(root, /不正なパスです/, ['../m.json', 'r.html']);
 });
+test('reject two results with the same round in one test case', t => {
+  const root = sandbox(t);
+  manifest(root, {screens:[{screen:'s', testCases:[{name:'t', results:[{round:1, status:'ok'}, {round:1, status:'NG'}]}]}]});
+  fails(root, /round 1 の結果が 2 件あります/);
+});
 test('escape quotes and angle brackets in text and the alt attribute', t => {
   const root = sandbox(t);
   manifest(root, {screens:[{screen:'s"\'<', testCases:[{name:'n"\'<x', results:[{round:0, status:'ok', screenshot:'shots/a.png'}]}]}]});
@@ -111,7 +116,7 @@ test('refuse an output that is the manifest or not html', t => {
   const root = sandbox(t); manifest(root);
   const before = readFileSync(join(root, 'ev', 'm.json'), 'utf8');
   fails(root, /マニフェストと同じ/, ['ev/m.json', 'ev/m.json']);
-  fails(root, /.html で終わる/, ['ev/m.json', 'ev/out.json']);
+  fails(root, /.html か .htm で終わる/, ['ev/m.json', 'ev/out.json']);
   assert.equal(readFileSync(join(root, 'ev', 'm.json'), 'utf8'), before);
 });
 test('link mode url-encodes the src and keeps the raw copy path', t => {

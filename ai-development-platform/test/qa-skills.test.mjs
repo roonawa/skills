@@ -9,7 +9,7 @@ const forbiddenPatterns = [
   // 旧 Skill の案件固有の語（移行メモに移したもの）。LoginView や Shibboleth のような一般的な語は入れない
   'allcweb', 'onelogin\\.com', 'nas01', 'gakumu', '学務共有', 'キャンパス情報システム',
   'campus-(api|login|syllabus)', 'capi-changes', 'test-regression-branch',
-  'DesktopS[TU]', 'CsAuthClient', 'WebResourceForwarder', 'JOBOB', 'KIGYOU', 'DaimokuKensaku',
+  'DesktopS[TU]\\b', 'CsAuthClient', 'WebResourceForwarder', 'JOBOB', 'KIGYOU', 'DaimokuKensaku',
   'Syuutyuu', 'Syuutoku', 'SeisekiInput', 'TblBuseiseki', 'mst_kengen', 'shinshu', 'E2E_TARGET',
 ];
 const forbidden = new RegExp(forbiddenPatterns.join('|'), 'i');
