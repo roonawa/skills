@@ -8,6 +8,8 @@ import { parseTemplate, templateFiles, type Template } from './adapter.js';
 const config = 'aidev.json';
 const hosts = ['.claude/skills','.agents/skills'];
 const receipts = '.aidev/installed';
+// Lists the hosts verified as a released copy before an update began writing; see updateSkill.
+const updating = '.aidev/updating';
 // Skills call the CLI by name; the path differs per machine, so each worker sets AIDEV_CLI.
 const agents = [
   '# 開発規約',
@@ -80,14 +82,21 @@ export function updateSkill(root: string, name: string, dryRun: boolean) {
   const writes: [string,string][] = [];
   const removed: string[] = [];
   const edited: string[] = [];
+  // An interrupted update leaves a mix of old and new files in a host. Hosts verified before it began writing are
+  // listed in the marker, so a retry replaces them instead of mistaking the mix for a user edit.
+  const markerText = content(checked(root,updating+'/'+name));
+  let verified: string[] = [];
+  try { verified = markerText === undefined ? [] : hosts.filter(host => (JSON.parse(markerText) as string[]).includes(host)); } catch { /* an unreadable marker vouches for nothing */ }
+  const released: string[] = [];
   for (const host of hosts) {
     const base = host+'/'+name+'/';
     const current = installedFiles(root,host,name);
-    if (current !== undefined && skillSetHash(current) === target) continue;
-    if (current !== undefined && !known.includes(skillSetHash(current))) {
+    if (current !== undefined && skillSetHash(current) === target) { released.push(host); continue; }
+    if (current !== undefined && !known.includes(skillSetHash(current)) && !verified.includes(host)) {
       edited.push(...Object.keys(current).map(path => base+path));
       continue;
     }
+    released.push(host);
     for (const [path,text] of Object.entries(files)) {
       if (current?.[path] === undefined || skillHash(current[path]) !== skillHash(text)) writes.push([base+path,text]);
     }
@@ -110,9 +119,11 @@ export function updateSkill(root: string, name: string, dryRun: boolean) {
       writeFileSync(temp,text,{flag:'wx'});
       renameSync(temp,target);
     };
+    if (writes.length || removed.length) replace([updating+'/'+name,JSON.stringify(released)]);
     writes.forEach(replace);
     for (const path of removed) unlinkSync(checked(root,path));
     receiptWrite.forEach(replace);
+    if (markerText !== undefined || writes.length || removed.length) unlinkSync(checked(root,updating+'/'+name));
   }
   return {name,from,to:info.version,pending:[...writes.map(([path]) => path),...removed,...receiptWrite.map(([path]) => path)]};
 }

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -152,4 +152,47 @@ test('update removes a reference that the new release no longer has', t => {
   for (const host of qaHosts) assert.equal(existsSync(join(project, qaPath(host, 'references/old.md'))), false);
   assert.ok(updated.pending.includes(qaPath('.claude/skills', 'references/old.md')));
   assert.equal(read(project, qaReceipt), '0.1.0\n');
+});
+
+/** A project interrupted mid-update: the old release's reference file, the new SKILL.md, and the receipt still old. */
+function interruptedQaProject(t, hosts) {
+  const project = qaProject(t, '0.0.9');
+  const history = fileURLToPath(new URL('../skills/history.json', import.meta.url));
+  const original = readFileSync(history, 'utf8');
+  t.after(() => writeFileSync(history, original));
+  const recorded = JSON.parse(original);
+  recorded[qa]['0.0.9'] = [skillSetHash({'SKILL.md': '旧版の SKILL.md\n', 'references/strategy-outline.md': '旧版\n'})];
+  writeFileSync(history, JSON.stringify(recorded));
+  for (const host of qaHosts) writeFileSync(join(project, qaPath(host, 'references/strategy-outline.md')), '旧版\n');
+  // New SKILL.md written, references not yet: the host's set matches no release.
+  if (hosts.length) {
+    mkdirSync(join(project, '.aidev/updating'), {recursive: true});
+    writeFileSync(join(project, '.aidev/updating/' + qa), JSON.stringify(hosts));
+  }
+  return project;
+}
+
+test('an update interrupted inside a host can be retried', t => {
+  const project = interruptedQaProject(t, qaHosts);
+  const updated = run(project, ['skill', 'update', qa]);
+  for (const host of qaHosts) for (const file of qaFiles) assert.equal(read(project, qaPath(host, file)), loadSkill(qa).files[file]);
+  assert.equal(read(project, qaReceipt), '0.1.0\n');
+  assert.equal(existsSync(join(project, '.aidev/updating/' + qa)), false);
+  assert.ok(updated.pending.includes(qaReceipt));
+  assert.deepEqual(run(project, ['verify']).skills.filter(skill => skill === qa), [qa]);
+});
+
+test('the in-progress marker does not vouch for a host it does not list', t => {
+  const project = interruptedQaProject(t, ['.claude/skills']);
+  const unlisted = qaPath('.agents/skills', 'references/strategy-outline.md');
+  writeFileSync(join(project, unlisted), '社内の追記\n');
+  assert.match(run(project, ['skill', 'update', qa], 1).error, /\.agents\/skills\/aidev-qa-strategy\/references\/strategy-outline\.md/);
+  assert.match(read(project, unlisted), /社内の追記/);
+  assert.equal(read(project, qaReceipt), '0.0.9\n');
+});
+
+test('without a marker a mixed copy is refused', t => {
+  const project = interruptedQaProject(t, []);
+  // The mix: SKILL.md is the bundled one, the reference is the old release's.
+  assert.match(run(project, ['skill', 'update', qa], 1).error, /更新しません/);
 });
