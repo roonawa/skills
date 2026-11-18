@@ -87,13 +87,13 @@ const methods = fake => fake.calls.map(c => c.method + ' ' + new URL(c.url).path
 
 test('build a title and body from the NG detail', () => {
   const {title, body} = buildIssue(result, 'TC-order-002', {product: 'sample-web', run: RUN});
-  assert.equal(title, '[TC-order-002] 数量が上限を 1 超えると注文できない');
+  assert.equal(title, '［TC-order-002］ 数量が上限を 1 超えると注文できない');
   assert.equal(body.split('\n')[0], MARKER);
   for (const part of ['AC-022', 'TC-order-002', RUN, '1. 購入者のロール（SAMPLE_BUYER_USER）でログインする',
     '2. 商品の詳細画面（商品コード P-0001）で数量に 100 を入れ、注文を押す',
     '注文されず、数量の欄の下に「数量は 99 以下にしてください」と表示される',
     '注文履歴の画面に移り、数量 100 の注文が先頭の行に出た', '- POST /api/orders 201',
-    'runs/20261118-new-cases/evidence/TC-order-002/（02-after-submit.png', '3回とも同じ', '設計書 4.2', '環境: new', '2.3.0']) {
+    'runs/20261118-new-cases/evidence/TC-order-002/（02-after-submit.png', '3回とも同じ', '設計書 4.2', '\n環境\n\n```\nnew\n```\n', '2.3.0']) {
     assert.ok(body.includes(part), part);
   }
   for (const heading of ['## 再現手順', '## 期待結果', '## 実際の結果', '## 再現の回数', '## 証跡の場所']) assert.ok(body.includes('\n' + heading + '\n'), heading);
@@ -158,7 +158,7 @@ test('dry run sends nothing and writes nothing', async t => {
   assert.equal(out.dryRun, true);
   assert.equal(out.created, false);
   assert.equal(out.issue, null);
-  assert.equal(out.title, '[TC-order-002] 数量が上限を 1 超えると注文できない');
+  assert.equal(out.title, '［TC-order-002］ 数量が上限を 1 超えると注文できない');
   assert.ok(out.body.startsWith(MARKER));
   assert.deepEqual(out.to, {type: 'gitea', url: BASE, repo: 'qa-org/sample-web'});
   assert.deepEqual(readdirSync(join(box.root, ...RUN.split('/'))), ['result.md']);
@@ -327,7 +327,7 @@ test('the CLI creates an issue with GITEA_TOKEN and never prints it', async t =>
   const real = await invoke([], TOKEN);
   assert.equal(real.status, 0, real.out);
   assert.ok(!real.out.includes(TOKEN));
-  assert.deepEqual(JSON.parse(real.out), {ok: true, issue: {number: 9, url: 'http://127.0.0.1/i/9'}, created: true, dryRun: false, resultUpdated: true, neutralized: {}, ignored: []});
+  assert.deepEqual(JSON.parse(real.out), {ok: true, issue: {number: 9, url: 'http://127.0.0.1/i/9'}, created: true, dryRun: false, resultUpdated: true, ignored: []});
   assert.ok(box.read().includes('evidence/TC-order-002/ | #9 |'));
   const repeat = await invoke([], TOKEN);
   assert.equal(JSON.parse(repeat.out).created, false);
@@ -335,42 +335,83 @@ test('the CLI creates an issue with GITEA_TOKEN and never prints it', async t =>
 });
 
 /** The text left after removing fenced blocks and inline code spans (what Gitea would process). */
-function outsideCode(markdown) {
-  let fenced = false;
-  return markdown.split('\n').filter(line => {
-    if (/^\s*(`{3,}|~{3,})/.test(line)) { fenced = !fenced; return false; }
-    return !fenced;
-  }).map(line => line.replace(/(`+)[\s\S]*?\1/g, '')).join('\n');
+/**
+ * The lines Gitea would render as Markdown: everything outside fenced code blocks, parsed the CommonMark way
+ * (an opening fence of 3+ backticks or tildes indented up to 3 spaces, a backtick fence's info string has no
+ * backtick, the closing fence uses the same character, is at least as long, and has only spaces after it).
+ */
+function outsideFences(markdown) {
+  const outside = [];
+  let fence;
+  for (const line of markdown.split('\n')) {
+    if (fence) {
+      const close = /^ {0,3}(`{3,}|~{3,})[ \t]*$/.exec(line);
+      if (close && close[1][0] === fence[0] && close[1].length >= fence.length) fence = undefined;
+      continue;
+    }
+    const open = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (open && !(open[1][0] === '`' && open[2].includes('`'))) { fence = open[1]; continue; }
+    outside.push(line);
+  }
+  return outside.join('\n');
 }
 
-const probe = '@admin #12 other/repo#3 ![x](https://evil.example/p.png) <img src=https://e/x> ' + BASE + '/o/r/issues/4 ![y][ref] qa@example.com `@keep #7`';
+// Every probe carries ZZ so its text can be traced. Bypasses reported in rounds 2 and 3.
+const probes = [
+  'ZZ1 @admin #12 other/repo#3 !12 owner/repo!3 ' + BASE + '/o/r/issues/4 qa@example.com',
+  'ZZ2 ![x](https://evil.example/p.png) ![y][ref] <img src=https://e/x> <b>bold</b> <!-- c -->',
+  'ZZ3 `a @x',
+  'ZZ4 ` ![x](https://evil.example/p.png)',
+  'ZZ5 `span starts here',
+  'ZZ6 and ends here` @after',
+  '    ```',
+  'ZZ7 after an indented pseudo-fence @x',
+  '```js`x',
+  'ZZ8 after a fence with a backtick info string @x',
+  '```',
+  'ZZ9 after three backticks <img src=https://e/y>',
+  '````',
+  'ZZ10 after four backticks @x',
+  '````',
+  '~~~',
+  'ZZ11 after a tilde fence @x',
+  '~~~',
+  'ZZ12 ![multi',
+  'line](https://evil.example/m.png)',
+  'ZZ13 ![' + 'a'.repeat(3000) + '](https://evil.example/' + 'b'.repeat(3000) + '.png)',
+];
 const probed = result
-  .replace('- 実際の結果: 注文履歴の画面に移り、', '- 実際の結果: ' + probe + ' 注文履歴の画面に移り、')
-  .replace('  - POST /api/orders 201', '  @fenced #8 <b>')
-  .replace('### TC-order-002 数量が上限を 1 超えると注文できない', '### TC-order-002 数量 @owner #99 の上限');
+  .replace('- 実際の結果: 注文履歴の画面に移り、', '- 実際の結果: ZZ0 @actual\n' + probes.map(line => '  ' + line).join('\n') + '\n  注文履歴の画面に移り、')
+  .replace('- AC: AC-022', '- AC: AC-022 ZZa @ac ``` ![a](https://evil.example/a.png)')
+  .replace('- テスト: automation', '- テスト: ZZt ```` #5 automation')
+  .replace('- 再現: 3回とも同じ', '- 再現: ZZr `` !7')
+  .replace('- 補足: 期待結果', '- 補足: ZZn <img src=https://e/n> 期待結果')
+  .replace('- 環境: new', '- 環境: ZZe @env')
+  .replace('- 版: 2.3.0', '- 版: ZZv ` #1 2.3.0')
+  .replace('### TC-order-002 数量が上限を 1 超えると注文できない', '### TC-order-002 数量 @owner #99 !3 o/r#4 <img src=x> [a](b) \\ ` の上限');
 
-test('mentions, references, images and HTML are neutralized outside code', () => {
+test('every value copied from result.md stays inside a fenced block', () => {
   const {title, body} = buildIssue(probed, 'TC-order-002', {product: 'sample-web', run: RUN});
-  const rest = outsideCode(body.split('\n').slice(1).join('\n')) + '\n' + outsideCode(title);
-  for (const pattern of [/(^|[^\w])@\w/,/(^|[^\w])#\d/, /\w\/\w+#\d/, /!\[/, /<[a-z/!]/i, /\/issues\/\d/]) assert.doesNotMatch(rest, pattern, String(pattern));
-  for (const part of ['`@admin`', '`#12`', '`other/repo#3`', '`![x](https://evil.example/p.png)`', '`<img src=https://e/x>`',
-    '`' + BASE + '/o/r/issues/4`', '`![y][ref]`', ' qa@example.com ', '`@keep #7`', '  @fenced #8 <b>'.trim()]) {
-    assert.ok(body.includes(part), part);
+  const outside = outsideFences(body);
+  assert.doesNotMatch(outside, /ZZ/);
+  for (const pattern of [/@/, /!\d/, /!\[/, /<(?!!-- aidev-qa: sample-web TC-order-002 -->)/]) assert.doesNotMatch(outside, pattern, String(pattern));
+  for (const tag of ['ZZ0', 'ZZ13', 'ZZa', 'ZZt', 'ZZr', 'ZZn', 'ZZe', 'ZZv', ...probes.filter(p => p.startsWith('ZZ')).map(p => p.split(' ')[0])]) {
+    assert.ok(body.includes(tag), tag);
   }
-  assert.equal(title, '[TC-order-002] 数量 `@owner` `#99` の上限');
   assert.equal(body.split('\n')[0], MARKER);
+  assert.doesNotMatch(title, /[@#!<>[\]()\\`]/);
+  assert.equal(title, '［TC-order-002］ 数量 ＠owner ＃99 ！3 o/r＃4 ＜img src=x＞ ［a］（b） ＼ ｀ の上限');
 });
 
-test('the output lists what was neutralized by kind, without values', async t => {
-  const box = sandbox(t, probed);
-  const out = await createIssueFromRun(box.options({dryRun: true}));
-  assert.deepEqual(out.neutralized, {mention: 2, reference: 4, image: 2, html: 1});
-  const fake = fakeGitea(handler());
-  const real = await createIssueFromRun(sandbox(t, probed).options({transport: fake.transport}));
-  assert.deepEqual(real.neutralized, out.neutralized);
-  assert.equal(JSON.parse(fake.calls[2].body).body, out.body);
-  assert.ok(!JSON.stringify(real).includes('evil.example'));
-  assert.deepEqual((await createIssueFromRun(sandbox(t).options({dryRun: true}))).neutralized, {});
+test('a value is fenced by a run longer than any run inside it', () => {
+  const {body} = buildIssue(probed, 'TC-order-002', {product: 'sample-web', run: RUN});
+  // The actual result holds a run of four backticks, so its fence has five; the AC holds three, so four.
+  const lines = body.split('\n');
+  const after = text => lines[lines.indexOf(text) - 1];
+  assert.equal(after('ZZ0 @actual'), '`````');
+  assert.equal(after('AC-022 ZZa @ac ``` ![a](https://evil.example/a.png)'), '````');
+  assert.equal(after('ZZr `` !7'), '```');
+  assert.equal(lines[lines.indexOf('ZZr `` !7') + 1], '```');
 });
 
 test('the duplicate marker counts only on the first line of the body', async t => {
@@ -415,6 +456,6 @@ test('many continuation lines and a long case name are handled', () => {
     .replace('### TC-order-004 送料が表示されない', '### TC-order-004 ' + 'あ'.repeat(400));
   const {title, body} = buildIssue(many, 'TC-order-004', {product: 'sample-web', run: RUN});
   assert.ok([...title].length <= 255, String([...title].length));
-  assert.ok(title.startsWith('[TC-order-004] あ'));
+  assert.ok(title.startsWith('［TC-order-004］ あ'));
   assert.ok(body.includes('x\nx\nx'));
 });

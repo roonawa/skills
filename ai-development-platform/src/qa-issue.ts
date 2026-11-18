@@ -112,82 +112,29 @@ function headerValue(lines: Line[], end: number, label: string): string | undefi
   return undefined;
 }
 
-export type NeutralizedKind = 'mention' | 'reference' | 'image' | 'html';
-export type Neutralized = Partial<Record<NeutralizedKind, number>>;
-
 /**
- * Text that would make Gitea do more than create the issue: @mentions notify users, #12, owner/repo#3 and issue
- * URLs add cross-reference events to other issues, and images or raw HTML load from other hosts when the issue is
- * viewed. Each match outside code is wrapped in an inline code span, so it is shown as written and does nothing.
+ * Text copied from result.md could make Gitea do more than create the issue (@mentions notify users, #12, !3 and
+ * owner/repo#3 add references to other issues, images and HTML load from other hosts). Rather than look for
+ * those, every copied value is put in a fenced code block, where Gitea renders none of them. The fence is a run of
+ * backticks longer than any run in the value (at least 3), with no info string, so no line of the value can close
+ * it; leading spaces or a backtick info string inside the value are plain text there.
  */
-const sideEffects = new RegExp([
-  '(?<image>!\\[[^\\]\\n]{0,500}\\](?:\\([^)\\n]{0,2000}\\)|\\[[^\\]\\n]{0,500}\\])?)',
-  '(?<html><\\/?[A-Za-z!?][^>\\n]*>?)',
-  '(?<url>https?:\\/\\/[^\\s<>()`]{1,2000}\\/(?:issues|pulls)\\/\\d+[^\\s<>()`]*)',
-  '(?<cross>(?<![\\w.\\/-])[A-Za-z0-9_.-]+\\/[A-Za-z0-9_.-]+#\\d+)',
-  '(?<ref>(?<![\\w&#\\/])#\\d+)',
-  '(?<mention>(?<![\\w.\\/+`-])@[A-Za-z0-9_][\\w.-]*)',
-].join('|'), 'g');
-
-/**
- * Splits a line into [text, isCode] parts. A run of n backticks opens a code span that the next run of exactly
- * n backticks closes; a run without a partner is plain text. Linear in the length of the line.
- */
-function codeSpans(line: string): [string, boolean][] {
-  const runs = [...line.matchAll(/`+/g)].map(match => ({at: match.index, length: match[0].length}));
-  const next = new Map<number, number>();
-  const partner: number[] = new Array<number>(runs.length).fill(-1);
-  for (let i = runs.length - 1; i >= 0; i--) {
-    partner[i] = next.get(runs[i].length) ?? -1;
-    next.set(runs[i].length, i);
-  }
-  const parts: [string, boolean][] = [];
-  let from = 0;
-  for (let i = 0; i < runs.length; i++) {
-    const close = partner[i];
-    if (close < 0) continue;
-    parts.push([line.slice(from, runs[i].at), false]);
-    from = runs[close].at + runs[close].length;
-    parts.push([line.slice(runs[i].at, from), true]);
-    i = close;
-  }
-  parts.push([line.slice(from), false]);
-  return parts;
-}
-
-function inlineCode(text: string): string {
+function fenced(value: string): string {
   let longest = 0;
-  for (const run of text.match(/`+/g) ?? []) longest = Math.max(longest, run.length);
-  const ticks = '`'.repeat(longest + 1);
-  const pad = text.startsWith('`') || text.endsWith('`') ? ' ' : '';
-  return ticks + pad + text + pad + ticks;
+  for (const run of value.match(/`+/g) ?? []) longest = Math.max(longest, run.length);
+  const fence = '`'.repeat(Math.max(3, longest + 1));
+  return fence + '\n' + value + '\n' + fence;
 }
 
-/** Wraps side-effect text outside fenced blocks and inline code; counts what was wrapped by kind. */
-export function neutralize(text: string, counts: Neutralized = {}): string {
-  let fence: string | undefined;
-  return text.split('\n').map(line => {
-    const open = /^\s*(`{3,}|~{3,})/.exec(line);
-    if (fence === undefined && open) { fence = open[1]; return line; }
-    if (fence !== undefined) {
-      if (open && open[1][0] === fence[0] && open[1].length >= fence.length && line.trim() === open[1]) fence = undefined;
-      return line;
-    }
-    // Keep inline code spans as they are and rewrite only the text between them.
-    return codeSpans(line).map(([part, code]) => code ? part : part.replace(sideEffects, (match, ...args) => {
-      const groups = args[args.length - 1] as Record<string, string | undefined>;
-      const kind: NeutralizedKind = groups.image ? 'image' : groups.html ? 'html' : groups.mention ? 'mention' : 'reference';
-      counts[kind] = (counts[kind] ?? 0) + 1;
-      return inlineCode(match);
-    })).join('');
-  }).join('\n');
-}
-
+/** Full-width forms of the characters that Gitea or Markdown could act on in a title. */
+const titleCharacters: Record<string, string> = {
+  '@': '＠', '#': '＃', '!': '！', '<': '＜', '>': '＞', '[': '［', ']': '］', '(': '（', ')': '）', '\\': '＼', '`': '｀',
+};
 /** Gitea refuses titles over 255 characters. */
 const titleLimit = 255;
-function capTitle(title: string): string {
-  const chars = [...title];
-  return chars.length <= titleLimit ? title : chars.slice(0, titleLimit - 1).join('') + '…';
+function plainTitle(title: string): string {
+  const chars = [...title.replace(/[\r\n\t]+/g, ' ').replace(/[@#!<>[\]()\\`]/g, char => titleCharacters[char])];
+  return chars.length <= titleLimit ? chars.join('') : chars.slice(0, titleLimit - 1).join('') + '…';
 }
 
 export const issueMarker = (product: string, tc: string) => '<!-- aidev-qa: ' + product + ' ' + tc + ' -->';
@@ -196,50 +143,48 @@ const none = '（result.md に記載なし）';
 
 /**
  * Issue template. The marker line comes first so the duplicate search can find the issue; the sections follow
- * the order of the NG detail in result-format.md.
+ * the order of the NG detail in result-format.md. Only the template's own text (headings, labels, the TC-ID and
+ * the run directory, both validated) is outside code blocks; every value from result.md is fenced.
  */
 function renderBody(product: string, tc: string, run: string, values: Record<string, string | undefined>): string {
-  const lines = [issueMarker(product, tc), '## 対象', '', '- TC-ID: ' + tc, '- AC-ID: ' + (values.ac ?? none), '- 実行: ' + run];
-  if (values.environment) lines.push('- 環境: ' + values.environment);
-  if (values.version) lines.push('- 版: ' + values.version);
-  if (values.test) lines.push('- テスト: ' + values.test);
-  const section = (title: string, value: string | undefined) => lines.push('', '## ' + title, '', value ?? none);
+  const lines = [issueMarker(product, tc), '## 対象', '', '- TC-ID: ' + tc, '- 実行: ' + run];
+  const block = (value: string | undefined) => lines.push('', value === undefined ? none : fenced(value));
+  const labeled = (label: string, value: string | undefined, always = false) => {
+    if (value === undefined && !always) return;
+    lines.push('', label);
+    block(value);
+  };
+  labeled('AC-ID', values.ac, true);
+  labeled('環境', values.environment);
+  labeled('版', values.version);
+  labeled('テスト', values.test);
+  const section = (title: string, value: string | undefined) => { lines.push('', '## ' + title); block(value); };
   section('再現手順', values.steps);
   section('期待結果', values.expected);
   section('実際の結果', values.actual);
   section('再現の回数', values.repeat);
   section('証跡の場所', values.evidence);
-  if (values.note) section('補足', values.note);
+  if (values.note !== undefined) section('補足', values.note);
   lines.push('', '---', '', 'aidev qa issue create が ' + run + '/result.md の NG の詳細から作りました。');
   return lines.join('\n') + '\n';
 }
 
 export function buildIssue(result: string, tc: string, context: {product: string; run: string}): {title: string; body: string} {
-  const {title, body} = composeIssue(result, tc, context);
-  return {title, body};
-}
-
-/** buildIssue plus the counts of neutralized text by kind. */
-function composeIssue(result: string, tc: string, context: {product: string; run: string}): {title: string; body: string; neutralized: Neutralized} {
   const lines = readLines(result);
   const row = findRow(lines, tc);
   const outcome = row.cells[row.result] ?? '';
   if (outcome !== 'NG') throw new Error(tc + ' の結果は NG ではありません（' + (outcome || '空') + '）。NG のケースだけを起票します。');
   const detail = findDetail(lines, tc);
   const field = (...labels: string[]) => labels.map(label => detail.fields.get(label)).find(value => value);
-  const raw: Record<string, string | undefined> = {
+  const values: Record<string, string | undefined> = {
     ac: field('AC', 'AC-ID'), test: field('テスト'), steps: field('再現手順'), expected: field('期待結果'),
     actual: field('実際の結果'), repeat: field('再現'), note: field('補足'),
     evidence: field('証跡') ?? (row.evidence >= 0 ? row.cells[row.evidence] || undefined : undefined),
     environment: headerValue(lines, row.index, '環境'), version: headerValue(lines, row.index, '版'),
   };
-  const missing = (['再現手順', '期待結果', '実際の結果'] as const).filter((_, i) => ![raw.steps, raw.expected, raw.actual][i]);
+  const missing = (['再現手順', '期待結果', '実際の結果'] as const).filter((_, i) => ![values.steps, values.expected, values.actual][i]);
   if (missing.length) throw new Error('result.md の NG の詳細（' + tc + '）に ' + missing.join('・') + ' がありません。');
-  // Everything copied from result.md is neutralized; the marker and the template's own lines are not.
-  const neutralized: Neutralized = {};
-  const values = Object.fromEntries(Object.entries(raw).map(([key, value]) => [key, value === undefined ? undefined : neutralize(value, neutralized)]));
-  const name = detail.name ? ' ' + neutralize(detail.name.replace(/\n/g, ' '), neutralized) : '';
-  return {title: capTitle('[' + tc + ']' + name), body: renderBody(context.product, tc, context.run, values), neutralized};
+  return {title: plainTitle('[' + tc + ']' + (detail.name ? ' ' + detail.name : '')), body: renderBody(context.product, tc, context.run, values)};
 }
 
 /** Line numbers (in the body) that look like secrets. Only the numbers are returned, never the text. */
@@ -263,8 +208,6 @@ export interface IssueRunResult {
   created: boolean;
   dryRun: boolean;
   resultUpdated?: boolean;
-  /** How many mentions, references, images and HTML fragments were wrapped in code (counts only). */
-  neutralized?: Neutralized;
   /** Issues with the marker that were not counted as duplicates (number and reason only). */
   ignored?: {number: number; reason: string}[];
   to?: {type: string; url: string; repo: string};
@@ -335,7 +278,7 @@ export async function createIssueFromRun(options: IssueRunOptions): Promise<Issu
   const path = checked(options.root, run + '/result.md');
   const result = content(path);
   if (result === undefined) throw new Error(run + '/result.md がありません。');
-  const {title, body, neutralized} = composeIssue(result, tc, {product, run});
+  const {title, body} = buildIssue(result, tc, {product, run});
   const bad = secretLines(body);
   if (bad.length || secretLines(title).length) {
     throw new Error('起票する本文に秘密情報らしい記述があるため送りません（' + (bad.length ? '本文の ' + bad.join('、') + ' 行目' : '題名') +
@@ -349,7 +292,7 @@ export async function createIssueFromRun(options: IssueRunOptions): Promise<Issu
   }
   if (recordedCell && !recorded) throw new Error('result.md の ' + tc + ' の Issue の列に #番号 以外が書かれています。#番号 か空にしてください。');
   const to = {type: tracker.type, url: baseUrl, repo: tracker.repo};
-  if (options.dryRun) return {issue: null, created: false, dryRun: true, neutralized, to, title, body};
+  if (options.dryRun) return {issue: null, created: false, dryRun: true, to, title, body};
   if (typeof options.token === 'string' && options.token && (title.includes(options.token) || body.includes(options.token))) {
     throw new Error('起票する題名か本文に GITEA_TOKEN の値がそのまま含まれているため送りません。result.md から消してください。');
   }
@@ -376,7 +319,7 @@ export async function createIssueFromRun(options: IssueRunOptions): Promise<Issu
     issue = {number: made.number, url: made.html_url};
     created = true;
   }
-  if (recorded) return {issue, created, dryRun: false, resultUpdated: false, neutralized, ignored};
+  if (recorded) return {issue, created, dryRun: false, resultUpdated: false, ignored};
   try {
     const now = content(path);
     if (now !== result) throw new Error('result.md が起票の途中で変わりました');
@@ -386,5 +329,5 @@ export async function createIssueFromRun(options: IssueRunOptions): Promise<Issu
     throw new Error('Issue #' + issue.number + ' は' + (created ? '作りました' : 'すでにあります') + 'が、result.md に書き戻せませんでした（' + reason +
       '）。' + tc + ' の行の Issue の列に #' + issue.number + ' を書いてください。');
   }
-  return {issue, created, dryRun: false, resultUpdated: true, neutralized, ignored};
+  return {issue, created, dryRun: false, resultUpdated: true, ignored};
 }
