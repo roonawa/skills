@@ -17,7 +17,7 @@ function invoke(cwd, args, expected = 0) {
   assert.equal(result.status, expected, result.stdout + result.stderr);
   return JSON.parse(result.stdout);
 }
-for (const template of ['react', 'unity']) {
+for (const template of ['react', 'unity', 'qa']) {
   test(template + ' init plans and installs a reproducible template', t => {
     const dir = workspace(t);
     const args = ['init','demo','--template',template];
@@ -29,13 +29,51 @@ for (const template of ['react', 'unity']) {
     assert.equal(invoke(project,['doctor']).template,template);
     assert.deepEqual(invoke(project,['verify']).skills,[]);
     assert.equal(existsSync(join(project,'files.json')), false);
-    const manifests = {react:'package-lock.json',unity:'Packages/manifest.json'};
+    const manifests = {react:'package-lock.json',unity:'Packages/manifest.json',qa:'plan/acceptance.md'};
     assert.ok(planned.includes(manifests[template]));
     const check = invoke(project,['check'],2);
     assert.equal(check.ok,false);
     assert.ok(check.checks.some(item => item.status === 'unavailable'));
   });
 }
+test('init --template qa creates the QA repository skeleton', t => {
+  const dir = workspace(t);
+  invoke(dir,['init','demo','--template','qa']);
+  const project = join(dir,'demo');
+  for (const file of ['README.md','plan/acceptance.md','cases/README.md','runs/README.md','reports/README.md','knowledge/README.md','knowledge/profile.template.md']) {
+    assert.ok(existsSync(join(project,file)), file);
+  }
+  assert.equal(existsSync(join(project,'files.json')), false);
+  const check = invoke(project,['check'],2);
+  assert.equal(check.checks[0].status,'unavailable');
+});
+test('check runs profile checks for each product', t => {
+  const dir = workspace(t);
+  invoke(dir,['init','demo','--template','qa']);
+  const project = join(dir,'demo');
+  mkdirSync(join(project,'knowledge','sample-web'),{recursive:true});
+  const profile = join(project,'knowledge','sample-web','profile.md');
+  writeFileSync(profile,'---\nproduct: sample-web\nroles:\n  - {name: staff, user_env: SAMPLE_STAFF_USER, password_env: SAMPLE_STAFF_PASSWORD}\n---\n# 観点\n');
+  const ok = invoke(project,['check'],0);
+  assert.equal(ok.checks[0].name,'profile:sample-web');
+  assert.equal(ok.checks[0].status,'passed');
+  writeFileSync(profile,readFileSync(profile,'utf8')+'password: hunter2\n');
+  const ng = invoke(project,['check'],1);
+  assert.equal(ng.checks[0].status,'failed');
+  assert.ok(ng.checks[0].detail.includes('secret'));
+  assert.ok(!JSON.stringify(ng).includes('hunter2'));
+});
+test('the qa profile template passes with only the product filled in', t => {
+  const dir = workspace(t);
+  invoke(dir,['init','demo','--template','qa']);
+  const project = join(dir,'demo');
+  const template = readFileSync(join(project,'knowledge','profile.template.md'),'utf8');
+  assert.match(template,/^product: .*$/m);
+  mkdirSync(join(project,'knowledge','sample-web'),{recursive:true});
+  writeFileSync(join(project,'knowledge','sample-web','profile.md'),template.replace(/^product: .*$/m,'product: sample-web'));
+  const result = invoke(project,['check'],0);
+  assert.deepEqual(result.checks.map(c => [c.name,c.status]),[['profile:sample-web','passed']]);
+});
 test('React check reports individual gates and excludes child output from JSON', t => {
   const dir = workspace(t);
   invoke(dir,['init','demo','--template','react']);

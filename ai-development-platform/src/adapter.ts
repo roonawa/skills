@@ -2,6 +2,7 @@ import { fileURLToPath } from 'node:url';
 import { checked, content } from './files.js';
 import { checkReact } from './react.js';
 import { checkUnity } from './unity.js';
+import { checkQa } from './qa.js';
 import type { Finding } from './review.js';
 
 export interface CheckResult {
@@ -16,14 +17,15 @@ export interface CheckResult {
 const adapters = {
   core: () => [{name:'application', status:'unavailable', detail:'core にはアプリ用の検査がありません。'}],
   react: checkReact,
-  unity: checkUnity
+  unity: checkUnity,
+  qa: checkQa
 } satisfies Record<string, (root: string) => CheckResult[] | Promise<CheckResult[]>>;
 
 export type Template = keyof typeof adapters;
 
 export function parseTemplate(value: unknown): Template {
   if (typeof value !== 'string' || !Object.hasOwn(adapters,value)) {
-    throw new Error('未対応のテンプレートです。core、react、unity から選んでください。');
+    throw new Error('未対応のテンプレートです。core、react、unity、qa から選んでください。');
   }
   return value as Template;
 }
