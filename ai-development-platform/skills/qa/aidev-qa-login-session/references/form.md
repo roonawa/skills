@@ -30,30 +30,22 @@ export const authFile = (role: string, environment?: string) =>
 
 ## 設定の例
 
-```ts
-// automation/web/playwright.config.ts
-import { defineConfig } from '@playwright/test';
-import { authFile } from './tests/auth-path';
+設定のファイル（`automation/web/playwright.config.ts`）は QA リポジトリに1つだけで、全体の形（出力先、ほかの Skill のプロジェクト）は aidev-qa-characterization の Playwright の資料が決める。この Skill が受け持つのは `setup` のプロジェクトだけである。設定がすでにあれば、`projects` に次の1つがあるかを見て、なければ足す。ほかのプロジェクトや `use` を書き換えない。
 
-export default defineConfig({
-  testDir: './tests',
-  use: { baseURL: process.env.QA_BASE_URL },  // プロファイルの environments の url を渡す
-  projects: [
-    {
-      name: 'setup',
-      testMatch: /auth\.setup\.ts/,
-      timeout: 60_000,
-      // トレースは入力した値（パスワード）と通信（ログインの POST、Set-Cookie）を、動画とスクリーンショットは画面を記録する
-      use: { trace: 'off', video: 'off', screenshot: 'off' },
-    },
-    { name: 'staff', dependencies: ['setup'], use: { storageState: authFile('staff') } },
-  ],
-});
+```ts
+// automation/web/playwright.config.ts の projects に足す
+{
+  name: 'setup',
+  testMatch: /auth\.setup\.ts$/,
+  timeout: 60_000,
+  // トレースは入力した値（パスワード）と通信（ログインの POST、Set-Cookie）を、動画とスクリーンショットは画面を記録する
+  use: { trace: 'off', video: 'off', screenshot: 'off' },
+},
 ```
 
 setup のプロジェクトでは、トレース、動画、失敗時のスクリーンショットを切る。全体の `use` で `trace: 'on'` や `'retain-on-failure'` にしている QA リポジトリでも、setup だけはプロジェクトの `use` で上書きする。setup のトレースや動画は証跡にしない。失敗の診断には、setup のコードが取る画面の本文のテキストを使う。
 
-`QA_BASE_URL` のような実行時の値は、作業者がシェルで設定するか、setup が読むプロファイルから決める。どちらにするかは QA リポジトリの決まりに合わせる。ロールが多いときは、プロジェクトをロールごとに作るより、テストの中で `test.use({ storageState: authFile('<role>') })` を指定するほうが見通しがよい。
+`QA_BASE_URL` と `QA_ENV` のような実行時の値は、作業者がシェルで設定するか、setup が読むプロファイルから決める。どちらにするかは QA リポジトリの決まりに合わせる。ロールはプロジェクトに分けず、テストの中で `test.use({ storageState: authFile('<role>', process.env.QA_ENV) })` で選ぶ。setup も読む側も、いつも `process.env.QA_ENV` を渡す。片方だけが渡すと、setup が書いた場所と読む場所が食い違い、別の環境や古いセッションを読む。
 
 ## setup の例
 
@@ -69,6 +61,7 @@ const roles = [
 ];
 const loginPath = '/login';      // login.entry_url のパス
 const protectedPath = '/items';  // プロファイルの到達手順にある、ログインが必要なページ
+const signedInMarker = '[data-testid="current-user"]';  // プロファイルの本文の「ログイン中の目印」
 const waitMs = 30_000;
 
 for (const role of roles) {
@@ -99,9 +92,9 @@ for (const role of roles) {
       throw new Error(`${role.name}: 着地点が不明（${landed.origin}${landed.pathname}）`);
     }
 
-    const file = authFile(role.name);
+    const file = authFile(role.name, process.env.QA_ENV);
     await page.context().storageState({ path: file });
-    await assertSignedIn(browser, baseURL, file, protectedPath, loginPath);
+    await assertSignedIn(browser, baseURL, file, protectedPath, loginPath, signedInMarker);
   });
 }
 ```
@@ -112,23 +105,28 @@ for (const role of roles) {
 // automation/web/tests/session.ts
 import { expect, type Browser } from '@playwright/test';
 
-/** 保存した storageState でログインが必要なページを開き、ログイン画面へ戻されないことを確かめる。 */
-export async function assertSignedIn(browser: Browser, baseURL: string | undefined, statePath: string | undefined, protectedPath: string, loginPath: string) {
+/** 保存した storageState でログインが必要なページを開き、ログイン画面へ戻されず、ログイン中の目印が見えることを確かめる。 */
+export async function assertSignedIn(browser: Browser, baseURL: string | undefined, statePath: string | undefined,
+                                     protectedPath: string, loginPath: string, signedInMarker: string) {
   const context = await browser.newContext({ baseURL, storageState: statePath });
   try {
     const page = await context.newPage();
     await page.goto(protectedPath);
     expect(new URL(page.url()).pathname, 'ログイン画面へリダイレクトされた。セッションが切れているか、保存に失敗している').not.toBe(loginPath);
-    await expect(page.getByRole('link', { name: 'ログアウト' })).toBeVisible();
+    const marker = page.locator(signedInMarker);
+    await marker.first().waitFor({ state: 'attached', timeout: 5_000 }).catch(() => {});
+    const count = await marker.count();   // 読む前に数える。ない要素を読むと、時間切れまで待ってログインの失敗のように見える
+    expect(count, `ログイン中の目印 ${signedInMarker} がない。目印の指定が誤っているか、ログインしていない`).toBeGreaterThan(0);
+    await expect(marker.first()).toBeVisible();
   } finally {
     await context.close();
   }
 }
 ```
 
-`browser.newContext` で作るコンテキストには設定の `baseURL` が引き継がれないので、例のように `baseURL` のフィクスチャを渡す。新しいコンテキストで開くのは、保存したファイルだけでログイン状態が再現できるかを見るためで、ログインに使ったページのままでは確認にならない。着地点がルート（`/`）だけのときを不明としているのは、ルートがログイン画面へ転送するだけのアプリもあるためで、ルートが本来の着地点のアプリならこの条件を外す。ログインが必要な要素（例ではログアウトのリンク）は、対象のアプリで実際にログイン中だけ出るものを選ぶ。どのページにも出る要素を選ぶと、確認が何も検出しない。
+`browser.newContext` で作るコンテキストには設定の `baseURL` が引き継がれないので、例のように `baseURL` のフィクスチャを渡す。新しいコンテキストで開くのは、保存したファイルだけでログイン状態が再現できるかを見るためで、ログインに使ったページのままでは確認にならない。着地点がルート（`/`）だけのときを不明としているのは、ルートがログイン画面へ転送するだけのアプリもあるためで、ルートが本来の着地点のアプリならこの条件を外す。ログイン中の目印（例ではログインユーザーの名前の表示）は、プロファイルの本文に書かれたものを使い、なければ作業者に名前を挙げてもらう。ログアウトのリンクを決め打ちしない。ログアウトのリンクを持たないアプリでは、成功したログインを失敗と判定する（実機で確かめた）。どのページにも出る要素を選ぶと、確認が何も検出しない。
 
-確認が検出できることは、`assertSignedIn(browser, baseURL, undefined, ...)` を一度呼び、ログイン画面へのリダイレクトとして失敗することで確かめる。
+確認が検出できることは、`assertSignedIn(browser, baseURL, undefined, ...)` を一度呼び、ログイン画面へのリダイレクトか目印がないこととして失敗することで確かめる。
 
 ## 落とし穴
 
@@ -140,3 +138,5 @@ export async function assertSignedIn(browser: Browser, baseURL: string | undefin
 - CSRF トークンを hidden の入力欄で持つフォームは、ブラウザで送信すれば自動で付く。`request` で直接 POST する書き方にすると、トークンの取得を自分で書く必要がある
 - 「ログイン状態を保持する」の選択肢は、テストではプロファイルや作業者の指示がなければ触らない。選ぶとセッションの寿命が変わり、期限切れの検出の前提がずれる
 - CAPTCHA が出たら自動で突破しようとせず、作業者に伝えて止める。検証環境で無効にできるかは、アプリの担当者が決めることである
+- `locator.evaluate`、`inputValue`、`innerText` は、要素がないと `actionTimeout` かテストの時間切れまで待つ。その間に何が起きたかが分からず、ログインの失敗のように見える（実機で確かめた）。あるかどうか分からない要素は、先に `count()` で数え、0 なら何がないのかを書いたエラーにする
+- アプリを再起動や再デプロイすると、保存したセッションは期限の前でも無効になる。そのたびに setup を流し直す

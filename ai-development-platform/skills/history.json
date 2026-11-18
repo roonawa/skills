@@ -33,6 +33,9 @@
     ],
     "0.1.1": [
       "23e163828e614127193525ba4eaeb241e4d3f60bdaaa9280e372e8059f1fa20d"
+    ],
+    "0.1.2": [
+      "c503d61fe3d1aca7378765f1cf235b4f996270580f510b43a5dc64a120487061"
     ]
   },
   "aidev-qa-characterization": {
@@ -41,6 +44,9 @@
     ],
     "0.1.1": [
       "608d0124596884d66440654abd46004a91631647af28705bb746df661da709dc"
+    ],
+    "0.1.2": [
+      "3072f250f64aa6df13611218404d46c0bfa3a3c611130159c8a430c5ad17ad94"
     ]
   },
   "aidev-qa-desktop-gui": {
@@ -49,6 +55,9 @@
     ],
     "0.1.1": [
       "ab682800fe76b1217026b50455608de5af8e172d36d2c90850a2d355b01e2bdd"
+    ],
+    "0.1.2": [
+      "9ea9357e3fd7dad8eb15219ecc16b9c89581c053040fd08ede8ece984d94536e"
     ]
   },
   "aidev-qa-login-session": {
@@ -60,6 +69,9 @@
     ],
     "0.1.2": [
       "62e0563733624d215fbc1562866e28bdbb3f1769fc3d5716f1e959cb8dd0cc1b"
+    ],
+    "0.1.3": [
+      "aed06405099195911090fa024833a2e6403f487d0b33c69b5252ab60e13d2490"
     ]
   },
   "aidev-qa-regression-compare": {
@@ -69,6 +81,9 @@
     ],
     "0.1.1": [
       "c9541be0e8809d580ed5c28d8abb65c33e3be0f3f1667961937fd72050979812"
+    ],
+    "0.1.2": [
+      "857959f18826a8d3968cadf05cfd4ebc8ca0cc3b5759d3b19c1925b01066ebda"
     ]
   },
   "aidev-qa-screen-verification": {
@@ -77,6 +92,9 @@
     ],
     "0.1.1": [
       "fe1c4565272af1f10b3c6f697504def13184fedaa61162d6bdbbcbfbebcacf9e"
+    ],
+    "0.1.2": [
+      "d961a5465a42988098b8445cbe70a8dff094eef1eb9cf9358cc08abe46c5ed8b"
     ]
   },
   "aidev-qa-strategy": {
@@ -121,6 +139,9 @@
     ],
     "0.1.1": [
       "a281c1dad8da55d982b6c6b0637780b6b857114a3f890c37462127159ff9b255"
+    ],
+    "0.1.2": [
+      "3ac821c83644c3f41a7fc9012f1c2bf120476d40e1ba61e19e5af64ee36e931f"
     ]
   },
   "aidev-repair-workflow": {

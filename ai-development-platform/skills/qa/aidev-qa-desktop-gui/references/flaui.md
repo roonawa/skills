@@ -85,11 +85,23 @@ public sealed class AppSession : IDisposable
         // 実行ファイルの横のデータを毎回初期の状態に戻すため、出力のフォルダを丸ごと写してから起動する
         var appDir = Path.Combine(WorkDir, "app");
         CopyTree(Path.GetDirectoryName(exe)!, appDir);
+        // UseShellExecute = true で、テストの標準出力をアプリに受け継がせない。受け継ぐと、アプリが残ったときに dotnet test が終わらない
         Process = Process.Start(new ProcessStartInfo(Path.Combine(appDir, Path.GetFileName(exe)))
-                      { UseShellExecute = false, WorkingDirectory = appDir })!;
-        App = Application.Attach(Process.Id);   // Attach(Process) は渡した Process を使えなくする（FlaUI 5.0.0 で確かめた）
-        Main = Retry.WhileNull(() => App.GetMainWindow(Automation, TimeSpan.FromSeconds(1)), Launch,
-            throwOnTimeout: true, timeoutMessage: "メインウィンドウが開かない").Result!;
+                      { UseShellExecute = true, WorkingDirectory = appDir })!;
+        try
+        {
+            App = Application.Attach(Process.Id);   // Attach(Process) は渡した Process を使えなくする（FlaUI 5.0.0 で確かめた）
+            Main = Retry.WhileNull(() => App.GetMainWindow(Automation, TimeSpan.FromSeconds(1)), Launch,
+                throwOnTimeout: true, timeoutMessage: "メインウィンドウが開かない").Result!;
+        }
+        catch
+        {
+            // コンストラクターが例外を出すと Dispose は呼ばれない。今回起動して、まだ何も操作していないプロセスなので、ここで終了させて片付ける
+            try { if (!Process.HasExited) { Process.Kill(entireProcessTree: true); Process.WaitForExit(5000); } } catch { }
+            Automation.Dispose();
+            try { Directory.Delete(WorkDir, true); } catch { }
+            throw;
+        }
     }
 
     static void CopyTree(string from, string to)
@@ -127,6 +139,7 @@ public sealed class AppSession : IDisposable
 - 隔離できない（作業者のインスタンスと設定やデータを共有してしまう）なら、そのアプリのテストは流さずに作業者に伝える
 - FlaUI の `Application.Close()` は、引数を省くと閉じられなかったときにプロセスを終了させる。`Close(false)` を使い、閉じなければ終了させずに状態を撮って作業者に伝える。更新や出力の途中、保存していない変更がある、ということがある
 - `Problems` に入ったもの（閉じなかったプロセス、消せなかったフォルダ）は、result.md の実行の条件と作業者への報告に書く。黙って捨てない
+- コンストラクターの途中で例外が出ると、`using` の `Dispose` は呼ばれない。起動の後の処理は try で囲み、失敗したら今回起動したプロセスを終了させてから例外を投げ直す。まだ操作していないので、終了させても作業者のデータは失われない。残すと、次のケースが同じファイルを使えず、dotnet test も終わらなくなる
 - 同じ名前のプロセスをまとめて終了させない。`Process.GetProcessesByName` で拾ったものを `Kill` する例を見かけるが、作業者のインスタンスまで落とす
 
 ## 流す前の確かめ
@@ -134,15 +147,29 @@ public sealed class AppSession : IDisposable
 最初のケースの前に、GUI を操作できるデスクトップかを確かめる。ロックされた画面では、UIA のパターンの操作は通ることがあるのに、スクリーンショットにはロック画面が写り、キー入力は届かない。テストが緑のまま、使えない証跡が残る。
 
 ```csharp
+[DllImport("wtsapi32.dll")] static extern bool WTSQuerySessionInformation(IntPtr server, int sessionId, int infoClass, out IntPtr buffer, out int bytes);
+[DllImport("wtsapi32.dll")] static extern void WTSFreeMemory(IntPtr memory);
 [DllImport("user32.dll")] static extern IntPtr OpenInputDesktop(uint flags, bool inherit, uint access);
 [DllImport("user32.dll")] static extern bool CloseDesktop(IntPtr h);
 [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
 [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
+const int WTS_CURRENT_SESSION = -1, WTSSessionInfoEx = 25, WTSActive = 0, WTS_SESSIONSTATE_LOCK = 0;
 const uint DESKTOP_SWITCHDESKTOP = 0x0100;
+
+// 今のセッションが接続中で、ロックされていないか。WTSINFOEX の先頭は Level、SessionId、SessionState、SessionFlags の 4 バイトずつ
+static (bool Active, bool Locked) SessionState()
+{
+    if (!WTSQuerySessionInformation(IntPtr.Zero, WTS_CURRENT_SESSION, WTSSessionInfoEx, out var buffer, out _))
+        throw new InvalidOperationException("セッションの状態を読めない");
+    try { return (Marshal.ReadInt32(buffer, 8) == WTSActive, Marshal.ReadInt32(buffer, 12) == WTS_SESSIONSTATE_LOCK); }
+    finally { WTSFreeMemory(buffer); }
+}
 
 public static void AssertInteractive(AppSession s)
 {
-    if (Process.GetProcessesByName("LogonUI").Length > 0) throw new InvalidOperationException("画面がロックされている");
+    var (active, locked) = SessionState();
+    if (!active) throw new InvalidOperationException("セッションが接続中でない（切断か別のセッション）");
+    if (locked) throw new InvalidOperationException("画面がロックされている");
     var desk = OpenInputDesktop(0, false, DESKTOP_SWITCHDESKTOP);
     if (desk == IntPtr.Zero) throw new InvalidOperationException("入力のデスクトップに触れない（ロック中か別のセッション）");
     CloseDesktop(desk);
@@ -153,6 +180,7 @@ public static void AssertInteractive(AppSession s)
 }
 ```
 
+- ロックの判定に `LogonUI` のプロセスがあるかを使わない。ロックしていなくても `LogonUI` が残っていることがあり、使える画面をロック中と誤る（実機で確かめた）。セッションの状態（WTS）と、入力のデスクトップを開けるか（`OpenInputDesktop`）の両方で確かめる
 - 失敗したら、そこで止める。残りのケースは実行不能（画面がロックされていた、前面にできなかった）にし、作業者に解除や空き時間を頼む。ロック画面を撮った画像を証跡にしない
 - 前面の確かめは、撮影やキー入力の直前にも行う。途中で通知や他のウィンドウが前に出ることがある
 
@@ -270,14 +298,29 @@ static class Win32Windows
 ## 証跡の撮り方
 
 ```csharp
+[DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr hWnd, int attribute, out RECT rect, int size);
+[StructLayout(LayoutKind.Sequential)] struct RECT { public int Left, Top, Right, Bottom; }
+const int DWMWA_EXTENDED_FRAME_BOUNDS = 9;
+
 public string Shot(string checkpoint, AutomationElement? element = null)
 {
+    var target = element ?? Main;
+    // 開くときのアニメーションが終わるまで待つ。位置と大きさが 2 回続けて同じになったら撮る
+    var last = Rectangle.Empty;
+    Retry.WhileFalse(() => { var r = target.BoundingRectangle; var same = r == last; last = r; return same; },
+                     Short, TimeSpan.FromMilliseconds(150));
     var path = Path.Combine(EvidenceDir, checkpoint + ".png");
-    Capture.Element(element ?? Main).ToFile(path);
+    var handle = target.Properties.NativeWindowHandle.ValueOrDefault;
+    // トップレベルのウィンドウの BoundingRectangle は、見えない枠（DWM のサイズ変更の枠）を含み、端に後ろの画面が写る。見えている範囲だけを撮る
+    if (handle != IntPtr.Zero && DwmGetWindowAttribute(handle, DWMWA_EXTENDED_FRAME_BOUNDS, out var f, Marshal.SizeOf<RECT>()) == 0)
+        Capture.Rectangle(new Rectangle(f.Left, f.Top, f.Right - f.Left, f.Bottom - f.Top)).ToFile(path);
+    else
+        Capture.Element(target).ToFile(path);
     return path;
 }
 ```
 
+- 撮った画像の端に、後ろのウィンドウや開くときのアニメーションの途中の画素が写ることがある（実機で確かめた）。上の `Shot` のように、位置と大きさが落ち着くのを待ち、トップレベルのウィンドウは DWM の見えている範囲で撮る。テストのプロセスが表示倍率に対応していないと座標がずれるので、最初に撮った画像を開いて端を見る。ずれたら、テストのプロジェクトのマニフェストで DPI 対応（PerMonitorV2）にする
 - `Capture.Element` は、要素の範囲の画面の画素を写す。上に他のウィンドウや通知が重なっていればそれが写り、画面がロックされていればロック画面が写る。撮る前に対象のウィンドウが前面で、重なりがないことを確かめ、撮った画像は開いて見る
 - ダイアログを撮るときは、ダイアログの要素を渡す。本体とダイアログの両方を写したいときは、それぞれを撮る
 - 画面に出た値（表の行、ステータスの文字、ダイアログの本文）は、画像とは別に `<checkpoint>.values.json` に書く。画像だけでは後で値を比べられない

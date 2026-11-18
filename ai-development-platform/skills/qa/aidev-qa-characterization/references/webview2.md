@@ -62,7 +62,7 @@ if (!page) throw new Error('対象の環境のページが見つからない。�
 - 最初のページを無条件に使わない。オリジンとパスで対象のページを選ぶ。ログインの途中は認証のページがあり、ログインの後に選び直す
 - 対象の画面に着いたら、環境のホスト、画面のパス、見出しに加え、アプリが渡す host object（例 `window.chrome.webview.hostObjects`）があることを確かめる。通常のブラウザに差し替えたり、host object や API の応答をモックしたりして成功させない
 - `browser.newContext()` で別のコンテキストを作らない。アプリの中の画面ではなくなる
-- Playwright のテストでは、通常の `page` のフィクスチャを、この接続のページに置き換えるフィクスチャを作る。設定は Web のテストと分け（例 `playwright.webview2.config.ts`）、`workers: 1` で流す
+- Playwright のテストでは、通常の `page` のフィクスチャを、この接続のページに置き換えるフィクスチャを作る。設定のファイルは分けず、`playwright.md` の「設定」の `webview2` のプロジェクトで流す。spec のファイル名は `<機能>-char.webview2.spec.ts` にし、setup（ブラウザでのログイン）に依存させない
 - `browser.close()` は接続を切るだけで、アプリは終わらない
 
 ## ログイン

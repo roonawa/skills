@@ -34,9 +34,9 @@
       "depth": "full", "risk": "high", "requiredInputs": false,
       "apis": ["API-01"],
       "cases": [
-        { "tc": "TC-loans-001", "role": "staff", "mode": "貸出中" },
-        { "tc": "TC-loans-002", "role": "admin", "mode": "貸出中" },
-        { "tc": "TC-loans-003", "role": "staff", "mode": "返却済み" }
+        { "tc": "TC-loans-char-001", "role": "staff", "mode": "貸出中" },
+        { "tc": "TC-loans-char-002", "role": "admin", "mode": "貸出中" },
+        { "tc": "TC-loans-char-003", "role": "staff", "mode": "返却済み" }
       ],
       "uncovered": [{ "role": "admin", "mode": "返却済み", "reason": "admin の返却済みは貸出中と同じ分岐で、表示の列も同じ（List.vue の v-if を確認）" }],
       "testDataSource": "existing"
@@ -46,11 +46,16 @@
       "depth": "full", "risk": "normal", "requiredInputs": true,
       "apis": ["API-02"],
       "cases": [
-        { "tc": "TC-loans-010", "role": "staff", "mode": "必須あり" },
-        { "tc": "TC-loans-011", "role": "staff", "mode": "必須なし" }
+        { "tc": "TC-loans-char-010", "role": "staff", "mode": "必須あり" },
+        { "tc": "TC-loans-char-011", "role": "staff", "mode": "必須なし" }
       ],
       "testDataSource": "self-created",
-      "testDataNote": "接頭辞 QA-<run-id>- の備品名で登録し、最後のケースで削除する"
+      "testDataNote": "接頭辞 QA-<run-id>- の備品名で登録し、最後のケースで削除する",
+      "normalize": [
+        { "field": "column:備品名", "pattern": "^QA-${runId}-(.+)$", "replacement": "QA-<run>-$1",
+          "mustMatch": [], "note": "pattern が今回の run の接頭辞だけに一致するので、妥当性の確かめを兼ねる",
+          "when": { "tc": ["TC-loans-char-010"] } }
+      ]
     }
   ],
   "apis": [
@@ -59,22 +64,26 @@
       "match": { "method": "GET", "path": "/api/loans" },
       "matchByEnvironment": {},
       "normalize": [
-        { "field": "items[].createdAt", "rule": "ISO 8601 の日時であることを確かめ、<datetime> に置き換える" },
-        { "field": "items[].id", "rule": "正の整数であることを確かめ、<id> に置き換える" }
+        { "field": "meta.generatedAt", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$",
+          "replacement": "<datetime>", "mustMatch": [{ "check": "inRunWindow" }] }
       ],
       "callSites": [
         { "at": "src/pages/loans/List.vue:42", "trigger": "初期表示とタブの切り替え", "reachable": true,
-          "expectAt": [{ "tc": "TC-loans-001", "checkpoint": "01-initial", "min": 1 }] }
+          "expectAt": [{ "tc": "TC-loans-char-001", "checkpoint": "01-initial", "min": 1 }] }
       ]
     },
     {
       "id": "API-02", "kind": "graphql",
       "match": { "operationName": "createLoan" },
       "matchByEnvironment": {},
+      "normalize": [
+        { "field": "data.createLoan.id", "pattern": "^LN-\\d{6}$", "replacement": "LN-<id>",
+          "mustMatch": [{ "check": "sameShapeAsBaseline" }, { "check": "notInBaseline" }] }
+      ],
       "callSites": [
         { "at": "src/pages/loans/New.vue:88", "trigger": "登録ボタン", "reachable": true,
-          "expectAt": [{ "tc": "TC-loans-010", "checkpoint": "02-saved", "min": 1 },
-                       { "tc": "TC-loans-011", "checkpoint": "02-error", "max": 0 }] }
+          "expectAt": [{ "tc": "TC-loans-char-010", "checkpoint": "02-saved", "min": 1 },
+                       { "tc": "TC-loans-char-011", "checkpoint": "02-error", "max": 0 }] }
       ]
     }
   ],
@@ -84,8 +93,9 @@
       "match": { "method": "GET", "path": "/loans.csv" },
       "matchByEnvironment": {},
       "depth": "full", "risk": "high",
-      "normalize": [{ "field": "列「出力日時」", "rule": "YYYY/MM/DD HH:mm の形式であることを確かめ、<datetime> に置き換える" }],
-      "cases": [{ "tc": "TC-loans-020", "role": "admin", "mode": "全件" }]
+      "normalize": [{ "field": "column:出力日時", "pattern": "^\\d{4}/\\d{2}/\\d{2} \\d{2}:\\d{2}$",
+                       "replacement": "<datetime>", "mustMatch": [{ "check": "inRunWindow" }] }],
+      "cases": [{ "tc": "TC-loans-char-020", "role": "admin", "mode": "全件" }]
     }
   ],
   "acceptedRisks": [],
@@ -118,7 +128,7 @@
 - `risk`：`high`、`normal`、`low`。個人情報や担当範囲の判定に触れる操作は `high`
 - `requiredInputs`：必須入力のあるフォームなら `true`。`true` なら「必須あり」と「必須なし」のケースが両方要る
 - `apis`：その操作が呼ぶ API の ID
-- `cases`：ケースと、そのケースのロールと表示モード。`tc` は `cases/<機能>.md` の TC-ID
+- `cases`：ケースと、そのケースのロールと表示モード。`tc` は `cases/<機能>-char.md` の TC-ID（SKILL.md の「名前の決まり」）
 - `uncovered`：ロールと表示モードの組み合わせのうちケースを付けないものと、その理由。理由のない組み合わせを残さない
 - `testDataSource`：`existing`（既存のアカウントとデータ）か `self-created`（このために用意した）。後者なら `testDataNote` に用意した内容を書く
 
@@ -131,7 +141,7 @@
 - `kind`：`rest`、`graphql` など
 - `match`：記録した環境で応答を捕まえる条件。REST は `method` と `path`、GraphQL は `operationName`。テストはこの値を読み、コードに直接書かない
 - `matchByEnvironment`：記録した環境と別の環境で名前が変わった場合の条件を、プロファイルの環境名ごとに書く（例 `{"new": {"operationName": "listLoans"}}`）。記録の時点では空でよく、分かっていない名前を推測で埋めない。1つの API が分かれた場合は配列、複数が1つにまとまった場合は各項目に同じ条件を書く。改修後に aidev-qa-regression-compare が埋める
-- `normalize`：実行ごとに変わる値の正規化の規則。`field` に項目（応答の JSON のパス、一覧や帳票の列の名前）、`rule` に置き換えの規則を書く。同じ形で `operations`（画面の表示値）と `reports` にも書ける。対象は、同じケースを2回記録して変わった項目に限る。行や表の全体を対象にしない。テストと aidev-qa-regression-compare の両方がこの規則を使う。正規化しない項目しかなければ空の配列にする
+- `normalize`：実行ごとに変わる値の正規化の規則。形は下の「正規化の規則（normalize）」に書いた。同じ形で `operations`（画面の表示値）と `reports` にも書ける
 - `callSites`：同じ API でも呼び出し箇所が複数あれば分ける。`at` はファイルと行、`trigger` は呼ばれるきっかけ（画面の表示、ボタン、ダイアログを開いたとき、入力したときの照会）。この画面から届かない呼び出し箇所は `reachable: false` と根拠を書く
 - `expectAt`：その呼び出し箇所を呼ぶケースと checkpoint、最小の回数（`min`）か最大の回数（`max`。呼ばれないことを確かめるなら 0）
 
@@ -140,6 +150,38 @@
 API を呼ばない画面（サーバーで HTML を組み立てる画面など）では `apis` を空の配列にし、`noApisReason` に理由（ソースを追った結果）を書く。
 
 ダイアログの中のダイアログ、コードを入れたときの照会、選択肢の読み込みは、ボタン1つ奥にあって抜けやすい。対応するケースのない呼び出し箇所があれば、それを呼ぶ操作のケースを足す。
+
+### 正規化の規則（normalize）
+
+`normalize` は、テストと aidev-qa-regression-compare のスクリプトがそのまま読む規則の配列である。1つの規則が1つの項目を扱う。対象は、同じケースを2回記録して変わった項目に限る。行や表の全体を対象にしない。正規化しない項目しかなければ空の配列にする。
+
+| 項目 | 内容 |
+|---|---|
+| `field` | 対象の項目。応答の JSON は `data.createLoan.id` や `items[].createdAt` のようにパスで書く（`[]` は配列のすべての要素）。一覧や帳票の列は `column:<列の見出し>`、画面の表示値は `<checkpoint>.values.json` の中のパスで書く |
+| `pattern` | 元の値が満たす形式の正規表現。JavaScript の書き方で、値の全体に一致させる。JSON の文字列なので `\d` は `\\d` と書く。`${runId}` は、その run の run-id に置き換えてから使う。一致しない値は置き換えず、そのまま照合して差として出す |
+| `replacement` | 一致した値を置き換える文字列。`$1` などで `pattern` の括弧の中身を残せる。テストデータの名前の接頭辞の後ろを残すときに使う |
+| `mustMatch` | 元の値の妥当性の確かめの配列。すべてに通らなければ、置き換えた値が一致しても差異として出す。空にしてよいのは、`pattern` が `${runId}` を含み、今回の run の値だけに一致するときで、その理由を `note` に書く。確かめる手段がなければ作業者と決めてから書く |
+| `when` | 省ける。規則を当てる範囲を絞る。`checkpoints`（checkpoint の名前の配列）、`tc`（TC-ID の配列）、`environments`（プロファイルの環境名の配列）。省くと、その項目のすべてに当てる |
+| `note` | 省ける。規則の理由や、2回の記録で確かめたこと |
+
+`mustMatch` の `check` は次のどれかにする。足したいときは、テストと照合のスクリプトの両方に実装してから使う。
+
+| check | 確かめること |
+|---|---|
+| `inRunWindow` | 日時が、その run の実行の開始と終了の間に入る（`result.json` の時刻）。時差の分だけずれた値はここで落ちる |
+| `sameDateAsRun` | 日付が、その run の実行日と同じ |
+| `sameShapeAsBaseline` | 基準の run の同じ項目の値も `pattern` に一致し、数字を除いた部分（接頭辞、区切り）と桁数が同じ。ID の採番の系列や桁が変わった値はここで落ちる |
+
+例の4つの規則は、次を表す。
+
+| 種類 | 規則 |
+|---|---|
+| 日時（応答） | `API-01` の `meta.generatedAt` は ISO 8601 の形式で、実行の時間帯に入るものだけを `<datetime>` にそろえる |
+| 日時（帳票） | CSV の列「出力日時」は `YYYY/MM/DD HH:mm` の形式で、実行の時間帯に入るものだけを `<datetime>` にそろえる |
+| 採番された ID | `API-02` の応答の `data.createLoan.id` は `LN-` と6桁の数字で、基準と同じ形のものだけを `LN-<id>` にそろえる |
+| テストデータの接頭辞 | 登録のケースの一覧の列「備品名」は、今回の run の接頭辞 `QA-<run-id>-` で始まるものだけ、接頭辞を `QA-<run>-` にそろえて後ろの名前を残す。前の run の残りのデータは一致せず、差として出る |
+
+規則を足すときは、日付でも ID でも、形式の違う値が置き換えられずに差として出ることと、形式が合っていて値が誤ったもの（日付を1日ずらしたもの、別の系列の ID）が `mustMatch` で差として出ることを、照合の前に確かめる（aidev-qa-regression-compare の「照合の仕組みが差を見つけられるかを確かめる」）。
 
 ### 既知のリスク（acceptedRisks）
 
@@ -153,7 +195,7 @@ API を呼ばない画面（サーバーで HTML を組み立てる画面など�
   "decidedBy": "承認者の名前",
   "decidedDate": "2026-11-18",
   "fixPlan": "次の段階の改修で是正する",
-  "cases": ["TC-loans-030"]
+  "cases": ["TC-loans-char-030"]
 }
 ```
 

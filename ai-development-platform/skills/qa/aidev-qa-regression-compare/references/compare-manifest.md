@@ -37,30 +37,30 @@ aidev qa compare-report runs/20261120-new-orders.compare.json reports/20261120-n
       "screen": "注文の一覧",
       "testCases": [
         {
-          "name": "TC-orders-001 一般のロールで一覧の初期表示",
+          "name": "TC-orders-char-001 一般のロールで一覧の初期表示",
           "note": "AC-030。判定: 要確認",
           "results": [
             { "round": 0, "status": "OK", "screenshots": [
-              "20261120-old-orders/evidence/TC-orders-001/01-initial.png",
-              "20261120-old-orders/evidence/TC-orders-001/02-page2.png" ] },
+              "20261120-old-orders/evidence/TC-orders-char-001/01-initial.png",
+              "20261120-old-orders/evidence/TC-orders-char-001/02-page2.png" ] },
             { "round": 1, "status": "NG", "note": "意図した差分 D-001（基本設計書 5.2）。要確認 D-003 注文日時の元の値が実行の時間帯より 9 時間前", "screenshots": [
-              "20261120-new-orders/evidence/TC-orders-001/01-initial.png",
-              "20261120-new-orders/evidence/TC-orders-001/02-page2.png" ] }
+              "20261120-new-orders/evidence/TC-orders-char-001/01-initial.png",
+              "20261120-new-orders/evidence/TC-orders-char-001/02-page2.png" ] }
           ]
         },
         {
-          "name": "TC-orders-020 管理者のロールで CSV を出力する",
+          "name": "TC-orders-char-020 管理者のロールで CSV を出力する",
           "note": "AC-040。判定: 要確認",
           "results": [
-            { "round": 0, "status": "OK", "screenshot": "20261120-old-orders/evidence/TC-orders-020/01-export.png" },
-            { "round": 1, "status": "NG", "note": "要確認 D-002 CSV の金額に桁区切りが入った", "screenshot": "20261120-new-orders/evidence/TC-orders-020/01-export.png" }
+            { "round": 0, "status": "OK", "screenshot": "20261120-old-orders/evidence/TC-orders-char-020/01-export.png" },
+            { "round": 1, "status": "NG", "note": "要確認 D-002 CSV の金額に桁区切りが入った", "screenshot": "20261120-new-orders/evidence/TC-orders-char-020/01-export.png" }
           ]
         },
         {
-          "name": "TC-orders-030 一覧の絞り込み",
+          "name": "TC-orders-char-030 一覧の絞り込み",
           "note": "照合できない（比較先の結果は実行不能）: 比較先の環境に絞り込みの前提のデータがなく、比較先で実行できなかった",
           "results": [
-            { "round": 0, "status": "OK", "screenshot": "20261120-old-orders/evidence/TC-orders-030/01-filtered.png" }
+            { "round": 0, "status": "OK", "screenshot": "20261120-old-orders/evidence/TC-orders-char-030/01-filtered.png" }
           ]
         }
       ]
@@ -69,7 +69,7 @@ aidev qa compare-report runs/20261120-new-orders.compare.json reports/20261120-n
 }
 ```
 
-この例のマニフェストは `runs/20261120-new-orders.compare.json` にあるので、画像のパスは `runs/` からの相対パスになる。例の値は説明のためのもので、実際の値は compare.md と証跡から書く。TC-orders-030 は照合できなかったケースの書き方の例で、比較先の列は要素を入れずに「対象外」と出す。
+この例のマニフェストは `runs/20261120-new-orders.compare.json` にあるので、画像のパスは `runs/` からの相対パスになる。例の値は説明のためのもので、実際の値は compare.md と証跡から書く。TC-orders-char-030 は照合できなかったケースの書き方の例で、比較先の列は要素を入れずに「対象外」と出す。
 
 ## 項目
 
@@ -90,7 +90,7 @@ aidev qa compare-report runs/20261120-new-orders.compare.json reports/20261120-n
 
 `results` の要素は次のとおり。
 
-- `round`（必須、整数）：0 以上、`rounds` の件数未満
+- `round`（必須、整数）：0 以上、`rounds` の件数未満。1つのテストケースの `results` に、同じ `round` を2回書かない（コマンドが拒否する）
 - `status`（必須、文字列）：`OK` か `NG`。大文字と小文字は問わず、`pass`、`passed` は OK、`fail`、`failed` は NG と同じに扱われる。それ以外の値はすべて「未実施」と表示されるので使わない
 - `note`（任意、文字列）：その列の補足。差異の ID と分類、根拠の箇所を書く。`note` は顧客に渡るので、個人情報や機微な項目の値は写さず、差の性質（「値あり→空」「形式 YYYY/MM/DD→YYYY-MM-DD」など）で書く。書き方は `diff-classification.md` の compare.md の形式と同じである
 - `screenshot`（任意、文字列）か `screenshots`（任意、文字列の配列）：その列のそのケースのスクリーンショット。両方を書くと `screenshots` が使われる。どちらもなければ「スクリーンショットなし」と出る
@@ -123,7 +123,7 @@ aidev qa compare-report runs/20261120-new-orders.compare.json reports/20261120-n
 
 - MANIFEST と OUT は、カレントディレクトリからの相対パスにする。絶対パス、`..`、`:` を含むパス、途中にシンボリックリンクがあるパスは使えない
 - マニフェストは 1 MiB 以下の通常ファイルの JSON にする
-- OUT は `.html` で終わる名前にし、MANIFEST と同じパスにしない。OUT にすでにファイルがあると上書きされるので、新しいパスにするか、上書きしてよいことを確かめる
+- OUT は `.html` か `.htm` で終わる名前にし、MANIFEST と同じパスにしない。OUT にすでにファイルがあると上書きされるので、新しいパスにするか、上書きしてよいことを確かめる
 - 画像のパスは、マニフェストのあるディレクトリからの相対パスで、そのディレクトリの中にあるものに限る。`..` で外に出られない
 - 画像は png、jpg、jpeg、gif、webp の通常ファイルで、1枚 20 MiB 以下にする。svg や PDF は使えない
 - `--link` のとき、`assets/` の同じ場所に内容の違うファイルがあると止まる。前の HTML の `assets/` が残っていれば、別のディレクトリに出すか、作業者に確かめてから片付ける

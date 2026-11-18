@@ -6,21 +6,23 @@
 
 `automation/web/` に次を置く。ログインの setup と storageState のパスの関数は aidev-qa-login-session が作るものを使い、ここで作り直さない。ファイル名は例で、QA リポジトリにすでに決まりがあればそれに従う。
 
-- `playwright.config.ts`：setup のプロジェクトと、それに依存するテストのプロジェクト
+- `playwright.config.ts`：QA リポジトリで1つだけの Playwright の設定。この資料が形を決め、ほかの Skill はプロジェクトを足すだけにする（次の節）
 - `manifests/<画面>.json`：画面マニフェスト
-- `tests/<機能>.spec.ts`：特性テスト。テスト名の先頭に TC-ID を付ける
+- `tests/<機能>-char.spec.ts`：特性テスト。`<機能>-char` は SKILL.md の「名前の決まり」による。1つの TC に1つのテストを対応させ、テスト名の先頭に TC-ID を付ける
 - `tests/support/manifest.ts`：マニフェストを読み、実行している環境に合った捕捉の条件を返す
 - `tests/support/record.ts`：checkpoint ごとにスクリーンショット、表示値、API の応答を、`QA_RUN_DIR` の `evidence/<TC-ID>/` に保存する
 
 ## 設定
 
+Playwright の設定は QA リポジトリに1つだけ置き、形はこの資料で決める。aidev-qa-login-session、aidev-qa-authz-test、aidev-qa-test-run は、自分のプロジェクトがなければ足し、既存の設定にある項目は書き換えない。設定のファイルを丸ごと書き直すと、ほかの Skill のプロジェクトや出力先が消える。
+
 ```ts
 // automation/web/playwright.config.ts
 import { defineConfig } from '@playwright/test';
-import { authFile } from './tests/auth-path';
 
 export default defineConfig({
   testDir: './tests',
+  outputDir: 'test-results/pw',   // Playwright は実行のたびにこの中を消す。診断用のファイルを置かない
   workers: 1,
   retries: 0,
   use: {
@@ -32,18 +34,40 @@ export default defineConfig({
   },
   projects: [
     // setup は aidev-qa-login-session のもの。トレース、動画、スクリーンショットは切ってある
-    { name: 'setup', testMatch: /auth\.setup\.ts/, use: { trace: 'off', video: 'off', screenshot: 'off' } },
-    { name: 'characterization', dependencies: ['setup'], testMatch: /\.spec\.ts/ },
+    { name: 'setup', testMatch: /auth\.setup\.ts$/, use: { trace: 'off', video: 'off', screenshot: 'off' } },
+    // 特性テスト（この Skill）
+    { name: 'characterization', dependencies: ['setup'], testMatch: /-char\.spec\.ts$/ },
+    // WebView2 の画面の特性テスト。CDP で接続するので setup に依存しない（webview2.md）
+    { name: 'webview2', testMatch: /-char\.webview2\.spec\.ts$/ },
+    // 認可の表のテスト（aidev-qa-authz-test）
+    { name: 'authz', dependencies: ['setup'], testMatch: /-authz\.spec\.ts$/ },
+    // テストケースのテスト（aidev-qa-test-run）。ほかのプロジェクトの spec を除く
+    { name: 'cases', dependencies: ['setup'], testMatch: /\.spec\.ts$/,
+      testIgnore: [/-char(\.webview2)?\.spec\.ts$/, /-authz\.spec\.ts$/] },
   ],
 });
 ```
+
+ファイル名の末尾でプロジェクトが決まる。
+
+| Skill | spec のファイル名 | プロジェクト |
+|---|---|---|
+| aidev-qa-characterization | `tests/<機能>-char.spec.ts`（WebView2 の画面は `tests/<機能>-char.webview2.spec.ts`） | `characterization`（`webview2`） |
+| aidev-qa-authz-test | `tests/<機能>-authz.spec.ts` | `authz` |
+| aidev-qa-test-run | `tests/<機能>.spec.ts`（上の2つの末尾を使わない） | `cases` |
+
+- 出力先は `test-results/pw/` にする。Playwright は実行のたびに `outputDir` を空にするので、失敗した実行の証跡、照合の確かめに使う写し、作った対象の ID、プロセスの ID のような診断用のファイルは、QA リポジトリのルートの `.qa-scratch/`（`.gitignore` で除外されている）に置く。`test-results/` に置くと次の実行で消える
+- プロファイルの `test_commands` は、プロジェクトかファイルで絞った形で書く（例 `npx playwright test -c automation/web --project=characterization`）。何も絞らない `npx playwright test` は、ほかの Skill の spec まで流す。TC-ID の範囲で絞るときは、ファイルを指定するか、`|` を使わない `--grep`（例 `--grep "TC-loans-char-00[1-3]"`）にする
+- Windows では、`npx` が cmd の中継（`npx.cmd`）を通るため、`--grep "a|b"` の `|` がパイプとして扱われて壊れることがある（実機で確かめた）。`|` が要るときは、中継を通さず `node node_modules/@playwright/test/cli.js test --grep "a|b"` で流すか、ファイルとプロジェクトで絞る
+- spec のファイルは、エージェントのファイルを書く道具で書き、シェルのヒアドキュメントで書かない。正規表現の `\` や `$` がシェルに解釈されて壊れる（実機で確かめた）。区切りの語を引用符で囲んだ形（`<<'EOF'`）でも、実行の環境によっては `\\` が `\` に変わる。書いた後に、正規表現の行を読み返して `\` の数を確かめる
 
 - 実行する環境は `QA_ENV`（プロファイルの環境名）と `QA_BASE_URL` で渡す。URL やホスト名をテストに書かない。同じテストを別の環境に流せなくなる
 - `workers: 1` で順に流す。共有のテスト用アカウントで並列に操作すると、互いのデータの状態を変える
 - `retries: 0` にする。更新を伴うケースで自動の再試行があると、二重に登録されることがある。また、再試行で通ったテストは不安定さを隠す
 - `actionTimeout` を設定する。設定しないと、隠れた要素への操作がテスト全体の時間切れまで黙って待つ
 - トレースは `retain-on-failure` にする。`on-first-retry` は `retries: 0` では何も残さない。トレースは診断に使い、扱いは `evidence.md` の秘密情報の節に従う
-- ロールはテストの中で `test.use({ storageState: authFile('<role>') })` で選ぶ。ロールと表示モードの組み合わせは、ケースの表を配列にして1つのテスト関数に流し込み、同じ形のテストを並べない
+- ロールはテストの中で `test.use({ storageState: authFile('<role>', process.env.QA_ENV) })` で選ぶ。`authFile` は aidev-qa-login-session のもので、環境ごとに分けた `automation/web/.auth/<environment>/<role>.json` を返す。環境の引数を省くと、別の環境のセッションを読むことがある
+- ロールと表示モードの組み合わせは、ケースの表を配列にし、`for` で回して1つの TC に1つのテストを作る。テスト名の先頭は TC-ID にする（例 ``test(`${c.tc} ${c.role} ${c.mode}`, ...)``）。1つのテストの中で表を回すと、1つの失敗で残りの組み合わせの結果が分からなくなる。ロールごとに `test.describe` で囲み、その中で `test.use` を呼ぶ
 
 ## 対象の画面にいることを確かめる
 
@@ -90,6 +114,7 @@ await recorder.saveResponse('02-returned', 'API-01', await listed);
 - 部品によっては、値が `innerText` ではなく内側の `input` の value にある（選択の部品など）。読み方は対象の画面で確かめる
 - 期待値は、別の検索の結果から導ける形にすると強くなる（範囲で絞った結果は、絞らない結果のうち範囲に入る行と同じ、など）。「1件以上出る」だけにしない
 - データに依存する候補（ある条件の行、ある担当者）は、思い込みで決めず、テストの中で画面の検索結果から選ぶ。選んだ値と、選んだ根拠の件数を checkpoint の値に保存する。候補がなければ条件を緩めて通さず、データの事情を報告する
+- 行は安定したキーで選ぶ（条件に合う行のうち ID が最小のもの、名前を決めて用意した記録）。「一覧の先頭の行」で選ばない。並び順が変わる改修では、旧版と新版で別の行を開き、照合が成り立たなくなる（実機で確かめた）
 
 ## 帳票を記録する
 
@@ -99,7 +124,7 @@ await page.getByRole('button', { name: 'CSV 出力' }).click();
 const file = await download;
 const runDir = process.env.QA_RUN_DIR;  // runs/<YYYYMMDD>-<run-id> のパス。テストを流す前に設定する
 if (!runDir) throw new Error('QA_RUN_DIR を設定してください');
-await file.saveAs(path.join(runDir, 'evidence', 'TC-loans-020', file.suggestedFilename()));
+await file.saveAs(path.join(runDir, 'evidence', 'TC-loans-char-020', file.suggestedFilename()));
 ```
 
 - ダウンロードの待ち受けは、操作の前に登録する
@@ -108,11 +133,27 @@ await file.saveAs(path.join(runDir, 'evidence', 'TC-loans-020', file.suggestedFi
 - ダウンロードの URL を直接開いて代わりにしない。画面の操作で出ることを記録するのが目的である
 - OS の保存ダイアログが出る実装は、ブラウザの外の操作になる。マニフェストで `native-required` にし、aidev-qa-desktop-gui に渡す
 
+ダウンロードされないこと（権限のないロールで出力できない、など）を確かめるケースは、次の順に書く。
+
+```ts
+const downloads: string[] = [];
+page.on('download', d => downloads.push(d.suggestedFilename()));   // 操作の前に登録する
+const opened = await page.goto('/loans.csv').then(() => 'page' as const, (e: Error) =>
+  /Download is starting/.test(e.message) ? 'download' as const : Promise.reject(e));
+await recorder.shot('01-after');                                    // 判定の前に撮って値を保存する
+await recorder.saveValues('01-after', { opened, downloads });
+expect(opened, 'ダウンロードが始まった').toBe('page');
+expect(downloads).toEqual([]);
+```
+
+- ダウンロードを返す URL を `page.goto` で開くと、Playwright は `Download is starting` の例外を出す。例外を「開けなかった」と読まず、ダウンロードが起きたこととして記録する
+- 撮影と値の保存を判定より先に置く。判定を先にすると、ダウンロードされてしまったときに証跡が残らない（実機で確かめた）
+
 ## 実行ごとに変わる値の正規化
 
 画面の文字列をそのまま期待値にすると、作成日時、採番された ID、更新日時、今日の日付、テストデータの接頭辞 `QA-<run-id>-` のように実行ごとに変わる値で、挙動が同じでもテストが落ちる。逆に、これを避けようとして比較から外す範囲を広げると、本当のデータの差まで見えなくなる。次のように扱う。
 
-- 正規化するのは、名前を挙げた項目だけにする（例 `API-01` の `items[].createdAt`、一覧の「更新日」の列、CSV の「出力日時」の列）。項目ごとに、置き換えの規則を明示する（日時は形式だけを確かめて `<datetime>` に置き換える、ID は数字であることだけを確かめる、`QA-<run-id>-` を `QA-<run>-` にそろえる、など）
+- 正規化するのは、名前を挙げた項目だけにする（例 `API-01` の `items[].createdAt`、一覧の「更新日」の列、CSV の「出力日時」の列）。項目ごとに、形式（`pattern`）、置き換え（`replacement`）、元の値の妥当性の確かめ（`mustMatch`）を書く。書き方は `screen-manifest.md` の「正規化の規則（normalize）」にある
 - 正規化した値とは別に、元の値も保存する。照合で疑問が出たときに戻れるようにする
 - 規則は画面マニフェストの `normalize`（`screen-manifest.md`）に書き、テストはそこから読む。aidev-qa-regression-compare も同じ規則で照合する。テストの中だけに規則を書くと、照合の側と食い違う
 - 期待値を固める前に、同じケースを2回記録して差を取る。2回で変わった値だけが実行ごとに変わる値の候補で、それ以外の差は挙動として扱う。1回の記録から推測で正規化の対象を決めない
@@ -128,7 +169,7 @@ await file.saveAs(path.join(runDir, 'evidence', 'TC-loans-020', file.suggestedFi
 
 ## 更新を伴う操作のケース
 
-登録、確認、修正、確認、削除、確認を1つの流れとして `test.describe.serial` に並べ、前のケースが失敗したら後のケースは実行不能（前段の失敗）にする。後始末は流れの外に置いた最後のテスト（例 `TC-loans-099 後始末`）にし、前段が失敗しても走るようにする。`afterAll` ではテストの単位の `page` が使えない。後始末は自分の接頭辞の付いたデータだけを画面の操作で消し、残っていないことを検索し直して確かめる。
+登録、確認、修正、確認、削除、確認を1つの流れとして `test.describe.serial` に並べ、前のケースが失敗したら後のケースは実行不能（前段の失敗）にする。後始末は流れの外に置いた最後のテスト（例 `TC-loans-char-099 後始末`）にし、前段が失敗しても走るようにする。`afterAll` ではテストの単位の `page` が使えない。後始末は自分の接頭辞の付いたデータだけを画面の操作で消し、残っていないことを検索し直して確かめる。
 
 必須項目なしのケースでは、エラーの表示に加えて、保存されていないことを検索し直して確かめ、更新の API が呼ばれていない（`expectAt` の `max: 0`）ことも見る。
 
@@ -148,4 +189,4 @@ await file.saveAs(path.join(runDir, 'evidence', 'TC-loans-020', file.suggestedFi
 - 自己署名の証明書の検証環境では、`ignoreHTTPSErrors: true` がないと最初の遷移で失敗する。本番に近い環境では有効にしない
 - 同じルートへの遷移では画面が作り直されないアプリがある。ケースの最初に、メニューやトップから開き直す
 - 通知（トースト）は数秒で消える。出た直後に読むか撮る
-- テストの spec を直したら、結果をまとめる前に全ケースを同じコードで流し直す。その実行を最終の run とし、`runs/` にはその証跡だけを置く（`evidence.md` の「保存先と名前」）。更新を伴うケースのうち直した箇所を使わないものは、書き込みを増やさないよう流し直さず、その旨を result.md に書く
+- テストの spec を直したら、結果をまとめる前に全ケースを同じコードで、新しい run-id の run に流し直す。その実行を最終の run とし、`runs/` にはその証跡だけを置く（`evidence.md` の「保存先と名前」）。一部のケースだけを同じ run のディレクトリに流し直さない。流し直しと書き込みを伴うケースの扱いは、aidev-qa-test-run の「データの状態と流し直し」に従う
