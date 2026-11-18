@@ -44,8 +44,9 @@ const secretPatterns: {name: string; pattern: RegExp}[] = [
   {name: '認証情報を含む URL', pattern: /:\/\/[^\s/:@]+:[^\s/@]+@/},
 ];
 const secretWords = new Set(['password', 'passwd', 'pwd', 'secret', 'token', 'apikey', 'passphrase', 'privatekey', 'credential', 'credentials']);
-// Lookahead: every key position on a line is examined, so `note: password: x` is not hidden by the first key.
-const keyValue = /(?<![A-Za-z0-9_-])(?=([A-Za-z0-9_-]+)["']?\s*[:=]\s*([^,}\n]+))/g;
+// Matches only a key and its separator (not the value), so every key on a line is examined in linear time.
+const keyValue = /(?<![A-Za-z0-9_-])([A-Za-z0-9_-]+)["']?\s*[:=]\s*/g;
+const valueLimit = 1000;
 
 /** A URL that is valid for the profile (http or https) and has no user name, password, query or fragment (a secret may hide there). */
 function plainUrl(value: unknown): boolean {
@@ -83,8 +84,13 @@ function secretIn(line: string): string | undefined {
   for (const {name, pattern} of secretPatterns) if (pattern.test(line)) return name;
   for (const match of line.matchAll(keyValue)) {
     const key = match[1];
-    const value = match[2].replace(/\s+#.*$/, '').replace(/[\s,}\]'"]+$/, '').replace(/^['"\s]+/, '');
-    if (!value || !isSecretKey(key, value)) continue;
+    if (!isSecretKey(key, undefined)) continue;
+    // The value is read only for a secret key, and capped; a capped value is never treated as a plain URL.
+    const start = match.index + match[0].length;
+    const rest = line.slice(start, start + valueLimit + 1);
+    const raw = rest.split(/[,}\n]/, 1)[0];
+    const value = raw.replace(/\s+#.*$/, '').replace(/[\s,}\]'"]+$/, '').replace(/^['"\s]+/, '');
+    if (!value || !isSecretKey(key, rest.length > valueLimit ? value + '#' : value)) continue;
     return key + ' に値が書かれています';
   }
   return undefined;

@@ -106,3 +106,12 @@ test('the _url exception does not cover a secret in the query or fragment', () =
     assert.ok(checkProfileText('p.md', valid.replace('evidence:', line + '\nevidence:')).errors.some(e => e.code === 'secret'), line);
   }
 });
+test('very long lines are scanned in linear time and still report the secret', () => {
+  const lines = ['a:'.repeat(50000), 'a b: '.repeat(20000), 'x:'.repeat(50000) + 'password: z'];
+  lines.forEach((line, i) => {
+    const started = Date.now();
+    const r = checkProfileText('p.md', valid + line + '\n');
+    assert.ok(Date.now() - started < 1000, 'line ' + i + ' took ' + (Date.now() - started) + ' ms');
+    assert.equal(r.errors.some(e => e.code === 'secret'), i === 2, 'line ' + i);
+  });
+});
