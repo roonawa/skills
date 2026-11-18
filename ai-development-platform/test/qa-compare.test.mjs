@@ -58,20 +58,67 @@ test('escape manifest text in html', t => {
   assert.doesNotMatch(html, /<script>/); assert.doesNotMatch(html, /<img src=x>/);
   assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
 });
+const shot = (screenshot, extra = {}) => ({screens:[{screen:'s', testCases:[{name:'t', results:[{round:0, status:'ok', screenshot, ...extra}]}]}]});
+function fails(root, pattern, args = ['ev/m.json', 'r.html']) {
+  const r = run(root, ['qa', 'compare-report', ...args], 1);
+  assert.equal(r.ok, false); assert.match(r.error, pattern); return r;
+}
 test('refuse image paths outside the manifest directory', t => {
   const root = sandbox(t);
-  for (const path of ['../outside.png', join(root, 'outside.png'), 'C:\\x.png', 'shots/../../outside.png', 'shots/missing.png', 'shots/a.txt']) {
-    manifest(root, {screens:[{screen:'s', testCases:[{name:'t', results:[{round:0, status:'ok', screenshot:path}]}]}]});
-    const r = run(root, ['qa', 'compare-report', 'ev/m.json', 'r.html'], 1);
-    assert.equal(r.ok, false, path);
+  for (const path of ['../outside.png', join(root, 'outside.png'), 'C:' + String.fromCharCode(92) + 'x.png', 'shots/../../outside.png']) {
+    manifest(root, shot(path));
+    fails(root, /画像のパスが使用できません/);
   }
+  manifest(root, shot('shots/missing.png')); fails(root, /画像が見つかりません/);
+  manifest(root, shot('shots/a.svg')); fails(root, /画像の拡張子/);
   assert.equal(existsSync(join(root, 'r.html')), false);
 });
-test('reject a round index out of range and a bad manifest', t => {
+test('refuse an image over 20 MiB', t => {
   const root = sandbox(t);
-  manifest(root, {screens:[{screen:'s', testCases:[{name:'t', results:[{round:5, status:'ok'}]}]}]});
-  assert.equal(run(root, ['qa', 'compare-report', 'ev/m.json', 'r.html'], 1).ok, false);
-  manifest(root, {rounds:[]});
-  assert.equal(run(root, ['qa', 'compare-report', 'ev/m.json', 'r.html'], 1).ok, false);
-  assert.equal(run(root, ['qa', 'compare-report', '../m.json', 'r.html'], 1).ok, false);
+  writeFileSync(join(root, 'ev', 'shots', 'big.png'), Buffer.alloc(20 * 1024 * 1024 + 1));
+  manifest(root, shot('shots/big.png')); fails(root, /20 MiB/);
+  writeFileSync(join(root, 'ev', 'shots', 'big.png'), Buffer.alloc(20 * 1024 * 1024));
+  assert.equal(run(root, ['qa', 'compare-report', 'ev/m.json', 'r.html']).ok, true);
+});
+test('reject a round index out of range, negative or fractional, and a bad manifest', t => {
+  const root = sandbox(t);
+  for (const round of [5, -1, 0.5]) {
+    manifest(root, {screens:[{screen:'s', testCases:[{name:'t', results:[{round, status:'ok'}]}]}]});
+    fails(root, /round は 0 以上 2 未満の整数/);
+  }
+  manifest(root, {rounds:[]}); fails(root, /rounds は 1 件以上/);
+  manifest(root); fails(root, /不正なパスです/, ['../m.json', 'r.html']);
+});
+test('escape quotes and angle brackets in text and the alt attribute', t => {
+  const root = sandbox(t);
+  manifest(root, {screens:[{screen:'s"\'<', testCases:[{name:'n"\'<x', results:[{round:0, status:'ok', screenshot:'shots/a.png'}]}]}]});
+  run(root, ['qa', 'compare-report', 'ev/m.json', 'r.html']);
+  const html = readFileSync(join(root, 'r.html'), 'utf8');
+  assert.match(html, /alt="n&quot;&#39;&lt;x - 旧"/);
+  assert.match(html, /s&quot;&#39;&lt;/);
+  assert.doesNotMatch(html, /n"'<x/);
+});
+test('placeholder-like manifest text is rendered literally once', t => {
+  const root = sandbox(t);
+  manifest(root, {title:'{{BODY}}', customer:'{{TITLE}}'});
+  run(root, ['qa', 'compare-report', 'ev/m.json', 'r.html']);
+  const html = readFileSync(join(root, 'r.html'), 'utf8');
+  assert.equal(html.split('{{BODY}}').length - 1, 2); // <title> and <h1>, both literal
+  assert.match(html, /testcase-name">検索/);
+  assert.match(html, /\{\{TITLE\}\}/);
+});
+test('refuse an output that is the manifest or not html', t => {
+  const root = sandbox(t); manifest(root);
+  const before = readFileSync(join(root, 'ev', 'm.json'), 'utf8');
+  fails(root, /マニフェストと同じ/, ['ev/m.json', 'ev/m.json']);
+  fails(root, /.html で終わる/, ['ev/m.json', 'ev/out.json']);
+  assert.equal(readFileSync(join(root, 'ev', 'm.json'), 'utf8'), before);
+});
+test('link mode url-encodes the src and keeps the raw copy path', t => {
+  const root = sandbox(t);
+  writeFileSync(join(root, 'ev', 'shots', 'b c#1.png'), PNG);
+  manifest(root, shot('shots/b c#1.png'));
+  run(root, ['qa', 'compare-report', 'ev/m.json', 'out/r.html', '--link']);
+  assert.ok(existsSync(join(root, 'out', 'assets', 'shots', 'b c#1.png')));
+  assert.match(readFileSync(join(root, 'out', 'r.html'), 'utf8'), /src="assets\/shots\/b%20c%231\.png"/);
 });

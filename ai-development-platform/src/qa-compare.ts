@@ -84,7 +84,7 @@ export function renderCompareReport(manifestDir: string, manifest: CompareManife
     if (!options.link) return 'data:' + image.mime + ';base64,' + image.data.toString('base64');
     const asset = 'assets/' + relative.split(/[\\/]/).join('/');
     assets[asset] = image.path;
-    return asset;
+    return asset.split('/').map(encodeURIComponent).join('/');
   };
 
   const counts = rounds.map(() => ({ok:0,ng:0,pending:0}));
@@ -142,15 +142,13 @@ export function renderCompareReport(manifestDir: string, manifest: CompareManife
   </section>`).join('\n');
 
   const template = readFileSync(fileURLToPath(new URL('../templates/qa-report/compare.html', import.meta.url)), 'utf8');
-  // Function replacers keep "$&" and similar sequences in manifest text literal.
-  const html = template
-    .replaceAll('{{TITLE}}', () => escapeHtml(manifest.title || 'エビデンス比較レポート'))
-    .replaceAll('{{CUSTOMER}}', () => escapeHtml(manifest.customer ?? ''))
-    .replaceAll('{{GENERATED_AT}}', () => escapeHtml(manifest.generatedAt ?? ''))
-    .replaceAll('{{SCREEN_COUNT}}', String(manifest.screens.length))
-    .replaceAll('{{ROUND_COUNT}}', String(rounds.length))
-    .replace('{{SUMMARY_CARDS}}', () => summary)
-    .replace('{{BODY}}', () => body);
+  // One pass over the template, so placeholder-like text in the manifest is never substituted again.
+  const values: Record<string,string> = {
+    TITLE: escapeHtml(manifest.title || 'エビデンス比較レポート'), CUSTOMER: escapeHtml(manifest.customer ?? ''),
+    GENERATED_AT: escapeHtml(manifest.generatedAt ?? ''), SCREEN_COUNT: String(manifest.screens.length),
+    ROUND_COUNT: String(rounds.length), SUMMARY_CARDS: summary, BODY: body,
+  };
+  const html = template.replace(/{{([A-Z_]+)}}/g, (_, key: string) => values[key] ?? '');
   return {html, assets, images};
 }
 
@@ -158,6 +156,8 @@ export function compareReport(root: string, manifestFile: string, outFile: strin
     {out: string; screens: number; testCases: number; images: number} {
   const manifestPath = checked(root, manifestFile);
   const out = checked(root, outFile);
+  if (out.toLowerCase() === manifestPath.toLowerCase()) throw new Error('出力先がマニフェストと同じです: ' + outFile);
+  if (!/\.html?$/i.test(outFile)) throw new Error('出力先は .html で終わるファイル名にしてください: ' + outFile);
   const raw = content(manifestPath);
   if (raw === undefined) throw new Error('マニフェストが見つかりません: ' + manifestFile);
   let manifest: unknown;
