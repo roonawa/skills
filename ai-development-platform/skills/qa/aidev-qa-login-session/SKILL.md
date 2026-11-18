@@ -2,7 +2,7 @@
 name: aidev-qa-login-session
 description: Web アプリのテストの前提として、ロールごとに Playwright でログインし、認証済みのセッション（storageState）を QA リポジトリの automation/web/.auth/ に作るときに使う。案件プロファイルの login.method に従い、SAML、OIDC、フォーム認証を扱う。資格情報はプロファイルに名前がある環境変数から読む。ログインの成否を「アプリに着いた」「アプリのログイン画面かエラー画面に戻された」「IdP で止まった」に分けて判定し、保存したセッションでログインが必要なページを開けることまで確かめる。「ロールごとにログインした状態を用意して」「SAML でログインしてセッションを取って」「storageState を作り直して」「ログインのセットアップが通らない」という相談で使う。証明書方式は拇印の確認までを行い、ログインの操作は aidev-qa-desktop-gui に渡す。セッションを使った画面の特性テストには aidev-qa-characterization を、ロールごとの可否の検証には aidev-qa-authz-test を、新旧の照合には aidev-qa-regression-compare を使う。
 metadata:
-  version: "0.1.1"
+  version: "0.1.2"
 ---
 # 認証済みセッションの取得
 
@@ -116,7 +116,7 @@ setup のコードを書いたら、ロールを1つだけ選んで流し、判�
 
 この Skill が行うのは、証明書が作業者の PC にあり使える状態かの確認までである。PowerShell で `Get-ChildItem Cert:\CurrentUser\My`（端末全体の証明書なら `Cert:\LocalMachine\My`）を拇印で絞り込み、証明書があること、有効期限内であること、秘密鍵を持つこと（`HasPrivateKey`）を確かめる。見つからなければ、拇印の誤りか、証明書がまだ入っていないかを作業者に確かめる。
 
-証明書の選択ダイアログやネイティブのログイン画面の操作は、デスクトップの GUI を扱う aidev-qa-desktop-gui に渡す。ブラウザで動く画面でも、OS の証明書選択ダイアログが出る場合はブラウザの外の操作になるため、同じく aidev-qa-desktop-gui で扱う。
+証明書の選択ダイアログやネイティブのログイン画面の操作は、デスクトップの GUI を扱う aidev-qa-desktop-gui に渡す。ブラウザで動く画面でも、OS の証明書選択ダイアログが出る場合はブラウザの外の操作になるため、同じく aidev-qa-desktop-gui で扱う。その場合、この Skill の setup はブラウザを画面付き（headed）で起動し、起動したブラウザのプロセスの ID を `test-results/` の下に書いてアプリのページに着くのを待つ。aidev-qa-desktop-gui はその PID のブラウザが出したダイアログだけを操作し、ダイアログが閉じた後のセッションの保存（`.auth/`）と確認はこの Skill が行う。
 
 ## よくある誤り
 

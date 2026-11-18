@@ -12,7 +12,7 @@ automation/desktop/
   AppSession.cs          起動、要素の検索、ダイアログの待ち、証跡の撮影、終了
   Win32Windows.cs        UIA が返らないときの検出（必要になったら足す）
   Tests/
-    StockTests.cs        機能ごとのテスト。テスト名の先頭に TC-ID
+    <機能>Tests.cs       機能ごとのテスト。テスト名の先頭に TC-ID
 ```
 
 ```xml
@@ -54,7 +54,7 @@ automation/desktop/
 
 ## 起動と終了
 
-テストごとに、今回起動したプロセスだけを相手にする。既に動いている同じアプリのプロセスには接続しない。作業者が使っているインスタンスかもしれない。
+テストごとに、今回起動したプロセスだけを相手にする。既に動いている同じアプリのプロセスには接続しない。作業者が使っているインスタンスかもしれない。プロセスは自分で起動し、その `Process` のオブジェクトを最後まで持つ。PID から後で引き直すと、終了した後に同じ番号が別のプロセスに使われていることがある。
 
 ```csharp
 public sealed class AppSession : IDisposable
@@ -62,11 +62,14 @@ public sealed class AppSession : IDisposable
     public static readonly TimeSpan Short = TimeSpan.FromSeconds(5);   // 代表のケースで測った値に余裕を足して決める
     public static readonly TimeSpan Launch = TimeSpan.FromSeconds(20);
 
+    public Process Process { get; }
     public Application App { get; }
     public UIA3Automation Automation { get; } = new();
     public Window Main { get; }
-    public string WorkDir { get; }
-    public string EvidenceDir { get; }
+    public string WorkDir { get; }      // %TEMP%\qa-desktop-<guid>。今回のテストが書いてよいのはこの下だけ
+    public string OutDir { get; }       // WorkDir\out\<TC-ID>。保存のダイアログの保存先
+    public string EvidenceDir { get; }  // $QA_RUN_DIR\evidence\<TC-ID>。最終の結果に残すものだけを写す
+    public List<string> Problems { get; } = new();  // 終了できなかった、消せなかった、を result.md に書くために集める
 
     public AppSession(string tcId)
     {
@@ -75,37 +78,83 @@ public sealed class AppSession : IDisposable
         EvidenceDir = Path.Combine(runDir, "evidence", tcId);
         Directory.CreateDirectory(EvidenceDir);
 
-        // 実行ファイルの横のデータを毎回初期の状態に戻すため、出力を写してから起動する
         WorkDir = Path.Combine(Path.GetTempPath(), "qa-desktop-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(WorkDir);
-        foreach (var f in Directory.GetFiles(Path.GetDirectoryName(exe)!))
-            File.Copy(f, Path.Combine(WorkDir, Path.GetFileName(f)));
+        OutDir = Path.Combine(WorkDir, "out", tcId);
+        Directory.CreateDirectory(OutDir);
 
-        App = Application.Launch(Path.Combine(WorkDir, Path.GetFileName(exe)));
+        // 実行ファイルの横のデータを毎回初期の状態に戻すため、出力のフォルダを丸ごと写してから起動する
+        var appDir = Path.Combine(WorkDir, "app");
+        CopyTree(Path.GetDirectoryName(exe)!, appDir);
+        Process = Process.Start(new ProcessStartInfo(Path.Combine(appDir, Path.GetFileName(exe)))
+                      { UseShellExecute = false, WorkingDirectory = appDir })!;
+        App = Application.Attach(Process.Id);   // Attach(Process) は渡した Process を使えなくする（FlaUI 5.0.0 で確かめた）
         Main = Retry.WhileNull(() => App.GetMainWindow(Automation, TimeSpan.FromSeconds(1)), Launch,
             throwOnTimeout: true, timeoutMessage: "メインウィンドウが開かない").Result!;
     }
 
+    static void CopyTree(string from, string to)
+    {
+        Directory.CreateDirectory(to);
+        foreach (var f in Directory.GetFiles(from)) File.Copy(f, Path.Combine(to, Path.GetFileName(f)));
+        foreach (var d in Directory.GetDirectories(from)) CopyTree(d, Path.Combine(to, Path.GetFileName(d)));
+    }
+
     public void Dispose()
     {
-        try
+        if (!Process.HasExited)
         {
-            if (!App.HasExited) App.Close();   // ウィンドウを閉じる操作で終える
-            var p = Process.GetProcessById(App.ProcessId);
-            if (!p.WaitForExit(5000)) p.Kill(); // 今回起動した PID だけ
+            App.Close(false);                   // ウィンドウを閉じる操作だけ。false で、閉じられなくても終了させない
+            if (!Process.WaitForExit(5000))
+            {
+                // 終了させない。ダイアログや保存の途中かもしれない。状態を撮って作業者に伝える
+                try { Capture.Element(Main).ToFile(Path.Combine(EvidenceDir, "zz-not-closed.png")); } catch { }
+                Problems.Add($"PID {Process.Id} が閉じない。終了させずに残した");
+            }
         }
-        catch (ArgumentException) { }          // 終了済み
-        App.Dispose();
         Automation.Dispose();
-        try { Directory.Delete(WorkDir, true); } catch { }
+        if (Process.HasExited)
+        {
+            try { Directory.Delete(WorkDir, true); }
+            catch (Exception e) { Problems.Add($"{WorkDir} を消せない: {e.Message}"); }
+        }
+        else Problems.Add($"{WorkDir} はプロセスが使っているので残した");
+        foreach (var p in Problems) Console.Error.WriteLine("[AppSession] " + p);
     }
 }
 ```
 
-- 写して起動する方法は、実行ファイルの横のファイルからデータを読むアプリに使える。設定を `%APPDATA%` などに置くアプリは、元の設定を退避して隔離したデータの場所を指す設定に差し替え、終了と例外のときに戻す。戻す処理は `Dispose` に書き、戻せたことを確かめる
+- 写して起動する方法は、アプリが実行ファイルの横のファイルからデータを読むときにだけ合う。サブフォルダ（言語ごとの `ja/`、`runtimes/`、プラグイン）があるので、フォルダを丸ごと写す。データをサーバーや `%APPDATA%` などに置くアプリでは、写しても初期の状態に戻らない。元の設定を退避して隔離したデータの場所を指す設定に差し替え、終了と例外のときに戻す。戻す処理は `Dispose` に書き、戻せたことを確かめる
 - 隔離できない（作業者のインスタンスと設定やデータを共有してしまう）なら、そのアプリのテストは流さずに作業者に伝える
-- 終了の前に、更新や出力の途中でないか、保存していない変更がないかを見る。状態が分からなければ強制終了せず、ケースを止めて作業者に伝える
+- FlaUI の `Application.Close()` は、引数を省くと閉じられなかったときにプロセスを終了させる。`Close(false)` を使い、閉じなければ終了させずに状態を撮って作業者に伝える。更新や出力の途中、保存していない変更がある、ということがある
+- `Problems` に入ったもの（閉じなかったプロセス、消せなかったフォルダ）は、result.md の実行の条件と作業者への報告に書く。黙って捨てない
 - 同じ名前のプロセスをまとめて終了させない。`Process.GetProcessesByName` で拾ったものを `Kill` する例を見かけるが、作業者のインスタンスまで落とす
+
+## 流す前の確かめ
+
+最初のケースの前に、GUI を操作できるデスクトップかを確かめる。ロックされた画面では、UIA のパターンの操作は通ることがあるのに、スクリーンショットにはロック画面が写り、キー入力は届かない。テストが緑のまま、使えない証跡が残る。
+
+```csharp
+[DllImport("user32.dll")] static extern IntPtr OpenInputDesktop(uint flags, bool inherit, uint access);
+[DllImport("user32.dll")] static extern bool CloseDesktop(IntPtr h);
+[DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
+[DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
+const uint DESKTOP_SWITCHDESKTOP = 0x0100;
+
+public static void AssertInteractive(AppSession s)
+{
+    if (Process.GetProcessesByName("LogonUI").Length > 0) throw new InvalidOperationException("画面がロックされている");
+    var desk = OpenInputDesktop(0, false, DESKTOP_SWITCHDESKTOP);
+    if (desk == IntPtr.Zero) throw new InvalidOperationException("入力のデスクトップに触れない（ロック中か別のセッション）");
+    CloseDesktop(desk);
+    s.Main.SetForeground();
+    var ok = Retry.WhileFalse(() => { GetWindowThreadProcessId(GetForegroundWindow(), out var pid); return pid == (uint)s.Process.Id; },
+                              AppSession.Short).Result;
+    if (!ok) throw new InvalidOperationException("アプリのウィンドウが前面にならない");
+}
+```
+
+- 失敗したら、そこで止める。残りのケースは実行不能（画面がロックされていた、前面にできなかった）にし、作業者に解除や空き時間を頼む。ロック画面を撮った画像を証跡にしない
+- 前面の確かめは、撮影やキー入力の直前にも行う。途中で通知や他のウィンドウが前に出ることがある
 
 ## Quick Reference
 
@@ -142,7 +191,7 @@ UIA3 で扱えないコントロール（古い独自の描画のもの、一部
 ```csharp
 _ = Task.Run(() => { try { row.Select(); } catch { } });   // 発火だけ
 var hWnd = Win32Windows.WaitOwned((uint)session.App.ProcessId, session.Main.Properties.NativeWindowHandle.Value,
-                                  "在庫一覧", AppSession.Short);
+                                  "<ダイアログのタイトル>", AppSession.Short);
 var texts = Win32Windows.ChildTexts(hWnd, "Static");          // 本文
 var buttons = Win32Windows.ChildTexts(hWnd, "Button");        // ボタンの文字
 ```

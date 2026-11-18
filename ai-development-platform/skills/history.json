@@ -38,6 +38,9 @@
   "aidev-qa-desktop-gui": {
     "0.1.0": [
       "4c7db8b37ba036c393bdeeaa4fbd3ea9a49450afae9145db966f129eba924129"
+    ],
+    "0.1.1": [
+      "ab682800fe76b1217026b50455608de5af8e172d36d2c90850a2d355b01e2bdd"
     ]
   },
   "aidev-qa-login-session": {
@@ -46,6 +49,9 @@
     ],
     "0.1.1": [
       "d55c0f9682b2d1f3724bef01c0e60ab3de5e72d71caaa3c5298d26099a622c09"
+    ],
+    "0.1.2": [
+      "62e0563733624d215fbc1562866e28bdbb3f1769fc3d5716f1e959cb8dd0cc1b"
     ]
   },
   "aidev-qa-regression-compare": {
