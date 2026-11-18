@@ -80,3 +80,29 @@ test('still detect whole-word secret keys', () => {
     assert.ok(r.errors.some(e => e.code === 'secret'), line);
   }
 });
+test('camelCase and trailing-pass keys are secrets in front matter and body', () => {
+  for (const line of ['dbPassword: x1', 'authToken: abc', 'accessToken: abc', 'secretKey: abc', 'user_pass: abc', 'userPass: abc', 'passphrase: abc', 'private_key: abc', 'privateKey: abc']) {
+    assert.ok(checkProfileText('p.md', valid.replace('evidence:', line + '\nevidence:')).errors.some(e => e.code === 'secret' && e.path), 'front matter: ' + line);
+    assert.ok(checkProfileText('p.md', valid + line + '\n').errors.some(e => e.code === 'secret' && typeof e.line === 'number'), 'body: ' + line);
+  }
+});
+test('nested maps under secret keys are secrets', () => {
+  for (const block of ['api_key:\n  value: abc', 'password:\n  - {a: abc}']) {
+    assert.ok(checkProfileText('p.md', valid.replace('evidence:', block + '\nevidence:')).errors.some(e => e.code === 'secret'), block);
+  }
+});
+test('the _url exception only covers plain URLs', () => {
+  for (const line of ['password_reset_url: "https://u:p@h"', 'secret_url: hunter2']) {
+    assert.ok(checkProfileText('p.md', valid.replace('evidence:', line + '\nevidence:')).errors.some(e => e.code === 'secret'), line);
+  }
+});
+test('a secret key after another key on the same line is found', () => {
+  for (const line of ['note: password: hunter2', 'memo: token=abc', 'メモ: token=abc']) {
+    assert.ok(checkProfileText('p.md', valid + line + '\n').errors.some(e => e.code === 'secret' && typeof e.line === 'number'), line);
+  }
+});
+test('the _url exception does not cover a secret in the query or fragment', () => {
+  for (const line of ['password_reset_url: "https://h/reset?token=abc"', 'password_reset_url: "https://h/reset#token=abc"']) {
+    assert.ok(checkProfileText('p.md', valid.replace('evidence:', line + '\nevidence:')).errors.some(e => e.code === 'secret'), line);
+  }
+});

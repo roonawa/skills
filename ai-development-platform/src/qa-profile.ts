@@ -43,15 +43,16 @@ const secretPatterns: {name: string; pattern: RegExp}[] = [
   {name: '秘密鍵', pattern: /-----BEGIN [A-Z ]*PRIVATE KEY-----/},
   {name: '認証情報を含む URL', pattern: /:\/\/[^\s/:@]+:[^\s/@]+@/},
 ];
-const secretWords = new Set(['password', 'passwd', 'pwd', 'secret', 'token', 'apikey', 'credential', 'credentials']);
-const keyValue = /([A-Za-z0-9_-]+)["']?\s*[:=]\s*([^,}\n]+)/g;
+const secretWords = new Set(['password', 'passwd', 'pwd', 'secret', 'token', 'apikey', 'passphrase', 'privatekey', 'credential', 'credentials']);
+// Lookahead: every key position on a line is examined, so `note: password: x` is not hidden by the first key.
+const keyValue = /(?<![A-Za-z0-9_-])(?=([A-Za-z0-9_-]+)["']?\s*[:=]\s*([^,}\n]+))/g;
 
-/** A URL that is valid for the profile (http or https) and carries no user name or password. */
+/** A URL that is valid for the profile (http or https) and has no user name, password, query or fragment (a secret may hide there). */
 function plainUrl(value: unknown): boolean {
   try {
     if (typeof value !== 'string') return false;
     const parsed = new URL(value.trim());
-    return ['http:', 'https:'].includes(parsed.protocol) && !parsed.username && !parsed.password;
+    return ['http:', 'https:'].includes(parsed.protocol) && !parsed.username && !parsed.password && !parsed.search && !parsed.hash;
   } catch { return false; }
 }
 
@@ -62,16 +63,19 @@ function plainUrl(value: unknown): boolean {
  * Used by both the front matter walk and the line scan so they agree.
  */
 function isSecretKey(key: string, value: unknown): boolean {
-  const words = key.toLowerCase().split(/[_-]+/).filter(Boolean);
+  const words = key.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase().split(/[_-]+/).filter(Boolean);
   if (words.length === 0 || words[words.length - 1] === 'env') return false;
-  const named = words.join('_') === 'pass' || words.some((word, i) => secretWords.has(word) || (word === 'api' && words[i + 1] === 'key'));
+  const last = words[words.length - 1];
+  const named = last === 'pass' || words.some((word, i) =>
+    secretWords.has(word) || ((word === 'api' || word === 'private') && words[i + 1] === 'key'));
   if (!named) return false;
   return !(words[words.length - 1] === 'url' && plainUrl(value));
 }
 
-/** A non-empty scalar, or a list holding at least one (at any depth). */
+/** A non-empty scalar, or a list or map holding at least one (at any depth). */
 function hasScalar(value: unknown): boolean {
   if (Array.isArray(value)) return value.some(hasScalar);
+  if (isObject(value)) return Object.values(value).some(hasScalar);
   return typeof value === 'number' || typeof value === 'boolean' || (typeof value === 'string' && value.trim() !== '');
 }
 
