@@ -41,3 +41,9 @@ test('EXPECTED covers every AC and the deliberate omission', () => {
     for (const id of acc) assert.ok(exp.includes(id), s.dir + ' ' + id);
   }
 });
+test('profile bodies do not leak the answer key', () => {
+  for (const s of Object.values(samples)) {
+    const body = readFileSync(join(samplesRoot, s.profile), 'utf8').replace(/^---[\s\S]*?\n---/, '');
+    for (const word of ['403', '未選択', '日付の形式']) assert.ok(!body.includes(word), s.profile + ' contains ' + word);
+  }
+});
