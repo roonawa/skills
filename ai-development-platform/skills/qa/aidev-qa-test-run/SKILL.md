@@ -2,7 +2,7 @@
 name: aidev-qa-test-run
 description: QA リポジトリのテストケース（cases/*.md）を実行し、結果を runs/<YYYYMMDD>-<run-id>/result.md に OK・NG・実行不能で記録するときに使う。実行が「自動」のケースは automation/ にある既存のテストを探して流し、なければ書いてから流す。テストの実行方法は案件プロファイルの test_commands から読むので、言語やテストの道具を問わない。新しく書いたテストは、期待値を逆にするか不具合を注入して一度失敗させ、失敗を検出できることを確かめてから戻す。実行が「手動」のケースや自動化できなかったケースは、人がそのまま追える再現手順の確認項目として残す。NG のケースには、後で不具合を起票するのに要る再現手順、期待と実際、証跡の場所を残す。「テスト仕様書のケースを実行して」「このケースが通るか確かめて」「新版に対してテストを流して結果をまとめて」という相談で使う。テストケースを作るのは aidev-qa-test-design、今の画面の挙動を記録するのは aidev-qa-characterization、旧版と新版の照合は aidev-qa-regression-compare、ロールごとの可否の検証は aidev-qa-authz-test、ログイン済みのセッションの用意は aidev-qa-login-session、Windows の GUI を操作するテストを書くのは aidev-qa-desktop-gui を使う。
 metadata:
-  version: "0.1.5"
+  version: "0.1.6"
 ---
 # テストケースの実行
 

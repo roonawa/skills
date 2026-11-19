@@ -278,6 +278,20 @@ function readReasons(lines: Line[], from: number): Map<string, string> {
   return reasons;
 }
 
+/**
+ * The result cell as [result, short reason]. `実行不能（理由）` (full- or half-width parentheses, non-empty reason) is
+ * 実行不能 with the parenthesised text as the reason; `実行不能（）` is not accepted. Parsed without a regular expression.
+ */
+function resultOf(cell: string): ['OK' | 'NG' | '実行不能' | undefined, string?] {
+  if (cell === 'OK' || cell === 'NG' || cell === '実行不能') return [cell];
+  if (!cell.startsWith('実行不能')) return [undefined];
+  const rest = cell.slice('実行不能'.length).trimStart();
+  const close = rest[0] === '（' ? '）' : rest[0] === '(' ? ')' : undefined;
+  if (!close || !rest.endsWith(close)) return [undefined];
+  const reason = rest.slice(1, -1).trim();
+  return reason ? ['実行不能', reason] : [undefined];
+}
+
 function readRun(reader: Reader, dir: string, date: string, runId: string): RunRecord | undefined {
   const file = dir + '/result.md';
   const lines = reader.lines(file, {code: 'missing-result', message: dir + ' に result.md がありません。'});
@@ -310,8 +324,8 @@ function readRun(reader: Reader, dir: string, date: string, runId: string): RunR
     }
     const tc = cells[columns.id];
     if (!tcId.test(tc)) { reader.problem('run-tc', file, line, 'TC-ID の形が「TC-<機能>-<連番>」ではありません。'); continue; }
-    const result = cells[columns.result];
-    if (result !== 'OK' && result !== 'NG' && result !== '実行不能') {
+    const [result, shortReason] = resultOf(cells[columns.result]);
+    if (result === undefined) {
       reader.problem('run-result', file, line, tc + ' の結果は OK・NG・実行不能のどれかで書きます。');
       continue;
     }
@@ -326,6 +340,7 @@ function readRun(reader: Reader, dir: string, date: string, runId: string): RunR
     }
     if (badIssue) reader.problem('run-issue', file, line, tc + ' の Issue の列に「#番号」以外の値があります。');
     const row: RunRow = {tc, result, issues, line};
+    if (shortReason) row.reason = shortReason;
     // An empty cell and `-` both mean that the row has no evidence.
     const evidence = columns.evidence >= 0 ? cells[columns.evidence] : '';
     if (evidence && evidence !== '-') row.evidence = evidence;

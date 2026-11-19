@@ -308,3 +308,18 @@ test('duplicate IDs and run rows carry the ID and the line', t => {
     [['duplicate-acceptance', 'AC-001', 2], ['duplicate-case', 'TC-a-001', 4]]);
   assert.deepEqual(repo.runs[0].rows.map(row => [row.tc, row.line]), [['TC-a-001', 9], ['TC-a-002', 10]]);
 });
+
+test('short form 実行不能（理由） gives the reason; the section wins; empty parens is an error', t => {
+  const run = (rows, extra = '') => readQaRepository(sandbox(t, {'plan/acceptance.md': '- AC-001: a\n', 'cases/a.md': '### TC-a-001 x\n- AC: AC-001\n',
+    'runs/20261120-r/result.md': header + table + rows + extra}));
+  for (const cell of ['実行不能（在庫なし）', '実行不能(在庫なし)']) {
+    const repo = run('| TC-a-001 | ' + cell + ' | | |\n');
+    assert.deepEqual(repo.problems, []);
+    assert.deepEqual([repo.runs[0].rows[0].result, repo.runs[0].rows[0].reason], ['実行不能', '在庫なし']);
+  }
+  const both = run('| TC-a-001 | 実行不能（短い） | | |\n', '\n## 実行不能の理由\n\n### TC-a-001\n- 理由: 長い理由\n');
+  assert.equal(both.runs[0].rows[0].reason, '長い理由');
+  const empty = run('| TC-a-001 | 実行不能（） | | |\n');
+  assert.deepEqual(empty.problems.map(p => p.code), ['run-result']);
+  assert.equal(empty.runs[0].rows.length, 0);
+});

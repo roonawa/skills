@@ -346,3 +346,19 @@ test('a DIR with many separators is checked quickly', () => {
   const elapsed = performance.now() - started;
   assert.ok(elapsed < 500, 'took ' + Math.round(elapsed) + ' ms');
 });
+
+test('blocked-without-reason accepts the short form 実行不能（理由） in the cell', t => {
+  for (const cell of ['実行不能（在庫がない）', '実行不能(在庫がない)']) {
+    const repo = traceQaRepository(sandbox(t, base({'runs/20261119-r1/result.md': result([['TC-a-001', 'OK'], ['TC-a-002', cell]])})));
+    assert.deepEqual(codes(repo), []);
+  }
+  const empty = traceQaRepository(sandbox(t, base({'runs/20261119-r1/result.md': result([['TC-a-001', 'OK'], ['TC-a-002', '実行不能（）']])})));
+  assert.ok(codes(empty).some(code => code.includes('run-result')), codes(empty).join('|'));
+});
+
+test('templates do not use a bare px minmax minimum above 300', () => {
+  for (const name of ['compare.html', 'trace.html']) {
+    const html = readFileSync(fileURLToPath(new URL('../templates/qa-report/' + name, import.meta.url)), 'utf8');
+    for (const match of html.matchAll(/minmax\(\s*(\d+)px/g)) assert.ok(Number(match[1]) <= 300, name + ': minmax(' + match[1] + 'px');
+  }
+});
