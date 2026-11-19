@@ -50,6 +50,9 @@
     ],
     "0.1.1": [
       "d2cbe739069ee04222feb8082ffaa09c501e7c6135c28d8d7d3b9efe9f45ee1f"
+    ],
+    "0.1.2": [
+      "75cd4425b42cc64477ee86e699b61d1bba7a10a96c62f76454438d427f4de9e4"
     ]
   },
   "aidev-qa-cause-repro": {

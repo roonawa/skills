@@ -32,17 +32,22 @@ function send(res, status, body) {
   res.end(text);
 }
 
+// 本文を読む。上限を超えたら読むのをやめて too_large を返す。途中で切れたとき（close・aborted・error）も必ず終わる。
 function readBody(req) {
   return new Promise(resolve => {
     const chunks = [];
     let size = 0;
+    let done = false;
+    const finish = value => { if (!done) { done = true; resolve(value); } };
     req.on('data', chunk => {
       size += chunk.length;
-      if (size > MAX_BODY) { resolve(null); req.destroy(); return; }
+      if (size > MAX_BODY) { chunks.length = 0; finish('too_large'); req.pause(); return; }
       chunks.push(chunk);
     });
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
-    req.on('error', () => resolve(null));
+    req.on('end', () => finish(Buffer.concat(chunks).toString('utf8')));
+    req.on('error', () => finish(null));
+    req.on('aborted', () => finish(null));
+    req.on('close', () => finish(null));
   });
 }
 
@@ -69,10 +74,21 @@ async function handle(req, res) {
   const [owner, repo] = [decodeURIComponent(m[1]), decodeURIComponent(m[2])];
   if (req.method === 'GET') {
     const q = url.searchParams.get('q') ?? '';
-    return send(res, 200, issues.filter(i => i.owner === owner && i.repo === repo && (i.title.includes(q) || i.body.includes(q))));
+    const hits = issues.filter(i => i.owner === owner && i.repo === repo && (i.title.includes(q) || i.body.includes(q)));
+    // 本物の Gitea に合わせて page（1 から）と limit で区切る。どちらも無ければ全件を返す。
+    const limit = Number(url.searchParams.get('limit'));
+    const page = Number(url.searchParams.get('page') ?? 1);
+    if (url.searchParams.has('limit') && Number.isInteger(limit) && limit > 0 && Number.isInteger(page) && page > 0) {
+      return send(res, 200, hits.slice((page - 1) * limit, page * limit));
+    }
+    return send(res, 200, hits);
   }
   if (req.method === 'POST') {
     const raw = await readBody(req);
+    if (raw === 'too_large') {
+      res.writeHead(413, {'content-type': 'application/json; charset=utf-8', connection: 'close'});
+      return res.end(JSON.stringify({message: 'request body too large'}));
+    }
     let input;
     try { input = JSON.parse(raw); } catch { input = null; }
     if (typeof input !== 'object' || input === null || typeof input.title !== 'string' || !input.title) {

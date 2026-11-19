@@ -2,7 +2,7 @@
 name: aidev-qa-bug-ticket
 description: aidev-qa-test-run などが runs/<YYYYMMDD>-<run-id>/result.md に記録した NG のケースを、Gitea の Issue に起票するときに使う。起票の前に、NG がテストのコード、データ、環境のせいではなく製品の不具合であることを aidev-qa-test-run の NG と実行不能の基準で確かめ、同じ原因の NG は1件の Issue にまとめる。Issue は `aidev qa issue create` で作り、題名と本文は result.md の NG の詳細から組み立てる。まず --dry-run で題名と本文を作って作業者に送信先と本文を見せ、了承を得てから送る。トークンは作業者個人のもの（環境変数 GITEA_TOKEN）を使い、本文に秘密情報と個人情報を載せず、証跡はリポジトリの中のパスで示して画像を貼らない。起票した番号は result.md の Issue の列に書く。Issue へのコメント、編集、クローズ、ラベル付けと、C-HUB への転記はしない。「NG を起票して」「このケースの不具合を Gitea に Issue にして」「テスト結果の NG をチケットにして」という相談で使う。原因が分からない NG の調査は aidev-qa-cause-repro、修正後の確認は aidev-qa-fix-verify、ケースの実行は aidev-qa-test-run を使う。
 metadata:
-  version: "0.1.1"
+  version: "0.1.2"
 ---
 # NG のケースの起票
 
@@ -135,7 +135,7 @@ aidev qa issue create --profile knowledge/<product>/profile.md --run runs/<YYYYM
 
 - 本文の1行目に `<!-- aidev-qa: <product> <TC-ID> -->` の目印が入る。目印に run-id は入らないので、同じ TC を別の run で起票し直しても同じ目印になる
 - 目印が1行目にあり、トークンの持ち主が作った、開いている Issue があれば、新しく作らずにその番号を使う。閉じた Issue や、他の人が作った Issue は重複とみなさず、出力の `ignored` に番号と理由を出したうえで新しく作る
-- 探すのは検索の結果の先頭の 50 件までである。古い Issue が多いリポジトリでは見落としがありうるので、送る前に作業者に、同じ不具合の Issue がすでにないかを Gitea の画面で見てもらう。とくに、同僚が手で起票した Issue はコマンドから重複として見えない
+- 探すのは検索の結果の 50 件ずつ、最大 5 ページ（250 件）までである。目印で絞るので通常は足りるが、古い Issue が多いリポジトリでは 250 件を超えて見落としがありうるので、送る前に作業者に、同じ不具合の Issue がすでにないかを Gitea の画面で見てもらう。とくに、同僚が手で起票した Issue はコマンドから重複として見えない
 - 題名か本文に `GITEA_TOKEN` の値がそのまま入っていれば、送らずに止まる
 
 送った後の出力の `issue.number` と `issue.url`、`created`（新しく作ったか、既存を使ったか）、`ignored` を作業者に伝える。`ignored` に閉じた Issue があれば、以前に直ったはずの不具合が再発した可能性として伝える。

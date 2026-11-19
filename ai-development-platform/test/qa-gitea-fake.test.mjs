@@ -153,3 +153,36 @@ test('qa issue create の本物の通信で、1回目は作成・2回目は重�
   const all = await (await call(base + '/__issues', {headers: auth})).json();
   assert.equal(all.length, 1);
 });
+
+test('page と limit で区切って返す', async t => {
+  const base = await start(t);
+  const url = base + '/api/v1/repos/o/r/issues';
+  for (let i = 1; i <= 7; i++) await call(url, {method: 'POST', headers: auth, body: JSON.stringify({title: 'n' + i})});
+  const get = async query => (await (await call(url + '?' + query, {headers: auth})).json()).map(i => i.number);
+  assert.deepEqual(await get('limit=3&page=1'), [1, 2, 3]);
+  assert.deepEqual(await get('limit=3&page=3'), [7]);
+  assert.deepEqual(await get('limit=3&page=4'), []);
+  assert.equal((await get('')).length, 7);
+});
+
+test('大きすぎる本文には 413 を返し、サーバーは次の要求に答える', async t => {
+  const base = await start(t);
+  const url = base + '/api/v1/repos/o/r/issues';
+  const res = await call(url, {method: 'POST', headers: auth, body: JSON.stringify({title: 't', body: 'x'.repeat(200 * 1024)})});
+  assert.equal(res.status, 413);
+  assert.equal((await call(url, {headers: auth})).status, 200);
+});
+
+test('要求の途中で切れてもサーバーは待ち続けず、次の要求に答える', async t => {
+  const base = await start(t);
+  const { connect } = await import('node:net');
+  await new Promise(resolve => {
+    const socket = connect(Number(new URL(base).port), '127.0.0.1', () => {
+      socket.write('POST /api/v1/repos/o/r/issues HTTP/1.1\r\nHost: x\r\nAuthorization: token ' + TOKEN + '\r\nContent-Length: 1000\r\n\r\n{"title"');
+      setTimeout(() => socket.destroy(), 100);
+    });
+    socket.on('close', resolve);
+    socket.on('error', () => {});
+  });
+  assert.equal((await call(base + '/api/v1/repos/o/r/issues', {headers: auth})).status, 200);
+});

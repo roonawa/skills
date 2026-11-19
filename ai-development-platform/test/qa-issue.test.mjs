@@ -122,7 +122,8 @@ test('refuse a body that contains secrets', async t => {
     const fake = fakeGitea(handler());
     await assert.rejects(createIssueFromRun(box.options({dryRun, transport: fake.transport})), error => {
       assert.match(error.message, /秘密情報/);
-      assert.match(error.message, /\d+ 行目/);
+      assert.match(error.message, /実際の結果/);
+      assert.ok(!/\d+ 行目/.test(error.message));
       assert.ok(!error.message.includes(secret) && !error.message.includes('sessionid') && !error.message.includes(TOKEN));
       return true;
     });
@@ -468,4 +469,40 @@ test('many continuation lines and a long case name are handled', () => {
   assert.ok([...title].length <= 255, String([...title].length));
   assert.ok(title.startsWith('［TC-order-004］ あ'));
   assert.ok(body.includes('x\nx\nx'));
+});
+
+test('control and bidi characters are removed from the title', () => {
+  const dirty = '\u0000a\u0007b\u001bc\u007fd\u0085e\u009ff\u200eg\u200fh\u202ai\u202bj\u202ck\u202dl\u202em\u2066n\u2067o\u2068p\u2069q';
+  const text = result.replace('### TC-order-004 送料が表示されない', '### TC-order-004 ' + dirty);
+  const {title} = buildIssue(text, 'TC-order-004', {product: 'sample-web', run: RUN});
+  assert.equal(title, '［TC-order-004］ abcdefghijklmnopq');
+  assert.ok(!/[\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/.test(title));
+});
+
+test('a second section for the same TC is an error that names both lines', () => {
+  const twice = result.replace('## 実行不能の理由', '### TC-order-004 もう一つの節\n- 再現手順: x\n\n## 実行不能の理由');
+  const at = twice.split('\n').map((line, i) => line.startsWith('### TC-order-004') ? i + 1 : 0).filter(Boolean);
+  assert.equal(at.length, 2);
+  assert.throws(() => buildIssue(twice, 'TC-order-004', {product: 'sample-web', run: RUN}), error => {
+    assert.match(error.message, /TC-order-004/);
+    for (const n of at) assert.ok(error.message.includes(n + ' 行目'), String(n));
+    return true;
+  });
+  // A heading inside a code block is not a duplicate.
+  assert.doesNotThrow(() => buildIssue(result, 'TC-order-002', {product: 'sample-web', run: RUN}));
+});
+
+test('the secret scan names the field, not a line number', async t => {
+  const cases = [['  - POST /api/orders 201', '  Cookie: sessionid=abc123secretvalue', '実際の結果'],
+    ['- 補足: 期待結果の誤りの可能性は低い（設計書 4.2 に上限 99 の記載がある）', '- 補足: password=abc123secretvalue', '補足']];
+  for (const [from, to, label] of cases) {
+    const box = sandbox(t, result.replace(from, to));
+    await assert.rejects(createIssueFromRun(box.options({dryRun: true})), error => {
+      assert.match(error.message, new RegExp(label));
+      assert.ok(!/\d+ 行目/.test(error.message) && !error.message.includes('abc123secretvalue'));
+      return true;
+    }, label);
+  }
+  const box = sandbox(t, result.replace('### TC-order-002 数量が上限を 1 超えると注文できない', '### TC-order-002 token=abc123secretvalue'));
+  await assert.rejects(createIssueFromRun(box.options({dryRun: true})), error => /ケース名/.test(error.message) && !error.message.includes('abc123secretvalue'));
 });

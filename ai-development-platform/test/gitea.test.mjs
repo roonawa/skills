@@ -193,11 +193,31 @@ test('the token is checked at the client boundary and never echoed', () => {
   assert.doesNotThrow(() => createGiteaClient({baseUrl: BASE, token: TOKEN, transport: fakeGitea().transport}));
 });
 
-test('findIssues reads only the first page of 50', async () => {
+test('findIssues reads pages of 50 until a short page', async () => {
+  const items = n => Array.from({length: n}, (_, i) => ({number: i + 1, title: 't', body: 'b', user: {login: 'a'}}));
+  const pages = [items(50), items(50), items(7)];
+  const fake = fakeGitea(request => ({status: 200, body: JSON.stringify(pages[Number(new URL(request.url).searchParams.get('page')) - 1] ?? [])}));
+  const found = await createGiteaClient({baseUrl: BASE, token: TOKEN, transport: fake.transport}).findIssues('o', 'r', 'x');
+  assert.equal(found.length, 107);
+  assert.deepEqual(fake.calls.map(c => new URL(c.url).searchParams.get('page')), ['1', '2', '3']);
+  assert.ok(fake.calls.every(c => new URL(c.url).searchParams.get('limit') === '50'));
+});
+
+test('findIssues stops after the first page when it is short, and reads at most 5 pages', async () => {
+  const short = fakeGitea(() => ({status: 200, body: '[]'}));
+  await createGiteaClient({baseUrl: BASE, token: TOKEN, transport: short.transport}).findIssues('o', 'r', 'x');
+  assert.equal(short.calls.length, 1);
+  const full = fakeGitea(() => ({status: 200, body: JSON.stringify(Array.from({length: 50}, (_, i) => ({number: i + 1})))}));
+  const found = await createGiteaClient({baseUrl: BASE, token: TOKEN, transport: full.transport}).findIssues('o', 'r', 'x');
+  assert.equal(full.calls.length, 5);
+  assert.equal(found.length, 250);
+});
+
+test('findIssues refuses a query that is not a string before sending anything', async () => {
   const fake = fakeGitea(() => ({status: 200, body: '[]'}));
-  await createGiteaClient({baseUrl: BASE, token: TOKEN, transport: fake.transport}).findIssues('o', 'r', 'x');
-  assert.equal(new URL(fake.calls[0].url).searchParams.get('limit'), '50');
-  assert.equal(new URL(fake.calls[0].url).searchParams.get('page'), null);
+  const client = createGiteaClient({baseUrl: BASE, token: TOKEN, transport: fake.transport});
+  for (const query of [undefined, null, 5, {}, ['x']]) await assert.rejects(client.findIssues('o', 'r', query), GiteaError, String(query));
+  assert.equal(fake.calls.length, 0);
 });
 
 test('currentUser reads the login of the token user and parses defensively', async () => {

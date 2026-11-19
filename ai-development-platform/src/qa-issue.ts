@@ -66,11 +66,17 @@ function findDetail(lines: Line[], tc: string): Detail {
   const start = lines.findIndex(line => heading(line) === 2 && /^##\s+NG\s*の詳細\s*$/.test(line.text.trim()));
   if (start < 0) throw new Error('result.md に「## NG の詳細」の節がありません。');
   let i = start + 1;
+  const found: number[] = [];
   for (; i < lines.length && (heading(lines[i]) === 0 || heading(lines[i]) > 2); i++) {
     const match = heading(lines[i]) === 3 ? /^###\s+(\S+)(?:\s+(.*))?$/.exec(lines[i].text.trim()) : null;
-    if (match?.[1] === tc) break;
+    if (match?.[1] === tc) found.push(i);
   }
-  if (i >= lines.length || heading(lines[i]) !== 3) throw new Error('result.md の NG の詳細に ' + tc + ' の節がありません。');
+  if (found.length > 1) {
+    throw new Error('result.md の NG の詳細に ' + tc + ' の節が ' + found.length + ' つあります（' + found.map(n => n + 1 + ' 行目').join('、') +
+      '）。1つにまとめてください。');
+  }
+  if (found.length === 0) throw new Error('result.md の NG の詳細に ' + tc + ' の節がありません。');
+  i = found[0];
   const name = /^###\s+\S+(?:\s+(.*))?$/.exec(lines[i].text.trim())?.[1]?.trim() ?? '';
   const fields = new Map<string, string>();
   let label: string | undefined;
@@ -134,10 +140,12 @@ const titleCharacters: Record<string, string> = {
   '@': '＠', '#': '＃', '!': '！', '<': '＜', '>': '＞', '[': '［', ']': '］', '(': '（', ')': '）', '\\': '＼', '`': '｀',
   ':': '：', '/': '／',
 };
+/** C0 and C1 controls (tab, CR and LF are turned into spaces below, so they stay out of this set) and the bidirectional controls. */
+const titleInvisible = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
 /** Gitea refuses titles over 255 characters. */
 const titleLimit = 255;
 function plainTitle(title: string): string {
-  const chars = [...title.replace(/[\r\n\t]+/g, ' ').replace(/[@#!<>[\]()\\`:/]/g, char => titleCharacters[char])];
+  const chars = [...title.replace(titleInvisible, '').replace(/[\r\n\t]+/g, ' ').replace(/[@#!<>[\]()\\`:/]/g, char => titleCharacters[char])];
   return chars.length <= titleLimit ? chars.join('') : chars.slice(0, titleLimit - 1).join('') + '…';
 }
 
@@ -191,9 +199,21 @@ export function buildIssue(result: string, tc: string, context: {product: string
   return {title: plainTitle('[' + tc + ']' + (detail.name ? ' ' + detail.name : '')), body: renderBody(context.product, tc, context.run, values)};
 }
 
-/** Line numbers (in the body) that look like secrets. Only the numbers are returned, never the text. */
-function secretLines(text: string): number[] {
-  return checkProfileText('issue', text).errors.filter(issue => issue.code === 'secret' && issue.line).map(issue => issue.line!);
+/**
+ * The fields of the body that look like secrets: the label of the template section (再現手順, 実際の結果, …) that
+ * holds the line. Only labels are returned, never the text or a line number.
+ */
+function secretFields(body: string): string[] {
+  const hits = new Set(checkProfileText('issue', body).errors.filter(issue => issue.code === 'secret' && issue.line).map(issue => issue.line!));
+  if (hits.size === 0) return [];
+  const labels = new Set<string>();
+  let label = '対象';
+  readLines(body).forEach((line, index) => {
+    const text = line.text.trim();
+    if (!line.fenced && (/^## /.test(text) || ['AC-ID', '環境', '版', 'テスト'].includes(text))) label = text.replace(/^## /, '');
+    if (hits.has(index + 1)) labels.add(label === '対象' ? 'TC-ID・実行' : label);
+  });
+  return [...labels];
 }
 
 export interface IssueRunOptions {
@@ -283,10 +303,10 @@ export async function createIssueFromRun(options: IssueRunOptions): Promise<Issu
   const result = content(path);
   if (result === undefined) throw new Error(run + '/result.md がありません。');
   const {title, body} = buildIssue(result, tc, {product, run});
-  const bad = secretLines(body);
-  if (bad.length || secretLines(title).length) {
-    throw new Error('起票する本文に秘密情報らしい記述があるため送りません（' + (bad.length ? '本文の ' + bad.join('、') + ' 行目' : '題名') +
-      '）。result.md の ' + tc + ' の NG の詳細から値を消し、環境変数の名前や証跡の場所で書き直してください。');
+  const bad = secretFields(body);
+  if (secretFields(title).length) bad.unshift('ケース名');
+  if (bad.length) {
+    throw new Error('起票する本文に秘密情報らしい記述があるため送りません（' + bad.join('・') + 'の欄）。result.md の ' + tc + ' の NG の詳細から値を消し、環境変数の名前や証跡の場所で書き直してください。');
   }
   const row = findRow(readLines(result), tc);
   const recordedCell = row.cells[row.issue] ?? '';
