@@ -49,6 +49,7 @@ CLI は既存プロジェクトの AGENTS.md を上書きしない。既存プ�
 |qa profile check FILE [--skill NAME]|任意の場所。FILE は実行場所から下の相対パスで指定する（絶対パスや .. は使えない）。QA の案件プロファイルの形式と秘密情報らしい値を検査し、--skill を付けるとその Skill の必須項目も検査する|
 |qa issue create --profile FILE --run RUNDIR --tc TC-ID [--dry-run]|QA リポジトリの直下。result.md の NG のケースを Gitea の Issue にする。詳細は「段階3で足したもの」|
 |qa compare-report MANIFEST OUT [--link]|任意の場所。新旧の証跡を並べた自己完結の比較 HTML を作る。MANIFEST は比較マニフェスト（JSON）、OUT は .html か .htm で終わり、MANIFEST と別のファイル。MANIFEST と OUT はカレントディレクトリの下を指す相対パスにする（絶対パスや .. は使えない）。画像は png・jpg・jpeg・gif・webp で1枚20 MiB まで、マニフェストと同じディレクトリの下に置く。既定は画像を HTML に埋め込み、--link を付けると OUT のディレクトリの assets/ へ複製して参照する|
+|qa trace DIR [--html FILE]|任意の場所。DIR は実行場所から下の QA リポジトリ。AC・TC・run の結果・Issue のつながりを読むだけで検査し、JSON で返す（QA リポジトリにも Gitea にも書き込まない）。エラーの指摘があれば 1 を返す。--html を付けると、つながりを1枚の自己完結 HTML にして FILE に書く。FILE は .html か .htm で終わる実行場所から下の相対パス。QA リポジトリの中も拒まないが、生成物がリポジトリに混ざらないよう、compare-report と同じく QA リポジトリの外に書くことを勧める|
 |spec check FILE|任意の場所。FILE は実行場所から下の相対パスで指定する（絶対パスや .. は使えない）。実装ループに渡す仕様書の形式（受け入れ条件・やらないこと・判断待ち）を検査する|
 |workflow check TASK --review FILE|一つの実装タスクに対し、単体テスト・セキュリティ・仕様乖離と過剰実装のゲート結果と修正回数を記録して次の作業を決める|
 |workflow run TASK --spec FILE|実装・レビュー・ゲートを別々の Claude Code セッションで自動で回し、review か needs-human で止まる|

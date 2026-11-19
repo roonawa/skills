@@ -47,7 +47,7 @@ test('html escapes and omits free text', t => {
     'cases/a.md': '# a\n\n### TC-a-001 <img src=x onerror=alert(2)> を開く\n- AC: AC-001\n- 優先度: 中\n- 実行: 自動\n\n' +
       '### TC-a-002 二つ目\n- AC: AC-002, <b>bad</b>\n- 優先度: 中\n- 実行: 手動\n',
     'runs/20261119-r1/result.md': '# 実行結果\n\n- 環境: new\n- 版: 1.0\n- 実行日時: 2026-11-19 10:00\n- 担当のメモ: 秘密のメモ-MEMO\n\n' +
-      '| TC-ID | 結果 | 証跡 | Issue |\n|---|---|---|---|\n| TC-a-001 | NG | runs/20261119-r1/evidence/<u>a</u>.png | #7 |\n| TC-a-002 | 実行不能 | | |\n\n' +
+      '| TC-ID | 結果 | 証跡 | Issue |\n|---|---|---|---|\n| TC-a-001 | NG | runs/20261119-r1/evidence/<u>a</u>-EVIDENCECELL.png 担当者の証跡メモ | #7 |\n| TC-a-002 | 実行不能 | | |\n\n' +
       '## 実行不能の理由\n\n- TC-a-002: 手動確認待ち 理由の自由文-REASON\n\n## TC-a-001\n\n再現手順の自由文-STEPS\n実際の結果の自由文-ACTUAL\n',
   });
   const out = runCli(root, ['qa', 'trace', '.', '--html', 'report/trace.html']);
@@ -62,7 +62,10 @@ test('html escapes and omits free text', t => {
   assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt; &amp; &quot;引用&quot;/);
   assert.match(html, /&lt;img src=x onerror=alert\(2\)&gt; を開く/);
   assert.match(html, /&lt;i&gt;RS-001&lt;\/i&gt;/);
-  assert.match(html, /runs\/20261119-r1\/evidence\/&lt;u&gt;a&lt;\/u&gt;\.png/);
+  // The evidence cell is free text (Ruling X): neither the column nor its text is in the page.
+  assert.ok(!html.includes('EVIDENCECELL'), 'evidence cell text');
+  assert.ok(!html.includes('証跡メモ'), 'evidence cell text');
+  assert.doesNotMatch(html, /<th[^>]*>証跡</);
   assert.match(html, /&lt;b&gt;bad&lt;\/b&gt;/, 'the finding message is escaped');
   // The free text of result.md is not copied.
   for (const text of ['MEMO', 'REASON', 'STEPS', 'ACTUAL', '自由文']) assert.ok(!html.includes(text), text);
@@ -72,6 +75,22 @@ test('html escapes and omits free text', t => {
   assert.doesNotMatch(html, /url\(|@import|https?:\/\//i);
   assert.doesNotMatch(html, /\{\{/);
   assert.ok(!html.includes(root), 'no absolute paths');
+  // Header cells are column headers; the result card names what it counts.
+  assert.doesNotMatch(html, /<th>/);
+  assert.match(html, /<th scope="col">TC-ID<\/th>/);
+  assert.match(html, /最新の結果（AC につながる TC ごと）/);
+  // The time carries its zone offset, the local one of the machine that wrote the page.
+  const stamp = html.match(/(\d{4}-\d{2}-\d{2} \d{2}:\d{2}) ([+-])(\d{2}):(\d{2})</);
+  assert.ok(stamp, 'timestamp with offset');
+  const offset = -new Date().getTimezoneOffset();
+  assert.equal((stamp[2] === '-' ? -1 : 1) * (Number(stamp[3]) * 60 + Number(stamp[4])), offset);
+  // Both colour schemes are declared, mirroring the theme selectors.
+  assert.match(html, /:root \{\s*color-scheme: light dark;/);
+  assert.match(html, /:root:not\(\[data-theme="light"\]\) \{\s*color-scheme: dark;/);
+  assert.match(html, /:root\[data-theme="dark"\] \{\s*color-scheme: dark;/);
+  assert.match(html, /:root\[data-theme="light"\] \{\s*color-scheme: light;/);
+  // The footer says what is left out.
+  assert.match(html, /<footer[^>]*>[^<]*証跡[^<]*<\/footer>/);
   // The fixture's free text stays out as well.
   const copy = sandbox(t, {});
   cpSync(fixture, join(copy, 'qa'), {recursive: true});

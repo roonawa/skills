@@ -6,6 +6,7 @@
 <title>QA のつながり</title>
 <style>
   :root {
+    color-scheme: light dark;
     --bg: #f6f7f9; --surface: #ffffff; --surface-sunken: #eef1f5; --border: #d9dfe7;
     --ink: #1b2333; --ink-muted: #5c6472; --accent: #2f4c7a; --accent-soft: #e7edf6;
     --good: #2e7d4f; --good-soft: #e4f1e9; --bad: #a6342a; --bad-soft: #f5e4e1;
@@ -14,6 +15,7 @@
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
+      color-scheme: dark;
       --bg:#12161d; --surface:#1a2029; --surface-sunken:#212833; --border:#303948;
       --ink:#e7eaf0; --ink-muted:#9aa5b4; --accent:#8caadd; --accent-soft:#223349;
       --good:#79d6a5; --good-soft:#1d3327; --bad:#e0897c; --bad-soft:#3a2321;
@@ -21,10 +23,14 @@
     }
   }
   :root[data-theme="dark"] {
+    color-scheme: dark;
     --bg:#12161d; --surface:#1a2029; --surface-sunken:#212833; --border:#303948;
     --ink:#e7eaf0; --ink-muted:#9aa5b4; --accent:#8caadd; --accent-soft:#223349;
     --good:#79d6a5; --good-soft:#1d3327; --bad:#e0897c; --bad-soft:#3a2321;
     --warn:#e0b268; --warn-soft:#3a2f17; --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.35);
+  }
+  :root[data-theme="light"] {
+    color-scheme: light;
   }
   * { box-sizing: border-box; }
   body {
@@ -110,7 +116,7 @@
 
   {{BODY}}
 
-  <footer class="doc">aidev qa trace が作成しました。結果は各 TC の最新の run のもので、result.md の再現手順・実際の結果・理由は載せていません。</footer>
+  <footer class="doc">aidev qa trace が作成しました。結果は各 TC の最新の run のものです。result.md の再現手順・実際の結果・理由・メモと、証跡の列は載せていません。</footer>
 </div>
 </body>
 </html>

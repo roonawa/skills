@@ -7,8 +7,9 @@ import type { IssueStatus, TraceReport } from './qa-trace.js';
 
 /**
  * The `--html FILE` page of `aidev qa trace`: one self-contained page with the links AC → TC → latest result → Issue.
- * It carries IDs, AC text, TC names, results, issue numbers, run directories and evidence paths, never the free
- * text of result.md (steps, actual results, reasons, notes). Every string from the repository is escaped.
+ * It carries IDs, AC text, TC names, results, issue numbers and run directories, never the free text of result.md
+ * (steps, actual results, reasons, notes) nor its evidence cells, which are free text too. Every string from the
+ * repository is escaped.
  */
 
 function escapeHtml(value: unknown): string {
@@ -45,12 +46,16 @@ export function traceSummary(report: TraceReport) {
 
 const count = (name: string, value: number, tone: string, label: string) =>
   `<span class="n ${tone}" data-count="${name}">${value}</span><span class="l">${label}</span>`;
+const headers = (...names: string[]) => names.map(name => `<th scope="col">${escapeHtml(name)}</th>`).join('');
 const card = (label: string, counts: string[]) =>
   `<div class="summary-card"><div class="label">${label}</div><div class="counts">${counts.join('')}</div></div>`;
 
+/** Local time with its zone offset, e.g. `2026-11-19 13:40 +09:00`, so the page says which clock it used. */
 function timestamp(date: Date): string {
   const two = (n: number) => String(n).padStart(2, '0');
-  return date.getFullYear() + '-' + two(date.getMonth() + 1) + '-' + two(date.getDate()) + ' ' + two(date.getHours()) + ':' + two(date.getMinutes());
+  const offset = -date.getTimezoneOffset();
+  const zone = (offset < 0 ? '-' : '+') + two(Math.floor(Math.abs(offset) / 60)) + ':' + two(Math.abs(offset) % 60);
+  return date.getFullYear() + '-' + two(date.getMonth() + 1) + '-' + two(date.getDate()) + ' ' + two(date.getHours()) + ':' + two(date.getMinutes()) + ' ' + zone;
 }
 
 export function renderTraceHtml(report: TraceReport, repo: QaRepository, generatedAt = new Date()): string {
@@ -58,7 +63,7 @@ export function renderTraceHtml(report: TraceReport, repo: QaRepository, generat
   const summary = [
     card('AC の網羅', [count('ac-covered', s.acCovered, 'good', 'TC あり'), count('ac-uncovered', s.acUncovered, s.acUncovered ? 'bad' : 'muted', 'TC なし'),
       count('ac-with-result', s.acWithResult, 'muted', '結果あり')]),
-    card('最新の結果（TC ごと）', [count('result-ok', s.ok, 'good', 'OK'), count('result-ng', s.ng, 'bad', 'NG'),
+    card('最新の結果（AC につながる TC ごと）', [count('result-ok', s.ok, 'good', 'OK'), count('result-ng', s.ng, 'bad', 'NG'),
       count('result-blocked', s.blocked, 'warn', '実行不能'), count('result-not-run', s.notRun, 'muted', '未実行')]),
     card('Issue の状態', [count('issue-confirmed', s.confirmed, 'good', '確認済み'), count('issue-unconfirmed', s.unconfirmed, 'warn', '未確認'),
       count('issue-recheck', s.recheck, 'warn', '要確認'), count('issue-not-fixed', s.notFixed, 'bad', '効いていない')]),
@@ -67,9 +72,6 @@ export function renderTraceHtml(report: TraceReport, repo: QaRepository, generat
 
   const acText = new Map(repo.acceptance.map(item => [item.id, item]));
   const caseName = new Map(repo.cases.map(item => [item.id, item.name]));
-  // The evidence path of each TC's latest row (runs are sorted, so the last row wins, as in the trace).
-  const evidence = new Map<string, {run: string; path?: string}>();
-  for (const run of repo.runs) for (const row of run.rows) evidence.set(row.tc, {run: run.dir, path: row.evidence});
   const issueStatus = new Map(report.issues.map(issue => [issue.number, issue.status]));
   const issueBadge = (number: number) => {
     const status = issueStatus.get(number);
@@ -80,18 +82,16 @@ export function renderTraceHtml(report: TraceReport, repo: QaRepository, generat
     const ac = acText.get(item.ac);
     const rows = item.cases.map(tc => {
       const latest = item.latest.find(row => row.tc === tc);
-      const path = latest && evidence.get(tc)?.run === latest.run ? evidence.get(tc)?.path : undefined;
       return `<tr>
             <td class="nowrap mono">${escapeHtml(tc)}</td>
             <td>${escapeHtml(caseName.get(tc) ?? '')}</td>
             <td class="nowrap">${latest ? `<span class="pill ${RESULT_PILL[latest.result] ?? 'none'}">${escapeHtml(latest.result)}</span>` : '<span class="pill none">未実行</span>'}</td>
             <td>${latest ? latest.issues.map(issueBadge).join('') : ''}</td>
             <td class="path mono">${latest ? escapeHtml(latest.run) : ''}</td>
-            <td class="path mono">${escapeHtml(path ?? '')}</td>
           </tr>`;
     }).join('\n          ');
     const table = item.cases.length ? `<div class="table-wrap"><table>
-          <thead><tr><th>TC-ID</th><th>テストケース</th><th>最新の結果</th><th>Issue</th><th>run</th><th>証跡</th></tr></thead>
+          <thead><tr>${headers('TC-ID', 'テストケース', '最新の結果', 'Issue', 'run')}</tr></thead>
           <tbody>
           ${rows}
           </tbody>
@@ -143,7 +143,7 @@ export function renderTraceHtml(report: TraceReport, repo: QaRepository, generat
   <section class="part">
     <h2 class="part-title">Issue <span class="count">(${report.issues.length} 件)</span></h2>
     ${report.issues.length ? `<div class="panel table-wrap"><table>
-          <thead><tr><th>Issue</th><th>状態</th><th>TC</th><th>改修確認の run</th></tr></thead>
+          <thead><tr>${headers('Issue', '状態', 'TC', '改修確認の run')}</tr></thead>
           <tbody>
           ${issueRows}
           </tbody>
@@ -153,7 +153,7 @@ export function renderTraceHtml(report: TraceReport, repo: QaRepository, generat
   <section class="part">
     <h2 class="part-title">検査の指摘 <span class="count">(${report.findings.length} 件)</span></h2>
     ${report.findings.length ? `<div class="panel table-wrap"><table>
-          <thead><tr><th>種類</th><th>コード</th><th>内容</th><th>場所</th></tr></thead>
+          <thead><tr>${headers('種類', 'コード', '内容', '場所')}</tr></thead>
           <tbody>
           ${findingRows}
           </tbody>

@@ -112,7 +112,7 @@ async function run(args: string[]) {
       return {node:process.versions.node,platform:process.platform,registryCount:listSkills().length,...config};
     }
   }
-  throw new Error('使用法: aidev init NAME [--template core|react|unity|qa] | skill list | skill add NAME | skill update NAME | skill validate NAME | skill eval NAME [--observations FILE] | doctor | verify | check | spec check FILE | qa profile check FILE [--skill NAME] | qa compare-report MANIFEST OUT [--link] | qa issue create --profile FILE --run RUNDIR --tc TC-ID [--dry-run] | qa trace DIR [--html FILE] | workflow check TASK --review FILE | workflow run TASK --spec FILE | workflow status TASK。init/add/update/qa issue create は末尾に --dry-run を指定できます。');
+  throw new Error('使用法: aidev init NAME [--template core|react|unity|qa] | skill list | skill add NAME | skill update NAME | skill validate NAME | skill eval NAME [--observations FILE] | doctor | verify | check | spec check FILE | qa profile check FILE [--skill NAME] | qa compare-report MANIFEST OUT [--link] | qa issue create --profile FILE --run RUNDIR --tc TC-ID [--dry-run] | qa trace DIR [--html FILE] | workflow check TASK --review FILE | workflow run TASK --spec FILE | workflow status TASK。init/add/update/qa issue create は末尾に --dry-run を指定できます。qa trace の --html FILE は、QA リポジトリの外に書くことを勧めます。');
 }
 try {
   console.log(JSON.stringify({ok:true,...await run(process.argv.slice(2))}));
