@@ -506,3 +506,39 @@ test('the secret scan names the field, not a line number', async t => {
   const box = sandbox(t, result.replace('### TC-order-002 数量が上限を 1 超えると注文できない', '### TC-order-002 token=abc123secretvalue'));
   await assert.rejects(createIssueFromRun(box.options({dryRun: true})), error => /ケース名/.test(error.message) && !error.message.includes('abc123secretvalue'));
 });
+
+// Ruling V: a phase-3 verification repository had "#2 | #1 | #1 | #2 | #1 | #1 |" after its title line. Writing back
+// several issues must leave the title line and every cell except the Issue cells byte-identical.
+test('write back keeps the title line and the other cells', async t => {
+  const variants = [result, result.replace('# 実行結果 20261118-new-cases', '# 実行結果 20261118-new-cases | new'),
+    result.replace(/- 環境[^]*?\n\n\| TC-ID/, '| TC-ID')];
+  for (const variant of variants) for (const eol of ['\n', '\r\n']) {
+    const original = variant.replace(/\n/g, eol);
+    const box = sandbox(t, original);
+    const fake = fakeGitea(handler());
+    for (const tc of ['TC-order-002', 'TC-order-004']) {
+      const out = await createIssueFromRun(box.options({tc, transport: fake.transport}));
+      assert.equal(out.resultUpdated, true, tc);
+    }
+    // Running again finds the recorded issues and writes nothing.
+    for (const tc of ['TC-order-002', 'TC-order-004']) {
+      const again = await createIssueFromRun(box.options({tc, transport: fake.transport}));
+      assert.equal(again.resultUpdated, false, tc);
+    }
+    const before = original.split('\n');
+    const after = box.read().split('\n');
+    assert.equal(after.length, before.length);
+    assert.equal(after[0], before[0], 'title line');
+    const issues = {'TC-order-002': '#7', 'TC-order-004': '#8'};
+    for (let i = 0; i < before.length; i++) {
+      const tc = Object.keys(issues).find(id => before[i].startsWith('| ' + id + ' | NG'));
+      if (!tc) { assert.equal(after[i], before[i], 'line ' + (i + 1)); continue; }
+      const cellsBefore = before[i].split('|');
+      const cellsAfter = after[i].split('|');
+      assert.equal(cellsAfter.length, cellsBefore.length);
+      for (let c = 0; c < cellsBefore.length; c++) {
+        assert.equal(cellsAfter[c], c === 4 ? ' ' + issues[tc] + ' ' : cellsBefore[c], tc + ' cell ' + c);
+      }
+    }
+  }
+});
