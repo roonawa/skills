@@ -211,6 +211,10 @@ test('long padded lines are read in linear time', t => {
   const files = {
     'acceptance bullet': {'plan/acceptance.md': '- ' + pad + 'z\n'},
     'acceptance source': {'plan/acceptance.md': '- AC-001: a' + pad + 'b（出どころ: c' + ' '.repeat(2000) + 'd\n'},
+    // With the closing ）, sourceNote itself runs: padding before the note and inside it.
+    'acceptance source closed': {'plan/acceptance.md': '- AC-001: a' + pad + 'b（出どころ:' + ' '.repeat(2000) + 'c' + ' '.repeat(2000) + '）\n'},
+    // Many （出どころ without a colon: each one is looked at, none may copy the rest of the line.
+    'many source notes': {'plan/acceptance.md': '- AC-001: a' + '（出どころ'.repeat(60000) + '）\n'},
     'case field': {'plan/acceptance.md': '- AC-001: a\n', 'cases/a.md': '### TC-a-001 x\n- AC: AC-001\n- ' + pad + 'z\n'},
     'result header': {'plan/acceptance.md': '- AC-001: a\n', 'runs/20261120-r/result.md': '# 実行結果\n\n- ' + pad + 'z\n\n' + table + '| TC-a-001 | OK | | |\n'},
     'result reason': {'plan/acceptance.md': '- AC-001: a\n', 'runs/20261120-r/result.md': header + table + '| TC-a-001 | 実行不能 | | |\n\n## 実行不能の理由\n\n### TC-a-001\n- ' + pad + 'z\n'},
@@ -256,6 +260,33 @@ test('links under cases and runs are reported, not skipped', t => {
     [['unreadable', 'cases/linked.md'], ['unreadable', 'runs/20261120-outside']]);
   assert.deepEqual(repo.cases.map(item => item.id), ['TC-a-001']);
   assert.deepEqual(repo.runs, []);
+  assert.ok(!JSON.stringify(repo).includes('outside-001'));
+});
+
+test('links directly under runs/ are errors only when named like a run; file links under cases/ are errors', t => {
+  const outside = sandbox(t, {'x.md': '### TC-outside-001 外\n- AC: AC-001\n', 'run/result.md': header + table + '| TC-outside-001 | OK | | |\n'});
+  const root = sandbox(t, {'plan/acceptance.md': '- AC-001: a\n', 'cases/a.md': '### TC-a-001 x\n- AC: AC-001\n'});
+  mkdirSync(join(root, 'runs'));
+  try {
+    symlinkSync(join(outside, 'run'), join(root, 'runs', '20261120-linked'), 'junction');
+    symlinkSync(join(outside, 'run'), join(root, 'runs', 'notarun'), 'junction');
+  } catch (error) {
+    t.skip('junctions cannot be created here: ' + error.code);
+    return;
+  }
+  let files = true;
+  try {
+    symlinkSync(join(outside, 'x.md'), join(root, 'runs', 'README.md'), 'file');
+    symlinkSync(join(outside, 'x.md'), join(root, 'runs', '20261120-linked.compare.json'), 'file');
+    symlinkSync(join(outside, 'x.md'), join(root, 'cases', 'linked.md'), 'file');
+  } catch {
+    files = false; // File symlinks need a privilege on Windows; the junction part still runs.
+  }
+  const repo = readQaRepository(root);
+  const expected = [...(files ? [['unreadable', 'cases/linked.md']] : []), ['unreadable', 'runs/20261120-linked']];
+  assert.deepEqual(repo.problems.map(problem => [problem.code, problem.file]), expected);
+  assert.deepEqual(repo.runs, []);
+  assert.deepEqual(repo.cases.map(item => item.id), ['TC-a-001']);
   assert.ok(!JSON.stringify(repo).includes('outside-001'));
 });
 

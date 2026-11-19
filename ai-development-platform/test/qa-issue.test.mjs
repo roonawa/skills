@@ -5,7 +5,7 @@ import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { buildIssue, createIssueFromRun } from '../dist/qa-issue.js';
 import { checkProfileText } from '../dist/qa-profile.js';
 import { BASE, TOKEN, fakeGitea, giteaRepo } from './gitea-fake.mjs';
@@ -542,4 +542,55 @@ test('write back keeps the title line and the other cells', async t => {
       }
     }
   }
+});
+
+/**
+ * Runs `code` (with buildIssue, createIssueFromRun and `input`, read from stdin, in scope) in a child
+ * process with a 10 s timeout, so that a regular expression that never ends cannot hang the tests. The code sets `out`.
+ */
+function timedIssue(name, code, input = '') {
+  const module = new URL('../dist/qa-issue.js', import.meta.url).href;
+  const script = 'const {buildIssue, createIssueFromRun} = await import(' + JSON.stringify(module) + ');' +
+    'const {readFileSync} = await import("node:fs"); const input = readFileSync(0, "utf8");' +
+    'let out; const t = performance.now(); ' + code + '; console.log(JSON.stringify({ms: performance.now() - t, out}));';
+  const run = spawnSync(process.execPath, ['--input-type=module', '-e', script], {input, encoding: 'utf8', timeout: 10000});
+  assert.equal(run.status, 0, name + ': did not finish: ' + (run.error?.code ?? run.stderr));
+  return JSON.parse(run.stdout);
+}
+
+const endOf004 = '- 再現: 3回とも同じ\n\n## 実行不能';
+
+test('long padded lines with U+2028 or a lone CR are read in linear time', () => {
+  // Just under the 1 MiB limit of a file. U+2028 and CR are \s but not `.`, so \s+(.*)$ would backtrack.
+  const pad = ' '.repeat(1024 * 1024 - 4096);
+  const cases = {
+    'list item with U+2028': ['  1. カートを開く', '  1. カートを開く\n- ' + pad + 'a b'],
+    'labeled value with U+2028': [endOf004, '- 再現: 3回とも同じ\n- 補足:' + pad + 'a b\n\n## 実行不能'],
+    'labeled value with a lone CR': [endOf004, '- 再現: 3回とも同じ\n- 補足:' + pad + 'a\rb\n\n## 実行不能'],
+    'label padded before the colon': [endOf004, '- 再現: 3回とも同じ\n- 補' + pad + 'a b\n\n## 実行不能'],
+    'header value with U+2028': ['- 備考: 冒頭に足した行', '- 環境:' + pad + 'a b'],
+  };
+  for (const [name, [from, to]] of Object.entries(cases)) {
+    const text = result.replace(from, to);
+    assert.notEqual(text, result, name);
+    const {ms, out} = timedIssue(name, 'out = buildIssue(input, "TC-order-004", {product: "p", run: "runs/20261118-x"}).body.length', text);
+    assert.ok(out > 0, name);
+    assert.ok(ms < 2000, name + ' took ' + Math.round(ms) + ' ms');
+  }
+  const {ms} = timedIssue('run with many slashes',
+    'try { await createIssueFromRun({root: ".", profile: "p", run: "runs/x" + "/".repeat(200000) + "y", tc: "TC-a-001", dryRun: true}); } catch (e) { out = e.message; }');
+  assert.ok(ms < 2000, 'run with many slashes took ' + Math.round(ms) + ' ms');
+});
+
+test('labels and header values keep their meaning without regular expressions', () => {
+  const text = result
+    .replace('- 環境: new', '- 環境 ：  new stage ')
+    .replace(endOf004, '- 再現: 3回とも同じ\n- 補足: a\rb c\n-  ラベルなしの項目\n- とても長いラベルのようでラベルではない一文です: 値\n\n## 実行不能');
+  const {body} = buildIssue(text, 'TC-order-004', {product: 'p', run: 'runs/20261118-x'});
+  assert.ok(body.includes('\n環境\n\n```\nnew stage\n```\n'), body);
+  assert.ok(body.includes('## 補足\n\n```\na\rb c\n```'), body);
+  // Header: the label must follow "- " directly, and a value is required.
+  const none = buildIssue(result.replace('- 環境: new', '- 環境:').replace('- 版: 2.3.0（画面の右下の表示）', '-版: 2'), 'TC-order-004',
+    {product: 'p', run: 'r'}).body;
+  assert.ok(!none.includes('\n環境\n') && !none.includes('\n版\n'), none);
 });

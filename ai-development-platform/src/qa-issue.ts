@@ -59,6 +59,39 @@ function findRow(lines: Line[], tc: string): ResultRow {
 
 const heading = (line: Line) => line.fenced ? 0 : (/^(#{1,6})\s/.exec(line.text)?.[1].length ?? 0);
 
+/*
+ * A line is up to 1 MiB long. The list items and labels below are split without regular expressions: a pattern
+ * like \s+(.*)$ backtracks over every space when the line holds U+2028, U+2029 or a lone CR (\s, but not the dot),
+ * which takes quadratic time.
+ */
+
+/** The text of a list item `- text` or `* text` (marker, then at least one space), or undefined. */
+function listItem(text: string): string | undefined {
+  if (text[0] !== '-' && text[0] !== '*') return undefined;
+  const rest = text.slice(1);
+  const body = rest.trimStart();
+  return body.length < rest.length ? body : undefined;
+}
+
+/** The first ':' or '：' in `text`, or -1. */
+function firstColon(text: string): number {
+  const half = text.indexOf(':');
+  const full = text.indexOf('：');
+  return half < 0 ? full : full < 0 ? half : Math.min(half, full);
+}
+
+/**
+ * `label: value` of a list item, as [label, value] with both trimmed: the label is what comes before the first
+ * colon, 1 to 20 characters once trailing spaces are cut. Otherwise undefined.
+ */
+function itemLabel(item: string): [string, string] | undefined {
+  const colon = firstColon(item);
+  if (colon < 1) return undefined;
+  const label = item.slice(0, colon).trimEnd();
+  if (label.length > 20) return undefined;
+  return [label.trim(), item.slice(colon + 1).trim()];
+}
+
 interface Detail {name: string; fields: Map<string, string>}
 
 /** The `### <tc> <case name>` section under `## NG の詳細`, with its top-level list items by label. */
@@ -87,12 +120,12 @@ function findDetail(lines: Line[], tc: string): Detail {
     if (label !== undefined && !fields.has(label)) fields.set(label, joinValue(first, rest));
   };
   for (i++; i < lines.length && (heading(lines[i]) === 0 || heading(lines[i]) > 3); i++) {
-    const item = lines[i].fenced ? null : /^[-*]\s+(.*)$/.exec(lines[i].text);
-    if (item) {
+    const item = lines[i].fenced ? undefined : listItem(lines[i].text);
+    if (item !== undefined) {
       flush();
-      const labeled = /^([^:：]{1,20}?)\s*[:：]\s*(.*)$/.exec(item[1]);
-      label = (labeled ? labeled[1] : item[1]).trim();
-      first = labeled ? labeled[2].trim() : '';
+      const labeled = itemLabel(item);
+      label = (labeled ? labeled[0] : item).trim();
+      first = labeled ? labeled[1] : '';
       rest = [];
     } else if (label !== undefined) rest.push(lines[i].text);
   }
@@ -110,11 +143,17 @@ function joinValue(first: string, rest: string[]): string {
   return [first, ...body].filter((line, index) => index > 0 || line).join('\n');
 }
 
-/** A header line `- <label>: <value>` above the result table. */
+/** A header line `- <label>: <value>` above the result table (a non-empty value). */
 function headerValue(lines: Line[], end: number, label: string): string | undefined {
   for (let i = 0; i < end; i++) {
-    const match = lines[i].fenced ? null : new RegExp('^-\\s+' + label + '\\s*[:：]\\s*(.+)$').exec(lines[i].text.trim());
-    if (match) return match[1].trim();
+    const text = lines[i].text.trim();
+    if (lines[i].fenced || text[0] !== '-') continue;
+    const item = listItem(text);
+    if (item === undefined || !item.startsWith(label)) continue;
+    const after = item.slice(label.length).trimStart();
+    if (after[0] !== ':' && after[0] !== '：') continue;
+    const value = after.slice(1).trim();
+    if (value) return value;
   }
   return undefined;
 }
@@ -252,8 +291,9 @@ function withIssueCell(text: string, row: ResultRow, number: number): string {
   const parts = splitRow(raw.slice(0, raw.length - eol.length));
   const at = row.issue + 1;
   const old = parts[at];
-  const lead = /^\s*/.exec(old)![0] || ' ';
-  const trail = /\s*$/.exec(old)![0] || ' ';
+  // trimStart/trimEnd, not /\s*$/: that pattern is tried at every position and is quadratic on padded text.
+  const lead = old.slice(0, old.length - old.trimStart().length) || ' ';
+  const trail = old.slice(old.trimEnd().length) || ' ';
   parts[at] = lead + '#' + number + trail;
   lines[row.index] = parts.join('|') + eol;
   return lines.join('\n');
@@ -288,7 +328,11 @@ function trustedBaseUrl(giteaUrl: string | undefined, profileUrl: string): strin
 }
 
 export async function createIssueFromRun(options: IssueRunOptions): Promise<IssueRunResult> {
-  const run = options.run.replace(/\\/g, '/').replace(/\/+$/, '');
+  // Trailing slashes are cut with a loop: /\/+$/ takes quadratic time on a long run of slashes.
+  const slashed = options.run.replace(/\\/g, '/');
+  let end = slashed.length;
+  while (end > 0 && slashed[end - 1] === '/') end--;
+  const run = slashed.slice(0, end);
   if (!runPattern.test(run)) throw new Error('--run には runs/<YYYYMMDD>-<run-id> を指定してください。');
   if (!tcPattern.test(options.tc)) throw new Error('--tc には TC-ID（TC- で始まる英数字、_、.、-）を指定してください。');
   const tc = options.tc;

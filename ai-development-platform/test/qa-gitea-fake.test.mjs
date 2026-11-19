@@ -202,8 +202,10 @@ test('413 を返したあとも本文を読み切り、送り手に接続のリ�
     socket.setEncoding('utf8');
     socket.on('data', d => { text += d; });
     socket.on('error', e => { error = e.code; });
-    socket.on('close', () => resolve({text, error}));
-    setTimeout(() => socket.destroy(), 10000);
+    // A guard against a server that never answers; cleared on close so that it does not keep the test file alive.
+    const guard = setTimeout(() => socket.destroy(), 10000);
+    guard.unref();
+    socket.on('close', () => { clearTimeout(guard); resolve({text, error}); });
   });
   assert.equal(got.error, undefined);
   assert.match(got.text, /^HTTP\/1\.1 413 /);

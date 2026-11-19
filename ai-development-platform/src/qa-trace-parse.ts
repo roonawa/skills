@@ -341,12 +341,13 @@ function readRun(reader: Reader, dir: string, date: string, runId: string): RunR
 function readRuns(reader: Reader): RunRecord[] {
   const runs: RunRecord[] = [];
   for (const entry of reader.entries('runs') ?? []) {
-    // Files directly under runs/ (README.md, <run>.compare.json) are not runs. Links are not followed but reported,
-    // so that a run behind a link (or a junction) is not silently left out.
+    // Files directly under runs/ (README.md, <run>.compare.json) are not runs. Links are not followed. A link named
+    // like a run is reported, so that a run behind a link (or a junction) is not silently left out; other links are
+    // skipped like the other entries that are not runs.
     const dir = 'runs/' + entry.name;
-    if (entry.isSymbolicLink()) { reader.problem('unreadable', dir, undefined, linkMessage); continue; }
-    if (!entry.isDirectory()) continue;
     const name = runDir.exec(entry.name);
+    if (entry.isSymbolicLink()) { if (name) reader.problem('unreadable', dir, undefined, linkMessage); continue; }
+    if (!entry.isDirectory()) continue;
     if (!name) {
       if (!entry.name.startsWith('.')) reader.problem('run-dir', dir, undefined, 'run のディレクトリ名が「YYYYMMDD-run-id」ではありません。');
       continue;

@@ -1,7 +1,7 @@
 import { lstatSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
 import { checked } from './files.js';
-import { readQaRepository, type QaRepository, type RunRecord, type RunRow } from './qa-trace-parse.js';
+import { readQaRepository, type FixVerdict, type QaRepository, type RunRecord, type RunRow } from './qa-trace-parse.js';
 
 /**
  * Checks the links AC → TC → run result → Issue → fix check of a QA repository for `aidev qa trace`. Reads only;
@@ -11,19 +11,38 @@ import { readQaRepository, type QaRepository, type RunRecord, type RunRow } from
 
 export interface TraceFinding { level: 'error' | 'warning'; code: string; message: string; ac?: string; tc?: string; issue?: number; file?: string; line?: number }
 export type IssueStatus = '確認済み' | '未確認' | '効いていない' | '要確認';
+export type Execution = '自動' | '手動';
+/**
+ * One run in run order, counted from its own rows (every row of the run, not only the latest result of a TC).
+ * The fix checks carry the issue and verdict only; the note of 要確認 is free text and stays out.
+ */
+export interface RunDetail {
+  dir: string; date: string; runId: string; environment?: string; version?: string;
+  ok: number; ng: number; blocked: number; fixChecks: { issue: number; verdict: FixVerdict }[];
+}
 export interface TraceReport {
   acs: number; cases: number; runs: number;
-  coverage: { ac: string; cases: string[]; latest: { tc: string; result: string; run: string; issues: number[] }[] }[];
+  runDetails: RunDetail[];
+  /**
+   * Per AC: its TCs, the latest result of those that ran, and those that never ran. `execution` is the case's 実行
+   * (absent when the case has no valid 実行 line). Every TC of `cases` is in exactly one of `latest` and `notRun`.
+   */
+  coverage: {
+    ac: string; cases: string[];
+    latest: { tc: string; result: string; run: string; issues: number[]; execution?: Execution }[];
+    notRun: { tc: string; execution?: Execution }[];
+  }[];
   issues: { number: number; tcs: string[]; status: IssueStatus; fixRun?: string }[];
   findings: TraceFinding[];
 }
 
 /**
- * Parser problems that make the trace untrustworthy: a file that could not be read, or a run whose results could
- * not all be read (a row of the wrong form, a row written twice, no result table, no result.md). The other problems
- * (the form of a fix check, a fix commit, the AC or 実行 of a case, ...) are warnings.
+ * Parser problems that make the trace untrustworthy: a file that could not be read, an AC line or a case heading
+ * of the wrong form (the AC or the TC would be dropped silently), or a run whose results could not all be read (a
+ * row of the wrong form, a row written twice, no result table, no result.md). The other problems (the form of a fix
+ * check, a fix commit, the AC or 実行 of a case, a run folder with another name, ...) are warnings.
  */
-const errorProblems = new Set(['missing-acceptance', 'missing-cases', 'unreadable',
+const errorProblems = new Set(['missing-acceptance', 'missing-cases', 'unreadable', 'acceptance-line', 'case-heading',
   'run-row', 'run-tc', 'run-result', 'duplicate-run-row', 'no-result-table', 'missing-result']);
 const duplicateProblems = new Set(['duplicate-acceptance', 'duplicate-case']);
 
@@ -56,12 +75,23 @@ export function traceQaRepository(root: string): TraceReport {
   const ran = new Set<string>();
   for (const run of repo.runs) for (const row of run.rows) { latest.set(row.tc, {row, run}); ran.add(row.tc); }
 
-  const coverage = repo.acceptance.map(ac => {
-    const cases = repo.cases.filter(item => item.acs.includes(ac.id)).map(item => item.id);
-    return {ac: ac.id, cases, latest: cases.flatMap(tc => {
-      const found = latest.get(tc);
-      return found ? [{tc, result: found.row.result, run: found.run.dir, issues: [...found.row.issues]}] : [];
-    })};
+  const coverage: TraceReport['coverage'] = repo.acceptance.map(ac => {
+    const linked = repo.cases.filter(item => item.acs.includes(ac.id));
+    const entry: TraceReport['coverage'][number] = {ac: ac.id, cases: linked.map(item => item.id), latest: [], notRun: []};
+    for (const item of linked) {
+      const found = latest.get(item.id);
+      const execution = item.execution ? {execution: item.execution} : {};
+      if (found) entry.latest.push({tc: item.id, result: found.row.result, run: found.run.dir, issues: [...found.row.issues], ...execution});
+      else entry.notRun.push({tc: item.id, ...execution});
+    }
+    return entry;
+  });
+  const runDetails = repo.runs.map((run): RunDetail => {
+    const count = (result: RunRow['result']) => run.rows.filter(row => row.result === result).length;
+    return {dir: run.dir, date: run.date, runId: run.runId,
+      ...(run.environment !== undefined ? {environment: run.environment} : {}), ...(run.version !== undefined ? {version: run.version} : {}),
+      ok: count('OK'), ng: count('NG'), blocked: count('実行不能'),
+      fixChecks: run.fixChecks.map(check => ({issue: check.issue, verdict: check.verdict}))};
   });
 
   for (const item of coverage) {
@@ -115,7 +145,7 @@ export function traceQaRepository(root: string): TraceReport {
     findings.push(finding);
   }
   const issues = traced.map(item => item.issue);
-  return {acs: repo.acceptance.length, cases: repo.cases.length, runs: repo.runs.length, coverage, issues, findings};
+  return {acs: repo.acceptance.length, cases: repo.cases.length, runs: repo.runs.length, runDetails, coverage, issues, findings};
 }
 
 type TracedIssue = TraceReport['issues'][number];

@@ -106,7 +106,7 @@ test('html summary equals the json report', t => {
   assert.equal(out.status, 0);
   const report = out.json;
   // The JSON keeps its shape.
-  assert.deepEqual(Object.keys(report), ['ok', 'acs', 'cases', 'runs', 'coverage', 'issues', 'findings']);
+  assert.deepEqual(Object.keys(report), ['ok', 'acs', 'cases', 'runs', 'runDetails', 'coverage', 'issues', 'findings']);
   const html = readFileSync(join(root, 'out', 'trace.html'), 'utf8');
   const latest = new Map();
   const tcs = new Set();

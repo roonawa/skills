@@ -40,10 +40,17 @@ test('trace the fixture repository', () => {
   assert.deepEqual(report.coverage.map(item => [item.ac, item.cases]), [
     ['AC-001', ['TC-csv-004']], ['AC-007', ['TC-detail-001']], ['AC-014', ['TC-csv-001']], ['AC-015', ['TC-csv-004', 'TC-csv-005']]]);
   assert.deepEqual(report.coverage.find(item => item.ac === 'AC-015').latest, [
-    {tc: 'TC-csv-004', result: 'OK', run: 'runs/20261119-csv-fix', issues: [1]},
-    {tc: 'TC-csv-005', result: 'OK', run: 'runs/20261119-csv-fix', issues: [1]}]);
+    {tc: 'TC-csv-004', result: 'OK', run: 'runs/20261119-csv-fix', issues: [1], execution: '自動'},
+    {tc: 'TC-csv-005', result: 'OK', run: 'runs/20261119-csv-fix', issues: [1], execution: '自動'}]);
   assert.deepEqual(report.coverage.find(item => item.ac === 'AC-007').latest,
-    [{tc: 'TC-detail-001', result: '実行不能', run: 'runs/20261119-csv-detail', issues: []}]);
+    [{tc: 'TC-detail-001', result: '実行不能', run: 'runs/20261119-csv-detail', issues: [], execution: '手動'}]);
+  assert.ok(report.coverage.every(item => item.notRun.length === 0));
+  // runDetails: every run in order, counted from that run's own rows (not only the latest ones).
+  assert.deepEqual(report.runDetails, [
+    {dir: 'runs/20261119-csv-detail', date: '20261119', runId: 'csv-detail', environment: 'new', version: '02368d1（アプリのリポジトリの HEAD）',
+      ok: 0, ng: 3, blocked: 1, fixChecks: []},
+    {dir: 'runs/20261119-csv-fix', date: '20261119', runId: 'csv-fix', environment: 'new', version: '6b6cab6（アプリのリポジトリの HEAD）',
+      ok: 2, ng: 1, blocked: 0, fixChecks: [{issue: 1, verdict: '確認済み'}, {issue: 2, verdict: '要確認'}, {issue: 3, verdict: '効いていない'}]}]);
   assert.deepEqual(report.issues, [
     {number: 1, tcs: ['TC-csv-004', 'TC-csv-005'], status: '確認済み', fixRun: 'runs/20261119-csv-fix'},
     {number: 2, tcs: ['TC-csv-001', 'TC-csv-004'], status: '要確認', fixRun: 'runs/20261119-csv-fix'},
@@ -65,7 +72,7 @@ test('ac-uncovered and tc-unknown-ac', t => {
   assert.equal(uncovered.line, 4);
   const unknown = bad.findings[1];
   assert.equal(unknown.file, 'cases/a.md');
-  assert.deepEqual(bad.coverage.find(item => item.ac === 'AC-002'), {ac: 'AC-002', cases: [], latest: []});
+  assert.deepEqual(bad.coverage.find(item => item.ac === 'AC-002'), {ac: 'AC-002', cases: [], latest: [], notRun: []});
 });
 
 test('ng-without-issue', t => {
@@ -112,6 +119,36 @@ test('duplicate-id', t => {
     [['error', 'AC-001', 'plan/acceptance.md', 5], ['error', 'TC-a-002', 'cases/b.md', 3]]);
 });
 
+test('execution, notRun and runDetails for the report', t => {
+  const root = sandbox(t, {'plan/acceptance.md': acceptance('AC-001'),
+    'cases/a.md': '# a\n\n' + tcase('TC-a-001', 'AC-001') + tcase('TC-a-002', 'AC-001', '手動') +
+      '### TC-a-003 実行の行がない\n- AC: AC-001\n\n' + tcase('TC-a-004', 'AC-001', '手動'),
+    'runs/20261119-r1/result.md': result([['TC-a-001', 'NG', '#1'], ['TC-a-002', '実行不能'], ['TC-b-001', 'OK']],
+      {reasons: '### TC-a-002\n- 理由: 手動確認待ち\n'}),
+    'runs/20261120-r2/result.md': '# 実行結果\n\n- 改修確認: #1 要確認（再現しない）\n\n| TC-ID | 結果 | 証跡 | Issue |\n|---|---|---|---|\n| TC-a-001 | OK | | #1 |\n'});
+  const report = traceQaRepository(root);
+  assert.deepEqual(report.coverage[0].latest, [
+    {tc: 'TC-a-001', result: 'OK', run: 'runs/20261120-r2', issues: [1], execution: '自動'},
+    {tc: 'TC-a-002', result: '実行不能', run: 'runs/20261119-r1', issues: [], execution: '手動'}]);
+  assert.deepEqual(report.coverage[0].notRun, [{tc: 'TC-a-003'}, {tc: 'TC-a-004', execution: '手動'}]);
+  assert.deepEqual(report.runDetails, [
+    {dir: 'runs/20261119-r1', date: '20261119', runId: 'r1', environment: 'new', version: '1.0', ok: 1, ng: 1, blocked: 1, fixChecks: []},
+    {dir: 'runs/20261120-r2', date: '20261120', runId: 'r2', ok: 1, ng: 0, blocked: 0, fixChecks: [{issue: 1, verdict: '要確認'}]}]);
+  assert.equal(report.runs, 2);
+  assert.ok(!JSON.stringify(report.runDetails).includes('再現しない'), 'the note of a fix check is free text');
+});
+
+test('a malformed acceptance line or case heading is an error, a misnamed run folder a warning', t => {
+  const report = traceQaRepository(sandbox(t, {...base({'runs/20261119-r1/result.md': result([['TC-a-001', 'OK'], ['TC-a-002', 'OK']]),
+    'runs/notarun/result.md': result([['TC-a-001', 'OK']])}),
+    'plan/acceptance.md': acceptance('AC-001', 'AC-002') + '- AC-003 コロンがない\n',
+    'cases/b.md': '### TC-b 番号がない\n- AC: AC-001\n'}));
+  assert.deepEqual(report.findings.map(f => [f.level, f.code, f.file]), [
+    ['error', 'acceptance-line', 'plan/acceptance.md'],
+    ['error', 'case-heading', 'cases/b.md'],
+    ['warning', 'run-dir', 'runs/notarun']]);
+});
+
 test('other parser problems are reported with their file and line', t => {
   const report = traceQaRepository(sandbox(t, base({'runs/20261119-r1/result.md':
     result([['TC-a-001', 'OK'], ['TC-a-002', 'たぶん OK']], {head: '- 改修確認: #5 なおった\n'})})));
@@ -152,13 +189,13 @@ test('latest run wins', t => {
     'runs/20261120-b/result.md': result([['TC-a-002', 'NG', '#3']])})));
   const latest = report.coverage.flatMap(item => item.latest);
   assert.deepEqual(latest, [
-    {tc: 'TC-a-001', result: 'OK', run: 'runs/20261120-a', issues: []},
-    {tc: 'TC-a-002', result: 'NG', run: 'runs/20261120-b', issues: [3]}]);
+    {tc: 'TC-a-001', result: 'OK', run: 'runs/20261120-a', issues: [], execution: '自動'},
+    {tc: 'TC-a-002', result: 'NG', run: 'runs/20261120-b', issues: [3], execution: '自動'}]);
   // A fix-check run with 元の run counts as an ordinary run too.
   const fix = traceQaRepository(sandbox(t, base({
     'runs/20261119-r1/result.md': result([['TC-a-001', 'NG', '#1'], ['TC-a-002', 'OK']]),
     'runs/20261119-r1-fix/result.md': result([['TC-a-001', 'OK', '#1']], {head: '- 改修確認: #1 確認済み\n- 元の run: runs/20261119-r1\n'})})));
-  assert.deepEqual(fix.coverage[0].latest, [{tc: 'TC-a-001', result: 'OK', run: 'runs/20261119-r1-fix', issues: [1]}]);
+  assert.deepEqual(fix.coverage[0].latest, [{tc: 'TC-a-001', result: 'OK', run: 'runs/20261119-r1-fix', issues: [1], execution: '自動'}]);
   assert.deepEqual(codes(fix), []);
 });
 
