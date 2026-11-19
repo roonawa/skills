@@ -341,5 +341,13 @@ GITEA_FAKE_TOKEN=確認用の任意の値 node templates/qa/samples/gitea-fake/s
 
 `aidev qa issue create` を試すときは、GITEA_TOKEN にサーバーと同じ値を、GITEA_URL に `http://127.0.0.1:3000` を設定し、プロファイルの issue_tracker.url も同じ接続先にする。localhost ではなく 127.0.0.1 を使う（IPv6 に解決される環境では届かない）。--port 0 なら空いているポートを使い、起動時に `listening http://localhost:N` を出す。N を GITEA_URL に使う。
 
+### 段階4で足したもの
+
+段階4では、QA リポジトリのつながりを検査する `aidev qa trace DIR [--html FILE]`（使い方は上の表）と、報告の Skill を足した。
+
+|Skill|用途|
+|---|---|
+|aidev-qa-report|`aidev qa trace` の JSON から数えた数字で、日次のまとめ（reports/<YYYYMMDD>-daily.md）と品質レポート（reports/quality-<YYYYMMDD>.md）を書く。品質レポートでは plan/strategy.md のリスクの評価と未解決の NG・未確認の Issue を突き合わせる。trace にエラーの指摘があれば先頭に書く。Gitea と C-HUB には書き込まない|
+
 ## 設計と次の開発
 [構成](docs/architecture.md) / [技術選定と調査元](docs/technical-decisions.md) / [実装計画](docs/implementation-plan.md) / [バックログ](docs/initial-backlog.md) / [無人実行ランナーと C-HUB 連携（案）](docs/autonomous-runner-design.md) / [QA Skill 汎用化の設計書](docs/superpowers/specs/2026-11-18-qa-skills-generalization-design.md) / [QA Skill 段階1の確認結果](docs/qa-phase1-verification.md) / [QA Skill 段階2の確認結果](docs/qa-phase2-verification.md) / [QA Skill 段階3の確認結果](docs/qa-phase3-verification.md) / [旧 QA Skill の案件固有の知見の移行メモ](docs/qa-migration-notes/README.md)

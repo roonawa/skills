@@ -146,6 +146,11 @@
       "469bb0b088592c7fff7f17a410c6a95e78f74fe64d422ea6c50ccafaa370b900"
     ]
   },
+  "aidev-qa-report": {
+    "0.1.0": [
+      "00cd9ef4c86505af2c96aabefd771e028d4a029a6d17b25ac322dcb611237ebf"
+    ]
+  },
   "aidev-qa-screen-verification": {
     "0.1.0": [
       "e91de1f35b45a358d9938217c55722f2a38ec449f5acb47c735a71857703c07a"
