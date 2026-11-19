@@ -153,6 +153,25 @@ qa-<案件>/
 
 `--html FILE` を付けると、AC と TC の対応表と結果をまとめた HTML を出力する。
 
+段階1〜3の結果を受けて、読み方を次のように決めた（段階4で実装）。
+
+- `README.md` と、コードの囲み（``` と ~~~）の中は読まない
+- `runs/` の直下のファイル（`<run>.compare.json` など）は読み飛ばし、ディレクトリだけを run として扱う。`runs/` の直下のリンクは、名前が run の形（`YYYYMMDD-run-id`）のときだけ、読めないものとしてエラーにする。ほかのリンクはファイルと同じく読み飛ばす
+- `result.md` の冒頭には、環境・版・実行日時のほかに行が足されていることがある（「結果の決め方」「改修確認」「修正コミット」「元の run」など）。知らない行は無視する
+- Issue を「確認済み」とするのは、改修確認の run の冒頭に `- 改修確認: #<N> 確認済み` があるときだけ。`要確認（…）` と `効いていない` は確認済みにしない。確認済みでも、その run 自身の表か後の run で、その Issue の TC が NG になれば要確認に戻す
+- AC の出どころには `推定仕様 RS-xxx` もある
+- 同じ原因でまとめた NG は、複数の TC の行に同じ `#N` が書かれる
+- 手動のケースは `実行不能` で、理由が「手動確認待ち」
+
+指摘は error と warning に分ける。error は、記録が抜けていて数字が信用できないものとし、1つでもあれば終了コードを 1 にする。
+
+| 区分 | 指摘 |
+|---|---|
+| error | AC に TC がない（ac-uncovered）、acceptance.md にない AC を参照する TC（tc-unknown-ac）、Issue のない NG（ng-without-issue）、理由のない実行不能（blocked-without-reason）、重複した ID（duplicate-id）、ファイルがない・読めない（missing-acceptance、missing-cases、missing-result、unreadable）、読み飛ばすことになる AC の行とケースの見出し（acceptance-line、case-heading）、run の結果を読みきれない表（run-row、run-tc、run-result、duplicate-run-row、no-result-table） |
+| warning | 改修確認と修正コミットの行の形（fix-check、duplicate-fix-check、fix-commit、fix-commit-unpaired）、ケースの AC と実行の行（case-ac、case-execution）、Issue の列の `#番号` 以外の値（run-issue）、cases/ にない TC の結果（run-unknown-tc）、未実行のケース（case-not-run）、確認済みでない Issue（issue-unconfirmed）、名前が run の形でない runs/ の下のフォルダ（run-dir） |
+
+名前が run の形でないフォルダの result.md は数えられないが、run-dir は warning のままとした。HTML には TC-ID、結果、Issue 番号、run のディレクトリまでを載せ、証跡の欄を含む result.md の自由記述は載せない。HTML は求められたときだけ作り、報告の正本は qa-report の Markdown とする。
+
 ### 5.6 配布の仕組み
 
 - registry を `skills/core/` と `skills/qa/` の両方から読むように変える。`skill list` に区分を表示する

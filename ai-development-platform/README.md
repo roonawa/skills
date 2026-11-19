@@ -349,5 +349,20 @@ GITEA_FAKE_TOKEN=確認用の任意の値 node templates/qa/samples/gitea-fake/s
 |---|---|
 |aidev-qa-report|`aidev qa trace` の JSON から数えた数字で、日次のまとめ（reports/<YYYYMMDD>-daily.md）と品質レポート（reports/quality-<YYYYMMDD>.md）を書く。品質レポートでは plan/strategy.md のリスクの評価と未解決の NG・未確認の Issue を突き合わせる。trace にエラーの指摘があれば先頭に書く。Gitea と C-HUB には書き込まない|
 
+aidev-qa-test-design、aidev-qa-test-run、aidev-qa-bug-ticket、aidev-qa-fix-verify は、成果物を書いた後に `aidev qa trace .` を流して指摘を直す手順になった。
+
+#### aidev qa trace
+
+```sh
+aidev qa trace .
+cd .. && aidev qa trace qa-<案件> --html qa-<案件>-trace.html
+```
+
+- 読むのは `plan/acceptance.md`、`cases/*.md`、`runs/<YYYYMMDD>-<run-id>/result.md` だけで、README.md とコードの囲みの中は読まない。リンクはたどらず、QA リポジトリの外も読まない。Gitea にも C-HUB にも問い合わせない。
+- JSON は `ok` のほか、`acs`・`cases`・`runs`（件数）、`runDetails`（run ごとの OK・NG・実行不能の数と改修確認の判定）、`coverage`（AC ごとの TC、最新の結果 `latest`、未実行 `notRun`。どちらにも実行の種類 `execution`）、`issues`（Issue ごとの TC と状態）、`findings`（指摘）を持つ。
+- Issue の状態は result.md の記録だけで決める。確認済みになるのは、改修確認の run の冒頭に `- 改修確認: #N 確認済み` があるときだけ。その run 自身か後の run でその Issue の TC が NG になれば要確認に戻す。
+- 指摘の level が error になるのは、記録が抜けていて数字が信用できないとき（どの TC も参照しない AC、acceptance.md にない AC を参照する TC、Issue のない NG、理由のない実行不能、重複した ID、形が崩れて読み飛ばされた AC の行・ケースの見出し・result.md の表の行、読めないファイル）。error が1つでもあれば終了コードは 1 になる。改修確認や修正コミットの行の形、ケースの AC と実行の行、Issue の列の `#番号` 以外の値、名前が `YYYYMMDD-run-id` でない runs/ の下のフォルダ、未実行のケース、未確認の Issue は warning で、終了コードに響かない。
+- HTML は求められたときだけ作る生成物で、報告の正本は reports/*.md（aidev-qa-report）とする。設計書 5.10 では HTML を trace と qa-report で作る想定だったが、HTML は `--html` だけが書き、aidev-qa-report は作業者に求められたときにそれを使う。HTML には TC-ID、結果、Issue 番号、run のディレクトリまでを載せ、result.md の自由記述（実際の結果、証跡の欄）は載せない。外部のファイルやスクリプトを読まない自己完結の1枚で、error があっても書き出す。
+
 ## 設計と次の開発
 [構成](docs/architecture.md) / [技術選定と調査元](docs/technical-decisions.md) / [実装計画](docs/implementation-plan.md) / [バックログ](docs/initial-backlog.md) / [無人実行ランナーと C-HUB 連携（案）](docs/autonomous-runner-design.md) / [QA Skill 汎用化の設計書](docs/superpowers/specs/2026-11-18-qa-skills-generalization-design.md) / [QA Skill 段階1の確認結果](docs/qa-phase1-verification.md) / [QA Skill 段階2の確認結果](docs/qa-phase2-verification.md) / [QA Skill 段階3の確認結果](docs/qa-phase3-verification.md) / [旧 QA Skill の案件固有の知見の移行メモ](docs/qa-migration-notes/README.md)

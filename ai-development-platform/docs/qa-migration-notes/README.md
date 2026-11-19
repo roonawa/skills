@@ -14,7 +14,7 @@
 | 旧 Skill | 新しい Skill | 備考 |
 |---|---|---|
 | qa-strategy | aidev-qa-strategy | 段階1 |
-| spec-test | aidev-qa-test-design | 段階1。設計書がある場合。同梱の HTML レポートのスクリプトは、後の段階で `aidev qa trace --html` に統合する予定で、まだない |
+| spec-test | aidev-qa-test-design | 段階1。設計書がある場合。同梱の HTML レポートのスクリプトは `aidev qa trace --html` に置き換えた（段階4） |
 | dev-test | aidev-qa-test-design | 段階1。設計書がなくコードだけが手がかりの場合は `references/code-only.md` |
 | （旧 Skill に相当なし） | aidev-qa-test-review | 段階1。ケースのレビュー |
 | test-execute | aidev-qa-test-run | 段階2。結果は `runs/<YYYYMMDD>-<run-id>/result.md` に書く。旧版の `templates/report.html` は使わない |
@@ -31,6 +31,7 @@
 | cause-repro | aidev-qa-cause-repro | 段階3。原因の調査と再現手順は `reports/cause-<Issue番号 または TC-ID>.md` に書く |
 | test-verify | aidev-qa-fix-verify | 段階3。結果は新しい `runs/<YYYYMMDD>-<run-id>/result.md` に書く。旧版の HTML レポートは作らない |
 | uat-verify | aidev-qa-fix-verify | 同上 |
+| （旧 Skill に相当なし） | aidev-qa-report | 段階4。日次のまとめは `reports/<YYYYMMDD>-daily.md`、品質レポートは `reports/quality-<YYYYMMDD>.md` に書く。数字は `aidev qa trace` の JSON から取る。旧版の各 Skill の HTML レポートの代わりに、表で見たいときは `aidev qa trace --html` で QA リポジトリの外に作る |
 
 cause-repro、test-verify、uat-verify も、新しい Skill への移行が済んだ案件から、利用者が消すかどうかを決めます。このメモの対象には含めていません。
 

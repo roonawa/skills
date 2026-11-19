@@ -2,7 +2,7 @@
 name: aidev-qa-test-run
 description: QA リポジトリのテストケース（cases/*.md）を実行し、結果を runs/<YYYYMMDD>-<run-id>/result.md に OK・NG・実行不能で記録するときに使う。実行が「自動」のケースは automation/ にある既存のテストを探して流し、なければ書いてから流す。テストの実行方法は案件プロファイルの test_commands から読むので、言語やテストの道具を問わない。新しく書いたテストは、期待値を逆にするか不具合を注入して一度失敗させ、失敗を検出できることを確かめてから戻す。実行が「手動」のケースや自動化できなかったケースは、人がそのまま追える再現手順の確認項目として残す。NG のケースには、後で不具合を起票するのに要る再現手順、期待と実際、証跡の場所を残す。「テスト仕様書のケースを実行して」「このケースが通るか確かめて」「新版に対してテストを流して結果をまとめて」という相談で使う。テストケースを作るのは aidev-qa-test-design、今の画面の挙動を記録するのは aidev-qa-characterization、旧版と新版の照合は aidev-qa-regression-compare、ロールごとの可否の検証は aidev-qa-authz-test、ログイン済みのセッションの用意は aidev-qa-login-session、Windows の GUI を操作するテストを書くのは aidev-qa-desktop-gui を使う。
 metadata:
-  version: "0.1.4"
+  version: "0.1.5"
 ---
 # テストケースの実行
 
@@ -46,7 +46,7 @@ metadata:
 - 新しく書いた、または直したテストのコード（`automation/web/tests/<機能>.spec.ts` など）。テスト名の先頭に TC-ID を付ける。コミットするかは作業者が決める
 - 作業者への返答。NG を先頭に、結果の件数、手動確認の項目の数、新しく書いたテストのパス、要確認の点を書く
 
-HTML のレポートは作らない。結果を表で見たいときは、後の段階で追加する予定の `aidev qa trace --html` と aidev-qa-report を使う（まだない）。作業者が求めたときだけ、result.md をもとに HTML を作って公開する。
+HTML のレポートは作らない。result.md を書いたら `aidev qa trace` で記録のつながりを検査する（進め方の 8）。結果を表で見たいと言われたら `aidev qa trace --html` で作り、日次のまとめや品質レポートは aidev-qa-report で書く。HTML の書き出し先は aidev-qa-report の決まりに従い、QA リポジトリの外にする。
 
 ## 進め方
 
@@ -151,7 +151,9 @@ HTML のレポートは作らない。結果を表で見たいときは、後の
 
 NG のケースごとに、後で Issue を起票するのに要る情報を result.md に残す。起票は aidev-qa-bug-ticket が行うので、この Skill は起票せず、Issue の列も空けておく。残す項目は `references/result-format.md` にある。要点は、ケースの手順に実際に使ったデータを足した再現手順、期待結果（ケースの文面のまま）と実際の結果（観測した値やメッセージをそのまま）、証跡の場所、失敗したテストのファイルと名前、再現した回数である。
 
-最後に作業者へ報告する。NG があれば先頭に書き、結果ごとの件数、手動確認の項目の数、新しく書いたテストのパス、失敗を検出できるかを確かめた結果、要確認の点を書く。数値やメッセージは実行の出力から写し、要約で作り直さない。
+result.md を書いたら、QA リポジトリの直下で `aidev qa trace .` を流し、標準出力の JSON の `findings` を見る。level が error の指摘が1つでもあると、終了コードが 1 になる。この run の NG の行に出る `ng-without-issue`（NG なのに Issue の列が空）は、aidev-qa-bug-ticket で起票するまで残るので、直さずに報告に書く。この run の result.md を指すそれ以外のエラーは書き方の誤りなので、直してから報告する。表の行の列の数の違い（`run-row`）、TC-ID や結果の書き方の誤り（`run-tc`、`run-result`）、同じ TC の行の重複（`duplicate-run-row`）、表が読めない（`no-result-table`）、理由のない実行不能（`blocked-without-reason`）がこれに当たる。level が warning の指摘は終了コードに響かないが、`run-unknown-tc`（cases/ にない TC-ID）は TC-ID の写し誤りのことが多いので確かめる。trace は読むだけで、QA リポジトリにも Gitea にも書き込まない。
+
+最後に作業者へ報告する。NG があれば先頭に書き、結果ごとの件数、手動確認の項目の数、新しく書いたテストのパス、失敗を検出できるかを確かめた結果、trace の指摘（起票待ちの `ng-without-issue` の数と、直したもの）、要確認の点を書く。数値やメッセージは実行の出力から写し、要約で作り直さない。
 
 ## データの状態と流し直し
 
@@ -189,3 +191,4 @@ NG のケースごとに、後で Issue を起票するのに要る情報を res
 - 流し直したケースは、回数と各回の結果、打った手が記録されている
 - `runs/` に残っている証跡は最終の実行のものだけで、1つの run に別の実行の結果が混ざっていない。result.md に写したコマンドに秘密情報の値が入っていない
 - テストが作って消せなかった記録があれば、接頭辞、件数、場所を result.md に書いた
+- `aidev qa trace .` で、この run の result.md を指すエラーの指摘が、起票待ちの `ng-without-issue` のほかにない
