@@ -82,7 +82,8 @@ test('html escapes and omits free text', t => {
   // The time carries its zone offset, the local one of the machine that wrote the page.
   const stamp = html.match(/(\d{4}-\d{2}-\d{2} \d{2}:\d{2}) ([+-])(\d{2}):(\d{2})</);
   assert.ok(stamp, 'timestamp with offset');
-  const offset = -new Date().getTimezoneOffset();
+  // `|| 0` turns -0 (UTC, as on CI) into 0, which strict equality distinguishes.
+  const offset = -new Date().getTimezoneOffset() || 0;
   assert.equal((stamp[2] === '-' ? -1 : 1) * (Number(stamp[3]) * 60 + Number(stamp[4])), offset);
   // Both colour schemes are declared, mirroring the theme selectors.
   assert.match(html, /:root \{\s*color-scheme: light dark;/);
