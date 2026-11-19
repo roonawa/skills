@@ -2,7 +2,7 @@ import { lstatSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { checked } from './files.js';
-import { readQaRepository, type QaRepository } from './qa-trace-parse.js';
+import type { QaRepository } from './qa-trace-parse.js';
 import type { IssueStatus, TraceReport } from './qa-trace.js';
 
 /**
@@ -178,9 +178,9 @@ export function traceHtmlPath(root: string, outFile: string): string {
   return out;
 }
 
-/** Writes the page for a repository already traced. Only `out` is written. */
-export function writeTraceHtml(repositoryPath: string, report: TraceReport, out: string): void {
-  const html = renderTraceHtml(report, readQaRepository(repositoryPath));
+/** Writes the page for a repository already read and traced (the repository is not read again). Only `out` is written. */
+export function writeTraceHtml(repo: QaRepository, report: TraceReport, out: string): void {
+  const html = renderTraceHtml(report, repo);
   mkdirSync(dirname(out), {recursive: true});
   writeFileSync(out, html, 'utf8');
 }

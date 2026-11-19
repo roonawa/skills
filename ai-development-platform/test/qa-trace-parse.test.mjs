@@ -323,3 +323,27 @@ test('short form 実行不能（理由） gives the reason; the section wins; em
   assert.deepEqual(empty.problems.map(p => p.code), ['run-result']);
   assert.equal(empty.runs[0].rows.length, 0);
 });
+
+test('a node error becomes a short message without the absolute path', t => {
+  for (const name of ['cases', 'runs']) {
+    const root = sandbox(t, {'plan/acceptance.md': '- AC-001: a\n', 'cases/a.md': '### TC-a-001 x\n- AC: AC-001\n'});
+    rmSync(join(root, name), {recursive: true, force: true});
+    writeFileSync(join(root, name), 'not a directory');
+    const problem = readQaRepository(root).problems.find(item => item.code === 'unreadable');
+    assert.ok(problem, name + ' as a file is unreadable');
+    assert.equal(problem.file, name);
+    assert.match(problem.message, /^.+ を読めません。ファイル操作に失敗しました \([A-Z]+\)$/);
+    assert.ok(problem.message.startsWith(name + ' '));
+    for (const part of root.split(/[\/]/).filter(part => part.length > 2)) assert.ok(!problem.message.includes(part), problem.message);
+  }
+});
+
+test('a separator row without a leading pipe is accepted, but not inside a fence', t => {
+  const root = sandbox(t, {'plan/acceptance.md': '- AC-001: a\n', 'cases/a.md': '### TC-a-001 x\n- AC: AC-001\n',
+    'runs/20261119-r1/result.md': header + '| TC-ID | 結果 | 証跡 | Issue |\n---|---|---|---\n| TC-a-001 | OK | | |\n',
+    'runs/20261119-r2/result.md': header + '| TC-ID | 結果 | 証跡 | Issue |\n```\n---|---|---|---\n```\n| TC-a-001 | OK | | |\n'});
+  const repo = readQaRepository(root);
+  assert.deepEqual(repo.runs[0].rows.map(row => [row.tc, row.result]), [['TC-a-001', 'OK']]);
+  assert.deepEqual(repo.runs[1].rows, []);
+  assert.deepEqual(repo.problems.map(item => [item.code, item.file]), [['no-result-table', 'runs/20261119-r2/result.md']]);
+});

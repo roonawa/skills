@@ -11,7 +11,8 @@ import { checkSpec } from './spec.js';
 import { checkProfile } from './qa-profile.js';
 import { compareReport } from './qa-compare.js';
 import { createIssueFromRun } from './qa-issue.js';
-import { traceDirectory, traceQaRepository } from './qa-trace.js';
+import { traceDirectory, traceRepository } from './qa-trace.js';
+import { readQaRepository } from './qa-trace-parse.js';
 import { traceHtmlPath, writeTraceHtml } from './qa-trace-html.js';
 
 /** Session limits for `workflow run`, from the environment. Invalid values stop before any session starts. */
@@ -57,9 +58,10 @@ async function run(args: string[]) {
   if (command === 'qa' && action === 'trace' && !dryRun && (words.length === 3 || (words.length === 5 && words[3] === '--html'))) {
     // Reads only: neither the QA repository nor any service is written to. The --html page is the only file written.
     const out = words.length === 5 ? traceHtmlPath(root,words[4]) : undefined;
-    const directory = traceDirectory(root,name);
-    const report = traceQaRepository(directory);
-    if (out) writeTraceHtml(directory,report,out);
+    // The repository is read once; the JSON and the HTML come from the same read.
+    const repo = readQaRepository(traceDirectory(root,name));
+    const report = traceRepository(repo);
+    if (out) writeTraceHtml(repo,report,out);
     const ok = !report.findings.some(finding => finding.level === 'error');
     process.exitCode = ok ? 0 : 1;
     return {ok,...report};

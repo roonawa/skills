@@ -14,11 +14,14 @@ export type IssueStatus = '確認済み' | '未確認' | '効いていない' | 
 export type Execution = '自動' | '手動';
 /**
  * One run in run order, counted from its own rows (every row of the run, not only the latest result of a TC).
- * The fix checks carry the issue and verdict only; the note of 要確認 is free text and stays out.
+ * `rows` are the rows of its result table in table order, with the TC-ID, the result and the issue numbers only:
+ * the evidence, the reason of 実行不能 and every other free text stay out. The fix checks carry the issue and verdict
+ * only; the note of 要確認 is free text and stays out.
  */
 export interface RunDetail {
   dir: string; date: string; runId: string; environment?: string; version?: string;
   ok: number; ng: number; blocked: number; fixChecks: { issue: number; verdict: FixVerdict }[];
+  rows: { tc: string; result: RunRow['result']; issues: number[] }[];
 }
 export interface TraceReport {
   acs: number; cases: number; runs: number;
@@ -64,7 +67,38 @@ function parserFindings(repo: QaRepository): TraceFinding[] {
 }
 
 export function traceQaRepository(root: string): TraceReport {
-  const repo = readQaRepository(root);
+  return traceRepository(readQaRepository(root));
+}
+
+/** The leading `YYYY-MM-DD HH:MM[:SS]` of 実行日時 as `YYYY-MM-DD HH:MM:SS`, or undefined. Anchored, so linear. */
+function startOf(executedAt: string | undefined): string | undefined {
+  const match = /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2})(?::(\d{2}))?/.exec(executedAt ?? '');
+  return match ? match[1] + ':' + (match[2] ?? '00') : undefined;
+}
+
+/**
+ * Runs are ordered by date and then by run-id as a string, so the run-ids of one day must sort in the order the
+ * runs were made. A warning for each pair of runs of one day (next to each other once the runs without a readable
+ * start are left out) whose starts in 実行日時 are in the opposite order.
+ */
+function runOrderFindings(runs: RunRecord[]): TraceFinding[] {
+  const findings: TraceFinding[] = [];
+  let previous: {run: RunRecord; start: string} | undefined;
+  for (const run of runs) {
+    if (previous && previous.run.date !== run.date) previous = undefined;
+    const start = startOf(run.executedAt);
+    if (start === undefined) continue;
+    if (previous && previous.start > start) {
+      findings.push({level: 'warning', code: 'run-order', file: resultFile(run), message: previous.run.dir + ' と ' + run.dir +
+        ' は同じ日の run ですが、実行日時の順が run-id の順と逆です。最新の結果は run-id の順で決まります。同じ日の run は、実行した順に並ぶ run-id にしてください。'});
+    }
+    previous = {run, start};
+  }
+  return findings;
+}
+
+/** The trace of a repository already read, so that the CLI reads the repository once for the JSON and the HTML. */
+export function traceRepository(repo: QaRepository): TraceReport {
   const findings = parserFindings(repo);
   const acIds = new Set(repo.acceptance.map(item => item.id));
   const caseIds = new Set(repo.cases.map(item => item.id));
@@ -91,8 +125,10 @@ export function traceQaRepository(root: string): TraceReport {
     return {dir: run.dir, date: run.date, runId: run.runId,
       ...(run.environment !== undefined ? {environment: run.environment} : {}), ...(run.version !== undefined ? {version: run.version} : {}),
       ok: count('OK'), ng: count('NG'), blocked: count('実行不能'),
-      fixChecks: run.fixChecks.map(check => ({issue: check.issue, verdict: check.verdict}))};
+      fixChecks: run.fixChecks.map(check => ({issue: check.issue, verdict: check.verdict})),
+      rows: run.rows.map(row => ({tc: row.tc, result: row.result, issues: [...row.issues]}))};
   });
+  findings.push(...runOrderFindings(repo.runs));
 
   for (const item of coverage) {
     if (item.cases.length) continue;

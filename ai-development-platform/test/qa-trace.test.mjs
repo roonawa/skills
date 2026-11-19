@@ -48,9 +48,11 @@ test('trace the fixture repository', () => {
   // runDetails: every run in order, counted from that run's own rows (not only the latest ones).
   assert.deepEqual(report.runDetails, [
     {dir: 'runs/20261119-csv-detail', date: '20261119', runId: 'csv-detail', environment: 'new', version: '02368d1（アプリのリポジトリの HEAD）',
-      ok: 0, ng: 3, blocked: 1, fixChecks: []},
+      ok: 0, ng: 3, blocked: 1, fixChecks: [], rows: [{tc: 'TC-csv-001', result: 'NG', issues: [2]}, {tc: 'TC-csv-004', result: 'NG', issues: [1, 2]},
+        {tc: 'TC-csv-005', result: 'NG', issues: [1]}, {tc: 'TC-detail-001', result: '実行不能', issues: []}]},
     {dir: 'runs/20261119-csv-fix', date: '20261119', runId: 'csv-fix', environment: 'new', version: '6b6cab6（アプリのリポジトリの HEAD）',
-      ok: 2, ng: 1, blocked: 0, fixChecks: [{issue: 1, verdict: '確認済み'}, {issue: 2, verdict: '要確認'}, {issue: 3, verdict: '効いていない'}]}]);
+      ok: 2, ng: 1, blocked: 0, fixChecks: [{issue: 1, verdict: '確認済み'}, {issue: 2, verdict: '要確認'}, {issue: 3, verdict: '効いていない'}],
+      rows: [{tc: 'TC-csv-001', result: 'NG', issues: [2]}, {tc: 'TC-csv-004', result: 'OK', issues: [1]}, {tc: 'TC-csv-005', result: 'OK', issues: [1]}]}]);
   assert.deepEqual(report.issues, [
     {number: 1, tcs: ['TC-csv-004', 'TC-csv-005'], status: '確認済み', fixRun: 'runs/20261119-csv-fix'},
     {number: 2, tcs: ['TC-csv-001', 'TC-csv-004'], status: '要確認', fixRun: 'runs/20261119-csv-fix'},
@@ -132,8 +134,10 @@ test('execution, notRun and runDetails for the report', t => {
     {tc: 'TC-a-002', result: '実行不能', run: 'runs/20261119-r1', issues: [], execution: '手動'}]);
   assert.deepEqual(report.coverage[0].notRun, [{tc: 'TC-a-003'}, {tc: 'TC-a-004', execution: '手動'}]);
   assert.deepEqual(report.runDetails, [
-    {dir: 'runs/20261119-r1', date: '20261119', runId: 'r1', environment: 'new', version: '1.0', ok: 1, ng: 1, blocked: 1, fixChecks: []},
-    {dir: 'runs/20261120-r2', date: '20261120', runId: 'r2', ok: 1, ng: 0, blocked: 0, fixChecks: [{issue: 1, verdict: '要確認'}]}]);
+    {dir: 'runs/20261119-r1', date: '20261119', runId: 'r1', environment: 'new', version: '1.0', ok: 1, ng: 1, blocked: 1, fixChecks: [],
+      rows: [{tc: 'TC-a-001', result: 'NG', issues: [1]}, {tc: 'TC-a-002', result: '実行不能', issues: []}, {tc: 'TC-b-001', result: 'OK', issues: []}]},
+    {dir: 'runs/20261120-r2', date: '20261120', runId: 'r2', ok: 1, ng: 0, blocked: 0, fixChecks: [{issue: 1, verdict: '要確認'}],
+      rows: [{tc: 'TC-a-001', result: 'OK', issues: [1]}]}]);
   assert.equal(report.runs, 2);
   assert.ok(!JSON.stringify(report.runDetails).includes('再現しない'), 'the note of a fix check is free text');
 });
@@ -361,4 +365,28 @@ test('templates do not use a bare px minmax minimum above 300', () => {
     const html = readFileSync(fileURLToPath(new URL('../templates/qa-report/' + name, import.meta.url)), 'utf8');
     for (const match of html.matchAll(/minmax\(\s*(\d+)px/g)) assert.ok(Number(match[1]) <= 300, name + ': minmax(' + match[1] + 'px');
   }
+});
+
+test('runDetails rows carry the TC-ID, result and issue numbers only, in table order', t => {
+  const report = traceQaRepository(sandbox(t, base({'runs/20261119-r1/result.md':
+    result([['TC-a-002', 'NG', '#3, #4'], ['TC-a-001', '実行不能（手動確認待ち）']], {reasons: '### TC-a-001\n- 理由: 秘密の理由\n'})})));
+  assert.deepEqual(report.runDetails[0].rows, [{tc: 'TC-a-002', result: 'NG', issues: [3, 4]}, {tc: 'TC-a-001', result: '実行不能', issues: []}]);
+  assert.ok(!JSON.stringify(report).includes('秘密の理由'));
+  assert.ok(!JSON.stringify(report).includes('手動確認待ち'));
+});
+
+test('run-order: same-day runs whose start times are in the opposite order to their run-ids', t => {
+  const at = time => '# 実行結果\n\n- 環境: new\n- 実行日時: ' + time + '\n\n| TC-ID | 結果 | 証跡 | Issue |\n|---|---|---|---|\n| TC-a-001 | OK | | |\n';
+  const order = runs => traceQaRepository(sandbox(t, base(runs))).findings.filter(f => f.code === 'run-order');
+  const reversed = order({'runs/20261119-a/result.md': at('2026-11-19 14:00（JST）'), 'runs/20261119-b/result.md': at('2026-11-19 09:30:15')});
+  assert.deepEqual(reversed.map(f => [f.level, f.file]), [['warning', 'runs/20261119-b/result.md']]);
+  assert.match(reversed[0].message, /runs\/20261119-a/);
+  assert.deepEqual(order({'runs/20261119-a/result.md': at('2026-11-19 09:00'), 'runs/20261119-b/result.md': at('2026-11-19 14:00')}), []);
+  // Different dates, an unparseable start, or the same minute: no warning.
+  assert.deepEqual(order({'runs/20261119-a/result.md': at('2026-11-19 14:00'), 'runs/20261120-b/result.md': at('2026-11-19 09:00')}), []);
+  assert.deepEqual(order({'runs/20261119-a/result.md': at('午後2時'), 'runs/20261119-b/result.md': at('2026-11-19 09:00')}), []);
+  assert.deepEqual(order({'runs/20261119-a/result.md': at('2026-11-19 09:00'), 'runs/20261119-b/result.md': at('2026-11-19 09:00:00')}), []);
+  // Only the leading date and time count; a skipped unparseable run in between does not hide an inversion.
+  assert.equal(order({'runs/20261119-a/result.md': at('2026-11-19 14:00 - 15:00'), 'runs/20261119-b/result.md': at('不明'),
+    'runs/20261119-c/result.md': at('2026-11-19 10:00')}).length, 1);
 });

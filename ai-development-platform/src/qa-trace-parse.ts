@@ -87,6 +87,16 @@ const acId = /^AC-\d{1,6}$/;
 const tcId = /^TC-(\S+)-(\d+)$/;
 const runDir = /^(\d{8})-([A-Za-z0-9][A-Za-z0-9_-]{0,63})$/;
 
+/**
+ * The message of a read that failed. A Node error carries the absolute path in its text, so only its code is kept
+ * (as src/cli.ts does); the messages of checked() and content() are short and carry no path.
+ */
+function failure(relative: string, error: unknown): string {
+  const code = (error as NodeJS.ErrnoException)?.code;
+  const reason = code ? 'ファイル操作に失敗しました (' + code + ')' : error instanceof Error ? error.message : 'ファイル操作に失敗しました';
+  return relative + ' を読めません。' + reason;
+}
+
 class Reader {
   problems: QaProblem[] = [];
   constructor(private root: string) {}
@@ -99,7 +109,7 @@ class Reader {
     try {
       text = content(checked(this.root, relative));
     } catch (error) {
-      this.problem('unreadable', relative, undefined, (error as Error).message);
+      this.problem('unreadable', relative, undefined, failure(relative, error));
       return undefined;
     }
     if (text === undefined) {
@@ -114,14 +124,14 @@ class Reader {
     try {
       path = checked(this.root, relative);
     } catch (error) {
-      this.problem('unreadable', relative, undefined, (error as Error).message);
+      this.problem('unreadable', relative, undefined, failure(relative, error));
       return [];
     }
     try {
       return readdirSync(path, {withFileTypes: true}).sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
-      this.problem('unreadable', relative, undefined, (error as Error).message);
+      this.problem('unreadable', relative, undefined, failure(relative, error));
       return [];
     }
   }
@@ -303,7 +313,8 @@ function readRun(reader: Reader, dir: string, date: string, runId: string): RunR
     if (!isRow(lines[i])) continue;
     const header = cellsOf(lines[i].text.trim());
     const [id, result, evidence, issue] = ['TC-ID', '結果', '証跡', 'Issue'].map(name => header.indexOf(name));
-    if (id < 0 || result < 0 || issue < 0 || !isRow(lines[i + 1]) || !/^\|?[\s:|-]+$/.test(lines[i + 1].text.trim())) continue;
+    // The separator row may start without a pipe (`---|---`), as src/qa-issue.ts accepts it; it must not be fenced.
+    if (id < 0 || result < 0 || issue < 0 || lines[i + 1].fenced || !/^\|?[\s:|-]+$/.test(lines[i + 1].text.trim())) continue;
     start = i;
     columns = {id, result, evidence, issue, count: header.length};
     break;
