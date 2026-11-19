@@ -2,7 +2,7 @@
 name: aidev-qa-screen-verification
 description: 内部を作り直す改修が終わった画面について、特性テストの基準の確認と記録（なければ作る）、ロールと所有者の認可の検証、旧版と新版の照合、証跡の完全性の確認、画面ごとのまとめまでを、画面の単位で順に回すときに使う。各工程の手順は aidev-qa-characterization、aidev-qa-authz-test、aidev-qa-regression-compare、aidev-qa-login-session、aidev-qa-desktop-gui、aidev-qa-test-run に任せ、この Skill は工程の順番、工程の間で渡すファイル、次の工程へ進んでよいかの判断、作業者に戻す場面だけを扱う。基準が改修の入っていない版で記録されたものかを先に確かめ、認可の検証の結果を画面マニフェストの excluded と acceptedRisks に反映してから照合する。複数の画面をまとめて渡されたときの進め方と、まとめ runs/<比較先の run>/summary.md の書き方も含む。「この画面の改修が終わったので検証を一通り回して」「認可と新旧の照合を画面ごとにまとめてやって」「基準のテストがない画面も含めて回帰を確かめて」という相談で使う。1つの工程だけを行うときは、その工程の Skill を直接使う。
 metadata:
-  version: "0.1.2"
+  version: "0.1.3"
 ---
 # 画面単位の検証の取りまとめ
 
@@ -28,7 +28,7 @@ metadata:
 - 改修に入る前で比較先がまだない画面は、aidev-qa-characterization で基準を記録するところまでにする
 - 期待結果を正として仕様どおりかを確かめるのは aidev-qa-test-run である。照合で分かるのは回帰がないことで、仕様どおりであることではない
 - 権限の表そのものを決めること、改修そのもの、見つかった不具合の修正は扱わない
-- NG と要確認からの Issue の起票（aidev-qa-bug-ticket）と、修正後の確認（aidev-qa-fix-verify）は、後の段階で追加する予定で、まだない
+- NG と要確認からの Issue の起票は aidev-qa-bug-ticket を、修正後の確認は aidev-qa-fix-verify を使う。前者は Gitea に Issue を作り、後者は修正だけを戻した版でテストが失敗することを確かめる
 
 ## 入力と出力
 

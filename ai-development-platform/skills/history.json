@@ -39,6 +39,9 @@
     ],
     "0.1.3": [
       "2fd33e1b43a55cf61aee1bb9e4516f33384768077ca7f09d06de4587414e757e"
+    ],
+    "0.1.4": [
+      "7b2459edc4b813db7ab6f05b04b378c876bc12f8e8be2308b15527976367c2e3"
     ]
   },
   "aidev-qa-bug-ticket": {
@@ -126,6 +129,9 @@
     ],
     "0.1.2": [
       "857959f18826a8d3968cadf05cfd4ebc8ca0cc3b5759d3b19c1925b01066ebda"
+    ],
+    "0.1.3": [
+      "469bb0b088592c7fff7f17a410c6a95e78f74fe64d422ea6c50ccafaa370b900"
     ]
   },
   "aidev-qa-screen-verification": {
@@ -137,6 +143,9 @@
     ],
     "0.1.2": [
       "d961a5465a42988098b8445cbe70a8dff094eef1eb9cf9358cc08abe46c5ed8b"
+    ],
+    "0.1.3": [
+      "3a03f1d604bbc7c98e030ae1afca67d690da9239cfd7e91df11f134fb19f234a"
     ]
   },
   "aidev-qa-strategy": {
@@ -151,6 +160,9 @@
     ],
     "0.1.3": [
       "453d9f74877752be0521e0fd7f40106bca38e2c570895205a64d03f6e32d8920"
+    ],
+    "0.1.4": [
+      "01a2c2cbeefba9cc6bc7022c476e53a638059997f4bb94872e699b20c76e6721"
     ]
   },
   "aidev-qa-test-design": {
@@ -187,6 +199,9 @@
     ],
     "0.1.3": [
       "ed808ad12ff90041fffaa940116a4cf0071900d7ff19c55b0f6fdd08706b5843"
+    ],
+    "0.1.4": [
+      "57012c27a97fedf7cccd679b0b6bc38538c891885e5ed9f63f843e94a46e7c6c"
     ]
   },
   "aidev-repair-workflow": {
