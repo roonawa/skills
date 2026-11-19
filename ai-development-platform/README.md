@@ -332,7 +332,7 @@ aidev qa issue create --profile knowledge/<製品>/profile.md --run runs/<YYYYMM
 
 ### 偽の Gitea サーバーで試す
 
-templates/qa/samples/gitea-fake/ に、Issue の作成、Issue の検索、`GET /api/v1/user`（トークンの持ち主の確認）の3つの経路だけに答える偽の Gitea サーバーを置く。実際の Gitea には何も送らない。Issue はメモリ上にだけ持つ。利用者のプロジェクトには配らない。
+templates/qa/samples/gitea-fake/ に、Issue の作成と検索（`POST`・`GET /api/v1/repos/:owner/:repo/issues`）、`GET /api/v1/user`（トークンの持ち主の確認）の3つの経路に答え、確認用に `GET /__issues` も返す偽の Gitea サーバーを置く。実際の Gitea には何も送らない。Issue はメモリ上にだけ持つ。利用者のプロジェクトには配らない。
 
 ```sh
 GITEA_FAKE_TOKEN=確認用の任意の値 node templates/qa/samples/gitea-fake/server.mjs --port 3000

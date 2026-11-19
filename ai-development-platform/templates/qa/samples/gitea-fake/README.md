@@ -12,7 +12,7 @@ GITEA_FAKE_TOKEN=確認用の任意の値 node server.mjs --port 3000
 
 | 経路 | 応答 |
 | --- | --- |
-| `POST /api/v1/repos/:owner/:repo/issues` | 201 と Issue（number、title、body、html_url、state） |
+| `POST /api/v1/repos/:owner/:repo/issues` | 201 と Issue（number、title、body、html_url、state、user） |
 | `GET /api/v1/repos/:owner/:repo/issues?q=` | 200 と、題名か本文に q を含む Issue の配列 |
 | `GET /api/v1/user` | 200 と `{"login": "fake-user"}`（作った Issue の `user.login` もこの値） |
 | `GET /__issues` | 作った Issue すべて（確認用） |

@@ -1,6 +1,6 @@
 // 確認用の偽の Gitea サーバー（見本・架空）。node:http だけで動く。
 // 使い方: GITEA_FAKE_TOKEN=<任意の値> node server.mjs [--port N]
-// Issue の作成と検索の2経路だけに答え、Issue はメモリ上にだけ持つ。127.0.0.1 だけで待ち受ける。
+// Issue の作成と検索、GET /api/v1/user（トークンの持ち主の確認）に答える。確認用に GET /__issues も返す。Issue はメモリ上にだけ持つ。127.0.0.1 だけで待ち受ける。
 import { createServer } from 'node:http';
 import { createHash, timingSafeEqual } from 'node:crypto';
 

@@ -117,6 +117,7 @@ front matter の項目（必須かどうかは、使う Skill ごとに決める
 - `login`：方式（saml・oidc・form・native-form・certificate・none）、IdP、入口の URL。native-form は、デスクトップアプリ自身のログイン画面に、ID とパスワードを aidev-qa-desktop-gui が環境変数から読んで入力する方式で、ブラウザを通らないので storageState は作らない
 - `stack`：フロントエンド・API・クライアントの技術（例：vue＋graphql、webview2、wpf）
 - `test_commands`：テストの実行方法（例：`npx playwright test`、`dotnet test`）
+- `issue_tracker`：NG のケースを起票する Gitea の種類、URL、リポジトリ（aidev-qa-bug-ticket が使う。トークンは書かない）
 - `evidence`：証跡の保存方式と保持期間。方式は `lfs`（QA リポジトリの `runs/<run-id>/evidence/` を Git LFS で管理）、`external`（社内ストレージ。`result.md` には保存先の参照だけを書く）、`local`（作業者の PC）から案件ごとに選ぶ。個人情報が映る案件では `lfs` を選ばないよう、雛形に注意を書く。各 Skill は方式にかかわらず、`result.md` から証跡を同じ形で参照する
 
 本文には、観点、落とし穴、テストデータの準備方法、画面への到達手順を書く。各 Skill は実行の最初にプロファイルを読み、使う項目が欠けていれば作業者に確認する。推測で埋めない。
