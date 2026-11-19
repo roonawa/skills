@@ -153,3 +153,61 @@ test('qa issue create の本物の通信で、1回目は作成・2回目は重�
   const all = await (await call(base + '/__issues', {headers: auth})).json();
   assert.equal(all.length, 1);
 });
+
+test('page と limit で区切って返す', async t => {
+  const base = await start(t);
+  const url = base + '/api/v1/repos/o/r/issues';
+  for (let i = 1; i <= 7; i++) await call(url, {method: 'POST', headers: auth, body: JSON.stringify({title: 'n' + i})});
+  const get = async query => (await (await call(url + '?' + query, {headers: auth})).json()).map(i => i.number);
+  assert.deepEqual(await get('limit=3&page=1'), [1, 2, 3]);
+  assert.deepEqual(await get('limit=3&page=3'), [7]);
+  assert.deepEqual(await get('limit=3&page=4'), []);
+  assert.equal((await get('')).length, 7);
+});
+
+test('大きすぎる本文には 413 を返し、サーバーは次の要求に答える', async t => {
+  const base = await start(t);
+  const url = base + '/api/v1/repos/o/r/issues';
+  const res = await call(url, {method: 'POST', headers: auth, body: JSON.stringify({title: 't', body: 'x'.repeat(200 * 1024)})});
+  assert.equal(res.status, 413);
+  assert.equal((await call(url, {headers: auth})).status, 200);
+});
+
+test('要求の途中で切れてもサーバーは待ち続けず、次の要求に答える', async t => {
+  const base = await start(t);
+  const { connect } = await import('node:net');
+  await new Promise(resolve => {
+    const socket = connect(Number(new URL(base).port), '127.0.0.1', () => {
+      socket.write('POST /api/v1/repos/o/r/issues HTTP/1.1\r\nHost: x\r\nAuthorization: token ' + TOKEN + '\r\nContent-Length: 1000\r\n\r\n{"title"');
+      setTimeout(() => socket.destroy(), 100);
+    });
+    socket.on('close', resolve);
+    socket.on('error', () => {});
+  });
+  assert.equal((await call(base + '/api/v1/repos/o/r/issues', {headers: auth})).status, 200);
+});
+
+test('413 を返したあとも本文を読み切り、送り手に接続のリセットを返さない', async t => {
+  const base = await start(t);
+  const { connect } = await import('node:net');
+  const body = Buffer.alloc(32 * 1024 * 1024, 'x');
+  const got = await new Promise(resolve => {
+    let text = '';
+    let error;
+    const socket = connect(Number(new URL(base).port), '127.0.0.1', () => {
+      socket.write('POST /api/v1/repos/o/r/issues HTTP/1.1\r\nHost: x\r\nAuthorization: token ' + TOKEN +
+        '\r\nContent-Type: application/json\r\nContent-Length: ' + body.length + '\r\n\r\n');
+      socket.write(body);
+    });
+    socket.setEncoding('utf8');
+    socket.on('data', d => { text += d; });
+    socket.on('error', e => { error = e.code; });
+    // A guard against a server that never answers; cleared on close so that it does not keep the test file alive.
+    const guard = setTimeout(() => socket.destroy(), 10000);
+    guard.unref();
+    socket.on('close', () => { clearTimeout(guard); resolve({text, error}); });
+  });
+  assert.equal(got.error, undefined);
+  assert.match(got.text, /^HTTP\/1\.1 413 /);
+  assert.equal((await call(base + '/api/v1/repos/o/r/issues', {headers: auth})).status, 200);
+});

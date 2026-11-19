@@ -129,3 +129,11 @@ test('accept native-form login and reject an unknown login method', () => {
   assert.deepEqual(checkProfileText('p.md', valid.replace('evidence:', 'login: {method: native-form}\nevidence:')).errors, []);
   assert.ok(checkProfileText('p.md', valid.replace('evidence:', 'login: {method: native}\nevidence:')).errors.some(e => e.path === 'login.method'));
 });
+
+test('native-form login requires roles, with or without --skill', () => {
+  const noRoles = '---\nproduct: sample-web\nlogin: {method: native-form}\n---\n# 観点\n';
+  for (const skill of [undefined, 'aidev-qa-cause-repro']) {
+    assert.ok(checkProfileText('p.md', noRoles, skill).errors.some(e => e.code === 'required' && e.path === 'roles'), String(skill));
+  }
+  assert.deepEqual(checkProfileText('p.md', noRoles.replace('native-form', 'none')).errors, []);
+});

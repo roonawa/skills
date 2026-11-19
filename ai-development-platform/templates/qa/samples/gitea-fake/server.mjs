@@ -5,6 +5,8 @@ import { createServer } from 'node:http';
 import { createHash, timingSafeEqual } from 'node:crypto';
 
 const MAX_BODY = 64 * 1024;
+// readBody が上限を超えたときに返す目印。文字列の本文と取り違えないよう、ほかと一致しない値にする。
+const TOO_LARGE = Symbol('too large');
 
 let port = 3000;
 const argv = process.argv.slice(2);
@@ -32,17 +34,23 @@ function send(res, status, body) {
   res.end(text);
 }
 
+// 本文を読む。上限を超えたら TOO_LARGE を返し、残りは貯めずに読み捨てる。途中で切れたとき（close・aborted・error）も必ず終わる。
 function readBody(req) {
   return new Promise(resolve => {
     const chunks = [];
     let size = 0;
+    let done = false;
+    const finish = value => { if (!done) { done = true; resolve(value); } };
     req.on('data', chunk => {
+      if (done) return;
       size += chunk.length;
-      if (size > MAX_BODY) { resolve(null); req.destroy(); return; }
+      if (size > MAX_BODY) { chunks.length = 0; finish(TOO_LARGE); return; }
       chunks.push(chunk);
     });
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
-    req.on('error', () => resolve(null));
+    req.on('end', () => finish(Buffer.concat(chunks).toString('utf8')));
+    req.on('error', () => finish(null));
+    req.on('aborted', () => finish(null));
+    req.on('close', () => finish(null));
   });
 }
 
@@ -69,10 +77,29 @@ async function handle(req, res) {
   const [owner, repo] = [decodeURIComponent(m[1]), decodeURIComponent(m[2])];
   if (req.method === 'GET') {
     const q = url.searchParams.get('q') ?? '';
-    return send(res, 200, issues.filter(i => i.owner === owner && i.repo === repo && (i.title.includes(q) || i.body.includes(q))));
+    const hits = issues.filter(i => i.owner === owner && i.repo === repo && (i.title.includes(q) || i.body.includes(q)));
+    // 本物の Gitea に合わせて page（1 から）と limit で区切る。どちらも無ければ全件を返す。
+    const limit = Number(url.searchParams.get('limit'));
+    const page = Number(url.searchParams.get('page') ?? 1);
+    if (url.searchParams.has('limit') && Number.isInteger(limit) && limit > 0 && Number.isInteger(page) && page > 0) {
+      return send(res, 200, hits.slice((page - 1) * limit, page * limit));
+    }
+    return send(res, 200, hits);
   }
   if (req.method === 'POST') {
     const raw = await readBody(req);
+    if (raw === TOO_LARGE) {
+      // 送り手が書き終わる前に接続を閉じると、送り手には接続のリセットが届く。本文を読み切ってから閉じる。
+      req.resume();
+      const close = () => {
+        res.writeHead(413, {'content-type': 'application/json; charset=utf-8', connection: 'close'});
+        res.end(JSON.stringify({message: 'request body too large'}));
+      };
+      if (req.complete) return close();
+      req.once('end', close);
+      req.once('close', () => { if (!res.headersSent) res.destroy(); });
+      return;
+    }
     let input;
     try { input = JSON.parse(raw); } catch { input = null; }
     if (typeof input !== 'object' || input === null || typeof input.title !== 'string' || !input.title) {

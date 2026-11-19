@@ -64,7 +64,7 @@
   .testcase-name { font-weight: 700; font-size: 1rem; }
   .testcase-note { font-size: .82rem; color: var(--ink-muted); }
 
-  .rounds-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 1rem; }
+  .rounds-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(360px, 100%), 1fr)); gap: 1rem; }
   .round-card { border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: var(--surface-sunken); }
   .round-card .round-head { display: flex; justify-content: space-between; align-items: center; padding: .5rem .7rem; font-size: .78rem; }
   .round-card .round-head .round-name { font-weight: 700; }

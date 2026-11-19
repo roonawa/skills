@@ -59,6 +59,39 @@ function findRow(lines: Line[], tc: string): ResultRow {
 
 const heading = (line: Line) => line.fenced ? 0 : (/^(#{1,6})\s/.exec(line.text)?.[1].length ?? 0);
 
+/*
+ * A line is up to 1 MiB long. The list items and labels below are split without regular expressions: a pattern
+ * like \s+(.*)$ backtracks over every space when the line holds U+2028, U+2029 or a lone CR (\s, but not the dot),
+ * which takes quadratic time.
+ */
+
+/** The text of a list item `- text` or `* text` (marker, then at least one space), or undefined. */
+function listItem(text: string): string | undefined {
+  if (text[0] !== '-' && text[0] !== '*') return undefined;
+  const rest = text.slice(1);
+  const body = rest.trimStart();
+  return body.length < rest.length ? body : undefined;
+}
+
+/** The first ':' or '：' in `text`, or -1. */
+function firstColon(text: string): number {
+  const half = text.indexOf(':');
+  const full = text.indexOf('：');
+  return half < 0 ? full : full < 0 ? half : Math.min(half, full);
+}
+
+/**
+ * `label: value` of a list item, as [label, value] with both trimmed: the label is what comes before the first
+ * colon, 1 to 20 characters once trailing spaces are cut. Otherwise undefined.
+ */
+function itemLabel(item: string): [string, string] | undefined {
+  const colon = firstColon(item);
+  if (colon < 1) return undefined;
+  const label = item.slice(0, colon).trimEnd();
+  if (label.length > 20) return undefined;
+  return [label.trim(), item.slice(colon + 1).trim()];
+}
+
 interface Detail {name: string; fields: Map<string, string>}
 
 /** The `### <tc> <case name>` section under `## NG の詳細`, with its top-level list items by label. */
@@ -66,12 +99,19 @@ function findDetail(lines: Line[], tc: string): Detail {
   const start = lines.findIndex(line => heading(line) === 2 && /^##\s+NG\s*の詳細\s*$/.test(line.text.trim()));
   if (start < 0) throw new Error('result.md に「## NG の詳細」の節がありません。');
   let i = start + 1;
+  const found: number[] = [];
   for (; i < lines.length && (heading(lines[i]) === 0 || heading(lines[i]) > 2); i++) {
-    const match = heading(lines[i]) === 3 ? /^###\s+(\S+)(?:\s+(.*))?$/.exec(lines[i].text.trim()) : null;
-    if (match?.[1] === tc) break;
+    // The s flag: a case name may contain U+2028 or U+2029, which `.` would not match otherwise.
+    const match = heading(lines[i]) === 3 ? /^###\s+(\S+)(?:\s+(.*))?$/s.exec(lines[i].text.trim()) : null;
+    if (match?.[1] === tc) found.push(i);
   }
-  if (i >= lines.length || heading(lines[i]) !== 3) throw new Error('result.md の NG の詳細に ' + tc + ' の節がありません。');
-  const name = /^###\s+\S+(?:\s+(.*))?$/.exec(lines[i].text.trim())?.[1]?.trim() ?? '';
+  if (found.length > 1) {
+    throw new Error('result.md の NG の詳細に ' + tc + ' の節が ' + found.length + ' つあります（' + found.map(n => n + 1 + ' 行目').join('、') +
+      '）。1つにまとめてください。');
+  }
+  if (found.length === 0) throw new Error('result.md の NG の詳細に ' + tc + ' の節がありません。');
+  i = found[0];
+  const name = /^###\s+\S+(?:\s+(.*))?$/s.exec(lines[i].text.trim())?.[1]?.trim() ?? '';
   const fields = new Map<string, string>();
   let label: string | undefined;
   let first = '';
@@ -80,12 +120,12 @@ function findDetail(lines: Line[], tc: string): Detail {
     if (label !== undefined && !fields.has(label)) fields.set(label, joinValue(first, rest));
   };
   for (i++; i < lines.length && (heading(lines[i]) === 0 || heading(lines[i]) > 3); i++) {
-    const item = lines[i].fenced ? null : /^[-*]\s+(.*)$/.exec(lines[i].text);
-    if (item) {
+    const item = lines[i].fenced ? undefined : listItem(lines[i].text);
+    if (item !== undefined) {
       flush();
-      const labeled = /^([^:：]{1,20}?)\s*[:：]\s*(.*)$/.exec(item[1]);
-      label = (labeled ? labeled[1] : item[1]).trim();
-      first = labeled ? labeled[2].trim() : '';
+      const labeled = itemLabel(item);
+      label = (labeled ? labeled[0] : item).trim();
+      first = labeled ? labeled[1] : '';
       rest = [];
     } else if (label !== undefined) rest.push(lines[i].text);
   }
@@ -103,11 +143,17 @@ function joinValue(first: string, rest: string[]): string {
   return [first, ...body].filter((line, index) => index > 0 || line).join('\n');
 }
 
-/** A header line `- <label>: <value>` above the result table. */
+/** A header line `- <label>: <value>` above the result table (a non-empty value). */
 function headerValue(lines: Line[], end: number, label: string): string | undefined {
   for (let i = 0; i < end; i++) {
-    const match = lines[i].fenced ? null : new RegExp('^-\\s+' + label + '\\s*[:：]\\s*(.+)$').exec(lines[i].text.trim());
-    if (match) return match[1].trim();
+    const text = lines[i].text.trim();
+    if (lines[i].fenced || text[0] !== '-') continue;
+    const item = listItem(text);
+    if (item === undefined || !item.startsWith(label)) continue;
+    const after = item.slice(label.length).trimStart();
+    if (after[0] !== ':' && after[0] !== '：') continue;
+    const value = after.slice(1).trim();
+    if (value) return value;
   }
   return undefined;
 }
@@ -134,10 +180,16 @@ const titleCharacters: Record<string, string> = {
   '@': '＠', '#': '＃', '!': '！', '<': '＜', '>': '＞', '[': '［', ']': '］', '(': '（', ')': '）', '\\': '＼', '`': '｀',
   ':': '：', '/': '／',
 };
+/**
+ * C0 and C1 controls (tab, CR and LF are turned into spaces below, so they stay out of this set), the bidirectional
+ * controls (U+061C, U+200E, U+200F, U+202A\u2013U+202E, U+2066\u2013U+2069), the line and paragraph separators (U+2028, U+2029)
+ * and the zero-width characters (U+200B\u2013U+200D, U+2060, U+FEFF).
+ */
+const titleInvisible = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028-\u202e\u2060\u2066-\u2069\ufeff]/g;
 /** Gitea refuses titles over 255 characters. */
 const titleLimit = 255;
 function plainTitle(title: string): string {
-  const chars = [...title.replace(/[\r\n\t]+/g, ' ').replace(/[@#!<>[\]()\\`:/]/g, char => titleCharacters[char])];
+  const chars = [...title.replace(titleInvisible, '').replace(/[\r\n\t]+/g, ' ').replace(/[@#!<>[\]()\\`:/]/g, char => titleCharacters[char])];
   return chars.length <= titleLimit ? chars.join('') : chars.slice(0, titleLimit - 1).join('') + '…';
 }
 
@@ -191,9 +243,21 @@ export function buildIssue(result: string, tc: string, context: {product: string
   return {title: plainTitle('[' + tc + ']' + (detail.name ? ' ' + detail.name : '')), body: renderBody(context.product, tc, context.run, values)};
 }
 
-/** Line numbers (in the body) that look like secrets. Only the numbers are returned, never the text. */
-function secretLines(text: string): number[] {
-  return checkProfileText('issue', text).errors.filter(issue => issue.code === 'secret' && issue.line).map(issue => issue.line!);
+/**
+ * The fields of the body that look like secrets: the label of the template section (再現手順, 実際の結果, …) that
+ * holds the line. Only labels are returned, never the text or a line number.
+ */
+function secretFields(body: string): string[] {
+  const hits = new Set(checkProfileText('issue', body).errors.filter(issue => issue.code === 'secret' && issue.line).map(issue => issue.line!));
+  if (hits.size === 0) return [];
+  const labels = new Set<string>();
+  let label = '対象';
+  readLines(body).forEach((line, index) => {
+    const text = line.text.trim();
+    if (!line.fenced && (/^## /.test(text) || ['AC-ID', '環境', '版', 'テスト'].includes(text))) label = text.replace(/^## /, '');
+    if (hits.has(index + 1)) labels.add(label === '対象' ? 'TC-ID・実行' : label);
+  });
+  return [...labels];
 }
 
 export interface IssueRunOptions {
@@ -227,8 +291,9 @@ function withIssueCell(text: string, row: ResultRow, number: number): string {
   const parts = splitRow(raw.slice(0, raw.length - eol.length));
   const at = row.issue + 1;
   const old = parts[at];
-  const lead = /^\s*/.exec(old)![0] || ' ';
-  const trail = /\s*$/.exec(old)![0] || ' ';
+  // trimStart/trimEnd, not /\s*$/: that pattern is tried at every position and is quadratic on padded text.
+  const lead = old.slice(0, old.length - old.trimStart().length) || ' ';
+  const trail = old.slice(old.trimEnd().length) || ' ';
   parts[at] = lead + '#' + number + trail;
   lines[row.index] = parts.join('|') + eol;
   return lines.join('\n');
@@ -263,7 +328,11 @@ function trustedBaseUrl(giteaUrl: string | undefined, profileUrl: string): strin
 }
 
 export async function createIssueFromRun(options: IssueRunOptions): Promise<IssueRunResult> {
-  const run = options.run.replace(/\\/g, '/').replace(/\/+$/, '');
+  // Trailing slashes are cut with a loop: /\/+$/ takes quadratic time on a long run of slashes.
+  const slashed = options.run.replace(/\\/g, '/');
+  let end = slashed.length;
+  while (end > 0 && slashed[end - 1] === '/') end--;
+  const run = slashed.slice(0, end);
   if (!runPattern.test(run)) throw new Error('--run には runs/<YYYYMMDD>-<run-id> を指定してください。');
   if (!tcPattern.test(options.tc)) throw new Error('--tc には TC-ID（TC- で始まる英数字、_、.、-）を指定してください。');
   const tc = options.tc;
@@ -283,10 +352,10 @@ export async function createIssueFromRun(options: IssueRunOptions): Promise<Issu
   const result = content(path);
   if (result === undefined) throw new Error(run + '/result.md がありません。');
   const {title, body} = buildIssue(result, tc, {product, run});
-  const bad = secretLines(body);
-  if (bad.length || secretLines(title).length) {
-    throw new Error('起票する本文に秘密情報らしい記述があるため送りません（' + (bad.length ? '本文の ' + bad.join('、') + ' 行目' : '題名') +
-      '）。result.md の ' + tc + ' の NG の詳細から値を消し、環境変数の名前や証跡の場所で書き直してください。');
+  const bad = secretFields(body);
+  if (secretFields(title).length) bad.unshift('ケース名');
+  if (bad.length) {
+    throw new Error('起票する本文に秘密情報らしい記述があるため送りません（' + bad.join('・') + 'の欄）。result.md の ' + tc + ' の NG の詳細から値を消し、環境変数の名前や証跡の場所で書き直してください。');
   }
   const row = findRow(readLines(result), tc);
   const recordedCell = row.cells[row.issue] ?? '';

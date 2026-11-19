@@ -5,7 +5,7 @@ import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { buildIssue, createIssueFromRun } from '../dist/qa-issue.js';
 import { checkProfileText } from '../dist/qa-profile.js';
 import { BASE, TOKEN, fakeGitea, giteaRepo } from './gitea-fake.mjs';
@@ -122,7 +122,8 @@ test('refuse a body that contains secrets', async t => {
     const fake = fakeGitea(handler());
     await assert.rejects(createIssueFromRun(box.options({dryRun, transport: fake.transport})), error => {
       assert.match(error.message, /秘密情報/);
-      assert.match(error.message, /\d+ 行目/);
+      assert.match(error.message, /実際の結果/);
+      assert.ok(!/\d+ 行目/.test(error.message));
       assert.ok(!error.message.includes(secret) && !error.message.includes('sessionid') && !error.message.includes(TOKEN));
       return true;
     });
@@ -468,4 +469,128 @@ test('many continuation lines and a long case name are handled', () => {
   assert.ok([...title].length <= 255, String([...title].length));
   assert.ok(title.startsWith('［TC-order-004］ あ'));
   assert.ok(body.includes('x\nx\nx'));
+});
+
+test('control and bidi characters are removed from the title', () => {
+  const dirty = '\u0000a\u0007b\u001bc\u007fd\u0085e\u009ff\u200eg\u200fh\u202ai\u202bj\u202ck\u202dl\u202em\u2066n\u2067o\u2068p\u2069q' +
+    '\u061cr\u2028s\u2029t\u200bu\u200cv\u200dw\u2060x\ufeffy';
+  const text = result.replace('### TC-order-004 送料が表示されない', '### TC-order-004 ' + dirty);
+  const {title} = buildIssue(text, 'TC-order-004', {product: 'sample-web', run: RUN});
+  assert.equal(title, '［TC-order-004］ abcdefghijklmnopqrstuvwxy');
+  assert.ok(!/[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028-\u202e\u2060\u2066-\u2069\ufeff]/.test(title));
+});
+
+test('a second section for the same TC is an error that names both lines', () => {
+  const twice = result.replace('## 実行不能の理由', '### TC-order-004 もう一つの節\n- 再現手順: x\n\n## 実行不能の理由');
+  const at = twice.split('\n').map((line, i) => line.startsWith('### TC-order-004') ? i + 1 : 0).filter(Boolean);
+  assert.equal(at.length, 2);
+  assert.throws(() => buildIssue(twice, 'TC-order-004', {product: 'sample-web', run: RUN}), error => {
+    assert.match(error.message, /TC-order-004/);
+    for (const n of at) assert.ok(error.message.includes(n + ' 行目'), String(n));
+    return true;
+  });
+  // A heading inside a code block is not a duplicate.
+  assert.doesNotThrow(() => buildIssue(result, 'TC-order-002', {product: 'sample-web', run: RUN}));
+});
+
+test('the secret scan names the field, not a line number', async t => {
+  const cases = [['  - POST /api/orders 201', '  Cookie: sessionid=abc123secretvalue', '実際の結果'],
+    ['- 補足: 期待結果の誤りの可能性は低い（設計書 4.2 に上限 99 の記載がある）', '- 補足: password=abc123secretvalue', '補足']];
+  for (const [from, to, label] of cases) {
+    const box = sandbox(t, result.replace(from, to));
+    await assert.rejects(createIssueFromRun(box.options({dryRun: true})), error => {
+      assert.match(error.message, new RegExp(label));
+      assert.ok(!/\d+ 行目/.test(error.message) && !error.message.includes('abc123secretvalue'));
+      return true;
+    }, label);
+  }
+  const box = sandbox(t, result.replace('### TC-order-002 数量が上限を 1 超えると注文できない', '### TC-order-002 token=abc123secretvalue'));
+  await assert.rejects(createIssueFromRun(box.options({dryRun: true})), error => /ケース名/.test(error.message) && !error.message.includes('abc123secretvalue'));
+});
+
+// Ruling V: a phase-3 verification repository had "#2 | #1 | #1 | #2 | #1 | #1 |" after its title line. Writing back
+// several issues must leave the title line and every cell except the Issue cells byte-identical.
+test('write back keeps the title line and the other cells', async t => {
+  const variants = [result, result.replace('# 実行結果 20261118-new-cases', '# 実行結果 20261118-new-cases | new'),
+    result.replace(/- 環境[^]*?\n\n\| TC-ID/, '| TC-ID')];
+  for (const variant of variants) for (const eol of ['\n', '\r\n']) {
+    const original = variant.replace(/\n/g, eol);
+    const box = sandbox(t, original);
+    const fake = fakeGitea(handler());
+    for (const tc of ['TC-order-002', 'TC-order-004']) {
+      const out = await createIssueFromRun(box.options({tc, transport: fake.transport}));
+      assert.equal(out.resultUpdated, true, tc);
+    }
+    // Running again finds the recorded issues and writes nothing.
+    for (const tc of ['TC-order-002', 'TC-order-004']) {
+      const again = await createIssueFromRun(box.options({tc, transport: fake.transport}));
+      assert.equal(again.resultUpdated, false, tc);
+    }
+    const before = original.split('\n');
+    const after = box.read().split('\n');
+    assert.equal(after.length, before.length);
+    assert.equal(after[0], before[0], 'title line');
+    const issues = {'TC-order-002': '#7', 'TC-order-004': '#8'};
+    for (let i = 0; i < before.length; i++) {
+      const tc = Object.keys(issues).find(id => before[i].startsWith('| ' + id + ' | NG'));
+      if (!tc) { assert.equal(after[i], before[i], 'line ' + (i + 1)); continue; }
+      const cellsBefore = before[i].split('|');
+      const cellsAfter = after[i].split('|');
+      assert.equal(cellsAfter.length, cellsBefore.length);
+      for (let c = 0; c < cellsBefore.length; c++) {
+        assert.equal(cellsAfter[c], c === 4 ? ' ' + issues[tc] + ' ' : cellsBefore[c], tc + ' cell ' + c);
+      }
+    }
+  }
+});
+
+/**
+ * Runs `code` (with buildIssue, createIssueFromRun and `input`, read from stdin, in scope) in a child
+ * process with a 10 s timeout, so that a regular expression that never ends cannot hang the tests. The code sets `out`.
+ */
+function timedIssue(name, code, input = '') {
+  const module = new URL('../dist/qa-issue.js', import.meta.url).href;
+  const script = 'const {buildIssue, createIssueFromRun} = await import(' + JSON.stringify(module) + ');' +
+    'const {readFileSync} = await import("node:fs"); const input = readFileSync(0, "utf8");' +
+    'let out; const t = performance.now(); ' + code + '; console.log(JSON.stringify({ms: performance.now() - t, out}));';
+  const run = spawnSync(process.execPath, ['--input-type=module', '-e', script], {input, encoding: 'utf8', timeout: 10000});
+  assert.equal(run.status, 0, name + ': did not finish: ' + (run.error?.code ?? run.stderr));
+  return JSON.parse(run.stdout);
+}
+
+const endOf004 = '- 再現: 3回とも同じ\n\n## 実行不能';
+
+test('long padded lines with U+2028 or a lone CR are read in linear time', () => {
+  // Just under the 1 MiB limit of a file. U+2028 and CR are \s but not `.`, so \s+(.*)$ would backtrack.
+  const pad = ' '.repeat(1024 * 1024 - 4096);
+  const cases = {
+    'list item with U+2028': ['  1. カートを開く', '  1. カートを開く\n- ' + pad + 'a b'],
+    'labeled value with U+2028': [endOf004, '- 再現: 3回とも同じ\n- 補足:' + pad + 'a b\n\n## 実行不能'],
+    'labeled value with a lone CR': [endOf004, '- 再現: 3回とも同じ\n- 補足:' + pad + 'a\rb\n\n## 実行不能'],
+    'label padded before the colon': [endOf004, '- 再現: 3回とも同じ\n- 補' + pad + 'a b\n\n## 実行不能'],
+    'header value with U+2028': ['- 備考: 冒頭に足した行', '- 環境:' + pad + 'a b'],
+  };
+  for (const [name, [from, to]] of Object.entries(cases)) {
+    const text = result.replace(from, to);
+    assert.notEqual(text, result, name);
+    const {ms, out} = timedIssue(name, 'out = buildIssue(input, "TC-order-004", {product: "p", run: "runs/20261118-x"}).body.length', text);
+    assert.ok(out > 0, name);
+    assert.ok(ms < 2000, name + ' took ' + Math.round(ms) + ' ms');
+  }
+  const {ms} = timedIssue('run with many slashes',
+    'try { await createIssueFromRun({root: ".", profile: "p", run: "runs/x" + "/".repeat(200000) + "y", tc: "TC-a-001", dryRun: true}); } catch (e) { out = e.message; }');
+  assert.ok(ms < 2000, 'run with many slashes took ' + Math.round(ms) + ' ms');
+});
+
+test('labels and header values keep their meaning without regular expressions', () => {
+  const text = result
+    .replace('- 環境: new', '- 環境 ：  new stage ')
+    .replace(endOf004, '- 再現: 3回とも同じ\n- 補足: a\rb c\n-  ラベルなしの項目\n- とても長いラベルのようでラベルではない一文です: 値\n\n## 実行不能');
+  const {body} = buildIssue(text, 'TC-order-004', {product: 'p', run: 'runs/20261118-x'});
+  assert.ok(body.includes('\n環境\n\n```\nnew stage\n```\n'), body);
+  assert.ok(body.includes('## 補足\n\n```\na\rb c\n```'), body);
+  // Header: the label must follow "- " directly, and a value is required.
+  const none = buildIssue(result.replace('- 環境: new', '- 環境:').replace('- 版: 2.3.0（画面の右下の表示）', '-版: 2'), 'TC-order-004',
+    {product: 'p', run: 'r'}).body;
+  assert.ok(!none.includes('\n環境\n') && !none.includes('\n版\n'), none);
 });

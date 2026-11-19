@@ -244,7 +244,10 @@ export function inspectProfileText(file: string, text: string, skill?: string): 
     }
   }
 
-  const required = skill === undefined ? onlyProduct : profileRequirements[skill];
+  const base = skill === undefined ? onlyProduct : profileRequirements[skill];
+  // A native form is signed in per role, so roles are needed whichever skill reads the profile.
+  const nativeForm = isObject(data.login) && data.login.method === 'native-form';
+  const required = nativeForm && !base.includes('roles') ? [...base, 'roles'] : base;
   for (const key of required) {
     const value = data[key];
     const empty = value === undefined || value === null || value === '' || (Array.isArray(value) && value.length === 0);

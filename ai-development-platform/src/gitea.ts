@@ -18,6 +18,9 @@ export type GiteaTransport = (request: GiteaRequest) => Promise<GiteaResponse>;
 
 export class GiteaError extends Error {}
 
+const findPageSize = 50;
+const maxFindPages = 5;
+
 /** Largest response body read from Gitea. An issue list or a created issue is far smaller. */
 export const maxGiteaResponseBytes = 2 * 1024 * 1024;
 
@@ -151,13 +154,20 @@ export function createGiteaClient(options: GiteaClientOptions) {
       return {login: json.login};
     },
     /**
-     * Searches open and closed issues. Only the first page (up to 50) is read: callers pass a narrow query
-     * (the duplicate check searches for its marker line), so a match beyond the first page is not expected.
+     * Searches open and closed issues, reading pages of 50 until a short page, up to 5 pages (250 issues).
+     * Callers pass a narrow query (the duplicate check searches for its marker line), but a match beyond the
+     * last page is still possible in a repository with very many matches.
      */
     async findIssues(owner: string, repo: string, query: string): Promise<GiteaIssueSummary[]> {
-      const url = issuesPath(owner, repo) + '?' + new URLSearchParams({type: 'issues', state: 'all', q: query, limit: '50'}).toString();
-      const json = await send({method: 'GET', url, headers: headers()}, 200);
-      if (!Array.isArray(json)) throw new GiteaError('Gitea の Issue 一覧の形式が想定と違います。');
+      if (typeof query !== 'string') throw new GiteaError('検索語は文字列で指定してください。');
+      const json: unknown[] = [];
+      for (let page = 1; page <= maxFindPages; page++) {
+        const url = issuesPath(owner, repo) + '?' + new URLSearchParams({type: 'issues', state: 'all', q: query, limit: String(findPageSize), page: String(page)}).toString();
+        const items = await send({method: 'GET', url, headers: headers()}, 200);
+        if (!Array.isArray(items)) throw new GiteaError('Gitea の Issue 一覧の形式が想定と違います。');
+        json.push(...items);
+        if (items.length < findPageSize) break;
+      }
       return json.flatMap(item => {
         const issue = item as Record<string, unknown> | null;
         if (typeof issue !== 'object' || issue === null || typeof issue.number !== 'number') return [];

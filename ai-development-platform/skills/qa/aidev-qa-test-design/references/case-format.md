@@ -1,6 +1,6 @@
 # テストケースの形式
 
-`cases/<機能>.md` は次の形で書く。この形式は QA リポジトリの `cases/README.md` と同じで、aidev-qa-test-review が読む。後の段階で追加する予定のケース実行の Skill と AC の対応表を作るコマンドも、この形式を読む前提で作る。見出しと、AC・優先度・実行の3行の書き方を変えると、後続の検査がケースを読めなくなる。
+`cases/<機能>.md` は次の形で書く。この形式は QA リポジトリの `cases/README.md` と同じで、aidev-qa-test-review、aidev-qa-test-run、`aidev qa trace` が読む。見出しと、AC・優先度・実行の3行の書き方を変えると、後続の検査がケースを読めなくなる。trace は、形の崩れた見出しを `case-heading` のエラー、AC と実行の行の誤りを `case-ac` と `case-execution` の警告として指摘する。
 
 ```markdown
 # 注文

@@ -22,7 +22,10 @@ export function giteaRepo({login = 'qa-worker', issues = [], next = 7} = {}) {
     if (request.method === 'GET' && url.pathname.endsWith('/api/v1/user')) return {status: 200, body: JSON.stringify({id: 1, login: state.login})};
     if (request.method === 'GET') {
       const q = url.searchParams.get('q') ?? '';
-      return {status: 200, body: JSON.stringify(state.issues.filter(issue => issue.title.includes(q) || issue.body.includes(q)))};
+      const limit = Number(url.searchParams.get('limit') ?? Infinity);
+      const page = Number(url.searchParams.get('page') ?? 1);
+      const hits = state.issues.filter(issue => issue.title.includes(q) || issue.body.includes(q));
+      return {status: 200, body: JSON.stringify(Number.isFinite(limit) ? hits.slice((page - 1) * limit, page * limit) : hits)};
     }
     const input = JSON.parse(request.body);
     const number = state.next++;

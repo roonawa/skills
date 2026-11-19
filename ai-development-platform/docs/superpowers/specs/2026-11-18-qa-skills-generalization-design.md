@@ -93,7 +93,7 @@ ID は `C-HUB タスクID → AC-ID → TC-ID → run-id → Issue 番号 → �
 | qa-fix-verify | test-verify＋uat-verify | 2つを統合する。修正コミットの特定、コードでの裏取り、revert して失敗し、戻して成功することの確認 |
 | qa-cause-repro | cause-repro | 書き直しのみ |
 | qa-bug-ticket | 新規 | NG になったケースから Gitea Issue を起票する。再現手順・証跡の参照・TC-ID・AC-ID を本文に入れる |
-| qa-report | 新規 | 日次のまとめと品質レポート（不具合の傾向、残るリスク、AI が実行したケースの割合） |
+| qa-report | 新規 | 日次のまとめと品質レポート（不具合の傾向、残るリスク、自動のケースの実行割合） |
 
 ### 5.2 Opus 5.5 向けの書き方
 
@@ -153,6 +153,31 @@ qa-<案件>/
 
 `--html FILE` を付けると、AC と TC の対応表と結果をまとめた HTML を出力する。
 
+段階1〜3の結果を受けて、読み方を次のように決めた（段階4で実装）。
+
+- `README.md` と、コードの囲み（``` と ~~~）の中は読まない
+- `runs/` の直下のファイル（`<run>.compare.json` など）は読み飛ばし、ディレクトリだけを run として扱う。`runs/` の直下のリンクは、名前が run の形（`YYYYMMDD-run-id`）のときだけ、読めないものとしてエラーにする。ほかのリンクはファイルと同じく読み飛ばす
+- `result.md` の冒頭には、環境・版・実行日時のほかに行が足されていることがある（「結果の決め方」「改修確認」「修正コミット」「元の run」など）。知らない行は無視する
+- Issue を「確認済み」とするのは、改修確認の run の冒頭に `- 改修確認: #<N> 確認済み` があるときだけ。`要確認（…）` と `効いていない` は確認済みにしない。確認済みでも、その run 自身の表か後の run で、その Issue の TC が NG になれば要確認に戻す
+- AC の出どころには `推定仕様 RS-xxx` もある
+- 同じ原因でまとめた NG は、複数の TC の行に同じ `#N` が書かれる。1つの TC の Issue の列には `#3, #4` のように複数の番号が書かれることもあり、どれも読む。`aidev qa issue create` が書き込むのは Issue の列が空の行だけで、番号が2つ以上ある行では止まる（2つ目は手で足す）
+- run は日付、次に run-id の文字列の順に並べ、後ろの run の行を TC の最新の結果とする。同じ日に2つ以上の run を作るときは、実行した順に run-id が並ぶよう、日付の後に2桁の連番か開始の時刻（HHMM）を置く（例：`20261119-01-detail`、`20261119-02-fix`）。同じ日の run の、冒頭の実行日時の開始（先頭の `YYYY-MM-DD HH:MM[:SS]` だけを読む）の順が run-id の順と逆なら、`run-order` の警告を出す。開始が読めない run は比べない
+- result.md の表の区切りの行は、qa-issue と同じく先頭の `|` がなくてもよい（`---|---`）。コードの囲みの中の行は区切りの行にしない
+- 手動のケースは `実行不能` で、理由が「手動確認待ち」
+
+指摘は error と warning に分ける。error は、記録が抜けていて数字が信用できないものとし、1つでもあれば終了コードを 1 にする。
+
+| 区分 | 指摘 |
+|---|---|
+| error | AC に TC がない（ac-uncovered）、acceptance.md にない AC を参照する TC（tc-unknown-ac）、Issue のない NG（ng-without-issue）、理由のない実行不能（blocked-without-reason）、重複した ID（duplicate-id）、ファイルがない・読めない（missing-acceptance、missing-cases、missing-result、unreadable）、読み飛ばすことになる AC の行とケースの見出し（acceptance-line、case-heading）、run の結果を読みきれない表（run-row、run-tc、run-result、duplicate-run-row、no-result-table） |
+| warning | 改修確認と修正コミットの行の形（fix-check、duplicate-fix-check、fix-commit、fix-commit-unpaired）、ケースの AC と実行の行（case-ac、case-execution）、Issue の列の `#番号` 以外の値（run-issue）、cases/ にない TC の結果（run-unknown-tc）、未実行のケース（case-not-run）、確認済みでない Issue（issue-unconfirmed）、名前が run の形でない runs/ の下のフォルダ（run-dir）、同じ日の run の run-id の順と実行日時の順が逆（run-order） |
+
+名前が run の形でないフォルダの result.md は数えられないが、run-dir は warning のままとした。
+
+テストしないと決めた AC は `plan/acceptance.md` から消さず、ケースも作らない（aidev-qa-test-design の手順と同じ）。trace はその AC を `ac-uncovered` の error とし、終了コードは 1 のままになる。これはわざとで、AC を消すと記録が失われ、決めたことを記録するだけのケースを作ると未実行の数が水増しされる。理由は `plan/strategy.md` の対象外の節に AC-ID と一緒に書き、trace の結果を伝えるときに、その `ac-uncovered` が対象外にした AC だと添える。
+
+読めないファイルの指摘には、Node のエラーの文（絶対パスを含む）を入れず、QA リポジトリからの相対パスと「ファイル操作に失敗しました (コード)」だけを書く。JSON の `runDetails[].rows` は run の表の行を表の順に並べ、TC-ID・結果・Issue 番号だけを持つ（証跡、理由、そのほかの自由記述は入れない）。HTML には TC-ID、結果、Issue 番号、run のディレクトリまでを載せ、証跡の欄を含む result.md の自由記述は載せない。HTML は求められたときだけ作り、報告の正本は qa-report の Markdown とする。
+
 ### 5.6 配布の仕組み
 
 - registry を `skills/core/` と `skills/qa/` の両方から読むように変える。`skill list` に区分を表示する
@@ -182,7 +207,7 @@ AC の全件は `plan/acceptance.md` に置く（AC-ID、本文、出どころ�
 |---|---|---|
 | comparing-evidence-rounds の `generate-report.js` | `aidev qa compare-report`。顧客に出す HTML のため、見た目と構成は旧版を保つ | 2 |
 | spec-test の `generate-report.js` | `aidev qa trace --html` に統合する | 4（段階1では旧スクリプトを使わず、Markdown だけを出す） |
-| test-execute・test-verify・uat-verify の `templates/report.html` | 正本は `runs/*/result.md` とする。HTML は `aidev qa trace --html` と qa-report で作る。Artifact での公開は、作業者が求めた場合だけ行う | 2・3・4 |
+| test-execute・test-verify・uat-verify の `templates/report.html` | 正本は `runs/*/result.md` とする。HTML は求められたときだけ `aidev qa trace --html` で作る。qa-report は Markdown の報告を書き、HTML を求められたらこのコマンドを使うArtifact での公開は、作業者が求めた場合だけ行う | 2・3・4 |
 
 ### 5.11 Gitea Issue の起票（設計者の判断）
 
