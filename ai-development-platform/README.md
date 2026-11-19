@@ -318,11 +318,11 @@ aidev qa issue create --profile knowledge/<製品>/profile.md --run runs/<YYYYMM
 - 送り先は環境変数で渡す。GITEA_TOKEN は作業者個人のトークン（Issue の書き込み権限が要る）、GITEA_URL は Gitea の URL。トークンは出力・エラー文・本文に出さない。AI 専用のアカウントは使わない。
 - プロファイルの `issue_tracker`（type は gitea、url、repo は owner/name の形）の接続先（スキーム・ホスト・ポート）が GITEA_URL と一致しなければ、トークンを送らずに止める。url は https:// のみ（http:// は localhost と 127.0.0.1 だけ）。
 - --dry-run は何も送らず、何も書かない。送り先と、組み立てた題名と本文を返す。トークンも要らない（GITEA_URL は要る）。
-- 題名は全角にそろえ、URL や owner/repo の形を残さない。result.md の NG の詳細の値は、本文の中でコードブロックに囲む。
+- 題名では、記号 ``@ # ! < > [ ] ( ) \ ` : /`` を全角にする（URL や owner/repo の形を残さないため）。
 - 題名と本文は送る前に秘密情報の検査を通す。引っかかると送らずに止まる。
 - 本文の1行目の目印（製品と TC-ID）で重複を調べる。重複とみなすのは、トークンの持ち主自身が作った、開いている Issue だけ。閉じた Issue や別のユーザーの Issue は無視して返す。検索は先頭の50件だけを読む。
-- 起票したら、その TC の行の Issue の列に `#番号` だけを書く。result.md の他の部分は変えない。Issue の列に `#番号` 以外が書かれている行や、別の番号が書かれている行は、書き換えずに止まる。
-- Gitea に対する書き込みは Issue の作成だけで、コメント、編集、クローズ、ラベルの付与はしない。
+- 起票したら、その TC の行の Issue の列に `#番号` だけを書く。result.md の他の部分は変えない。Issue の列にすでに `#番号` があるときは、その番号がトークンの持ち主自身の、目印のある開いた Issue の中にあれば、既存の Issue として返し、何も書かない。見つからなければ書き換えずに止まる。`#番号` 以外が書かれている行も止まる。
+- Gitea への書き込みは Issue の作成だけで、読むのは `GET /api/v1/user` と Issue の検索だけ。コメント、編集、クローズ、ラベルの付与はしない。
 
 案件プロファイルでは、`aidev qa profile check FILE --skill aidev-qa-bug-ticket` が product と issue_tracker を必須として検査する。
 
@@ -332,7 +332,7 @@ aidev qa issue create --profile knowledge/<製品>/profile.md --run runs/<YYYYMM
 
 ### 偽の Gitea サーバーで試す
 
-templates/qa/samples/gitea-fake/ に、Issue の作成と検索の2つの経路だけに答える偽の Gitea サーバーを置く。実際の Gitea には何も送らない。Issue はメモリ上にだけ持つ。利用者のプロジェクトには配らない。
+templates/qa/samples/gitea-fake/ に、Issue の作成、Issue の検索、`GET /api/v1/user`（トークンの持ち主の確認）の3つの経路だけに答える偽の Gitea サーバーを置く。実際の Gitea には何も送らない。Issue はメモリ上にだけ持つ。利用者のプロジェクトには配らない。
 
 ```sh
 GITEA_FAKE_TOKEN=確認用の任意の値 node templates/qa/samples/gitea-fake/server.mjs --port 3000
