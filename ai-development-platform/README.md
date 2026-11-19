@@ -322,7 +322,7 @@ aidev qa issue create --profile knowledge/<製品>/profile.md --run runs/<YYYYMM
 - 題名では、記号 ``@ # ! < > [ ] ( ) \ ` : /`` を全角にする（URL や owner/repo の形を残さないため）。
 - 題名と本文は送る前に秘密情報の検査を通す。引っかかると送らずに止まる。
 - 本文の1行目の目印（製品と TC-ID）で重複を調べる。重複とみなすのは、トークンの持ち主自身が作った、開いている Issue だけ。閉じた Issue や別のユーザーの Issue は無視して返す。検索は 50 件ずつ、最大 5 ページ（250 件）まで続けて読む。それでも見つからない場合がありうるので、同じ不具合の Issue がないかは Gitea の画面でも確かめる。
-- 起票したら、その TC の行の Issue の列に `#番号` だけを書く。result.md の他の部分は変えない。Issue の列にすでに `#番号` があるときは、その番号がトークンの持ち主自身の、目印のある開いた Issue の中にあれば、既存の Issue として返し、何も書かない。見つからなければ書き換えずに止まる。`#番号` 以外が書かれている行も止まる。
+- 起票したら、その TC の行の Issue の列に `#番号` だけを書く。result.md の他の部分は変えない。Issue の列にすでに `#番号` があるときは、その番号がトークンの持ち主自身の、目印のある開いた Issue の中にあれば、既存の Issue として返し、何も書かない。見つからなければ書き換えずに止まる。`#番号` 以外が書かれている行も止まる。trace は `#3, #4` のように番号が2つ以上ある Issue の列も読むが、このコマンドはそういう行でも止まるので、2つ目の番号は手で足す。
 - Gitea への書き込みは Issue の作成だけで、読むのは `GET /api/v1/user` と Issue の検索だけ。コメント、編集、クローズ、ラベルの付与はしない。
 
 案件プロファイルでは、`aidev qa profile check FILE --skill aidev-qa-bug-ticket` が product と issue_tracker を必須として検査する。
@@ -359,9 +359,12 @@ cd .. && aidev qa trace qa-<案件> --html qa-<案件>-trace.html
 ```
 
 - 読むのは `plan/acceptance.md`、`cases/*.md`、`runs/<YYYYMMDD>-<run-id>/result.md` だけで、README.md とコードの囲みの中は読まない。リンクはたどらず、QA リポジトリの外も読まない。Gitea にも C-HUB にも問い合わせない。
-- JSON は `ok` のほか、`acs`・`cases`・`runs`（件数）、`runDetails`（run ごとの OK・NG・実行不能の数と改修確認の判定）、`coverage`（AC ごとの TC、最新の結果 `latest`、未実行 `notRun`。どちらにも実行の種類 `execution`）、`issues`（Issue ごとの TC と状態）、`findings`（指摘）を持つ。
+- JSON は `ok` のほか、`acs`・`cases`・`runs`（件数）、`runDetails`（run ごとの OK・NG・実行不能の数、表の行 `rows`（TC-ID・結果・Issue 番号だけ）、改修確認の判定）、`coverage`（AC ごとの TC、最新の結果 `latest`、未実行 `notRun`。どちらにも実行の種類 `execution`）、`issues`（Issue ごとの TC と状態）、`findings`（指摘）を持つ。
+- run は日付、次に run-id の文字列の順に並べ、後ろの run の行をその TC の最新の結果とする。同じ日に2つ以上の run を作るときは、実行した順に run-id が並ぶよう、日付の後に2桁の連番か開始の時刻（HHMM）を置く（例：`20261119-01-detail`、`20261119-02-fix`）。同じ日の run で、冒頭の実行日時の開始（先頭の `YYYY-MM-DD HH:MM[:SS]`）の順が run-id の順と逆なら `run-order` の警告を出す。開始が読めない run は比べない。
+- Issue の列には `#3, #4` のように複数の番号を書けて、trace はどれも読む。`aidev qa issue create` が書き込むのは Issue の列が空の行だけで、番号が2つ以上ある行では止まる。
 - Issue の状態は result.md の記録だけで決める。確認済みになるのは、改修確認の run の冒頭に `- 改修確認: #N 確認済み` があるときだけ。その run 自身か後の run でその Issue の TC が NG になれば要確認に戻す。
-- 指摘の level が error になるのは、記録が抜けていて数字が信用できないとき（どの TC も参照しない AC、acceptance.md にない AC を参照する TC、Issue のない NG、理由のない実行不能、重複した ID、形が崩れて読み飛ばされた AC の行・ケースの見出し・result.md の表の行、読めないファイル）。error が1つでもあれば終了コードは 1 になる。改修確認や修正コミットの行の形、ケースの AC と実行の行、Issue の列の `#番号` 以外の値、名前が `YYYYMMDD-run-id` でない runs/ の下のフォルダ、未実行のケース、未確認の Issue は warning で、終了コードに響かない。
+- 指摘の level が error になるのは、記録が抜けていて数字が信用できないとき（どの TC も参照しない AC、acceptance.md にない AC を参照する TC、Issue のない NG、理由のない実行不能、重複した ID、形が崩れて読み飛ばされた AC の行・ケースの見出し・result.md の表の行、読めないファイル）。error が1つでもあれば終了コードは 1 になる。改修確認や修正コミットの行の形、ケースの AC と実行の行、Issue の列の `#番号` 以外の値、名前が `YYYYMMDD-run-id` でない runs/ の下のフォルダ、同じ日の run の順（run-order）、未実行のケース、未確認の Issue は warning で、終了コードに響かない。
+- テストしないと決めた AC は、`plan/acceptance.md` から消さず、ケースも作らない（aidev-qa-test-design の手順と同じ）。trace はその AC に `ac-uncovered` の error を出し続け、終了コードは 1 のままになる。わざとそうしている。消すと AC の記録が失われ、決めたことを記録するだけのケースを作ると未実行の数が水増しされる。テストしない理由は `plan/strategy.md` の対象外の節に AC-ID と一緒に書き、trace の結果を伝えるときは、その AC の `ac-uncovered` が対象外にしたものだと添える。
 - HTML は求められたときだけ作る生成物で、報告の正本は reports/*.md（aidev-qa-report）とする。設計書 5.10 では HTML を trace と qa-report で作る想定だったが、HTML は `--html` だけが書き、aidev-qa-report は作業者に求められたときにそれを使う。HTML には TC-ID、結果、Issue 番号、run のディレクトリまでを載せ、result.md の自由記述（実際の結果、証跡の欄）は載せない。外部のファイルやスクリプトを読まない自己完結の1枚で、error があっても書き出す。
 
 ## 設計と次の開発
