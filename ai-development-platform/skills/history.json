@@ -148,7 +148,8 @@
   },
   "aidev-qa-report": {
     "0.1.0": [
-      "00cd9ef4c86505af2c96aabefd771e028d4a029a6d17b25ac322dcb611237ebf"
+      "00cd9ef4c86505af2c96aabefd771e028d4a029a6d17b25ac322dcb611237ebf",
+      "f8dec50f4ee9aa947a829236b3393316a72c3160c307cba66e23af5210d48e98"
     ]
   },
   "aidev-qa-screen-verification": {
