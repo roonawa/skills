@@ -9,12 +9,12 @@ roles:
   - {name: staff-empty, user_env: SAMPLE_STAFF_EMPTY_USER, password_env: SAMPLE_STAFF_EMPTY_PASSWORD}
   - {name: staff-other, user_env: SAMPLE_STAFF_OTHER_USER, password_env: SAMPLE_STAFF_OTHER_PASSWORD}
   - {name: admin, user_env: SAMPLE_ADMIN_USER, password_env: SAMPLE_ADMIN_PASSWORD}
-login: {method: form, entry_url: http://localhost:4101/login}
+login: {method: form, entry_url: http://localhost:4102/login}
 stack: [node, html-form]
 test_commands:
-  - {name: characterization, run: npx playwright test -c automation/web --project=characterization}
-  - {name: authz, run: npx playwright test -c automation/web --project=authz}
-  - {name: cases, run: npx playwright test -c automation/web --project=cases}
+  - {name: characterization, run: cd automation/web && npx playwright test --project=characterization}
+  - {name: authz, run: cd automation/web && npx playwright test --project=authz}
+  - {name: cases, run: cd automation/web && npx playwright test --project=cases}
 evidence: {method: local, retention: 90d}
 ---
 # 観点

@@ -72,6 +72,9 @@
     ],
     "0.1.3": [
       "9b5dc726cb8433cb1131769f58bd561eccfdf74600d4870f6c6afe988339b944"
+    ],
+    "0.1.4": [
+      "94d9d58213339b7a204d21475952834a13aed7a75724f9c79ba05fd4aa29857f"
     ]
   },
   "aidev-qa-desktop-gui": {
@@ -97,6 +100,9 @@
     ],
     "0.1.1": [
       "ac2077f892daeb80d830d07cc47039e0283c7f098eb0dd1f6eb35022b4d4a7d7"
+    ],
+    "0.1.2": [
+      "da691b82a08c06ee0d328bd2d810a01cb4231393471089ec691bf84f31cff23b"
     ]
   },
   "aidev-qa-login-session": {
@@ -117,6 +123,9 @@
     ],
     "0.1.5": [
       "1885f8e9ae6c270ee668e7c582b91f7c185daffbb097118058f7babc996c973e"
+    ],
+    "0.1.6": [
+      "b57adeff89267aed85ec69a00ef1e5c32cf40a079bb230e2af8d4e30184b238b"
     ]
   },
   "aidev-qa-regression-compare": {
@@ -174,6 +183,9 @@
     ],
     "0.1.2": [
       "27d4bf1e1c8a39f2c7a0ffcd3d56716113a545647873376e4f3cfa97d48620e2"
+    ],
+    "0.1.3": [
+      "bdb00a78454abb6e2c1fec8b7b32e0cfac4bd917a4f7441fe02efa6de854ee09"
     ]
   },
   "aidev-qa-test-review": {
@@ -185,6 +197,9 @@
     ],
     "0.1.2": [
       "acabbd3ad5f91ebcb558b9809460d18c028a52115f5eb8d067bc3d14de084e79"
+    ],
+    "0.1.3": [
+      "02301b625cf9d10cf96e81a8541557124f1173fb5e3038eda3a08ce1c2e2bc6a"
     ]
   },
   "aidev-qa-test-run": {

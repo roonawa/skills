@@ -14,15 +14,17 @@ product: your-product
 # method は saml、oidc、form、native-form、certificate、none から選ぶ
 # native-form はデスクトップアプリ自身のログイン画面に ID とパスワードを入れる方式。entry_url は要らない
 # 証明書方式なら certificate_thumbprint（40桁の16進数）を書いてよい
-# login: {method: form, entry_url: http://localhost:4101/login}
+# entry_url は、テスト対象の環境の QA_BASE_URL に、ここのパスを足した URL として使う（下の例の /login の部分）
+# login: {method: form, entry_url: http://localhost:4102/login}
 
 # stack: [node, html-form]
 
 # Skill ごとにプロジェクトで絞る。何も絞らない npx playwright test は、ほかの Skill の spec まで流す
+# automation/web に入って流す。QA リポジトリのルートから -c automation/web で流すと、npx が別の版の Playwright を取ってきて失敗する
 # test_commands:
-#   - {name: characterization, run: npx playwright test -c automation/web --project=characterization}
-#   - {name: authz, run: npx playwright test -c automation/web --project=authz}
-#   - {name: cases, run: npx playwright test -c automation/web --project=cases}
+#   - {name: characterization, run: cd automation/web && npx playwright test --project=characterization}
+#   - {name: authz, run: cd automation/web && npx playwright test --project=authz}
+#   - {name: cases, run: cd automation/web && npx playwright test --project=cases}
 
 # method は lfs、external、local から選ぶ。個人情報が映る案件では lfs を選ばない
 # evidence: {method: local, retention: 90d}

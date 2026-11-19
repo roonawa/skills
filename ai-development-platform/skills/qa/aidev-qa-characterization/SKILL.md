@@ -2,7 +2,7 @@
 name: aidev-qa-characterization
 description: 既存の画面の今の挙動を、作り直しや改修に入る前に Playwright の特性テストとして記録するときに使う。画面ごとに、対象と除外を理由付きで書いた画面マニフェスト（automation/web/manifests/<画面>.json）で網羅の分母を決め、ロールと表示モードの組み合わせごとの正常系と、必須入力のあるフォームだけ「必須あり／なし」の2通りを作る。画面表示、内部データ（API の応答）、帳票（CSV・PDF）の3点を記録し、証跡を runs/ に残して、マニフェストのすべての項目に証跡があることまで確かめる。WebView2 に表示する画面は CDP で接続して同じように記録する。「改修の前に今の画面の動きを記録して」「この画面のゴールデンマスターを作って」「人が実機で確かめていた作業をテストに置き換えたい」「画面の証跡を撮って整理して」という相談で使う。ログイン済みのセッションの用意は aidev-qa-login-session を、旧版と新版の照合は aidev-qa-regression-compare を、ロールごとの可否と所有者の検証は aidev-qa-authz-test を、Windows のダイアログやネイティブの画面の操作は aidev-qa-desktop-gui を使う。
 metadata:
-  version: "0.1.3"
+  version: "0.1.4"
 ---
 # 既存画面の特性テスト
 

@@ -2,7 +2,7 @@
 name: aidev-qa-login-session
 description: Web アプリのテストの前提として、ロールごとに Playwright でログインし、認証済みのセッション（storageState）を QA リポジトリの automation/web/.auth/ に作るときに使う。案件プロファイルの login.method に従い、SAML、OIDC、フォーム認証を扱う。資格情報はプロファイルに名前がある環境変数から読む。ログインの成否を「アプリに着いた」「アプリのログイン画面かエラー画面に戻された」「IdP で止まった」に分けて判定し、保存したセッションでログインが必要なページを開けることまで確かめる。「ロールごとにログインした状態を用意して」「SAML でログインしてセッションを取って」「storageState を作り直して」「ログインのセットアップが通らない」という相談で使う。証明書方式は拇印の確認までを行い、ログインの操作は aidev-qa-desktop-gui に渡す。デスクトップアプリ自身のログイン画面に入力する native-form は、この Skill では扱わず aidev-qa-desktop-gui に渡す。セッションを使った画面の特性テストには aidev-qa-characterization を、ロールごとの可否の検証には aidev-qa-authz-test を、新旧の照合には aidev-qa-regression-compare を使う。
 metadata:
-  version: "0.1.5"
+  version: "0.1.6"
 ---
 # 認証済みセッションの取得
 
@@ -43,6 +43,8 @@ metadata:
 `automation/web/.auth/` は QA リポジトリの雛形の `.gitignore` で除外されている。`.gitignore` にこの行がなければ、ファイルを作る前に足す。storageState は必ずコミットせず、証跡や報告にも添付しない。中の Cookie を使えば、そのロールとして誰でもアプリを操作できるためである。ファイルの場所は、相対パスではなく設定ファイルの位置から組み立てる（`references/form.md` の「ファイルの場所」）。相対パスにすると、QA リポジトリのルートから `-c automation/web` で流したときにルートの `.auth/` にでき、除外の対象から外れる。
 
 setup のプロジェクトでは、Playwright のトレース、動画、スクリーンショットを切る（`use: { trace: 'off', video: 'off', screenshot: 'off' }`）。トレースは入力した値（パスワード）とログインの通信（POST の本文、Set-Cookie）を平文で記録し、動画とスクリーンショットは画面を記録する。QA リポジトリの全体の設定でトレースを有効にしていても、setup だけは上書きする。setup のトレースや動画を証跡にしない。
+
+入口の URL は、プロファイルの `login.entry_url` のパスを、テスト対象の環境の `QA_BASE_URL` に足して組み立てる。`entry_url` に書かれたホストとポートは使わない。環境ごとにホストが違っても、同じプロファイルで流せる。
 
 ## 進め方
 

@@ -57,7 +57,8 @@ export default defineConfig({
 | aidev-qa-test-run | `tests/<機能>.spec.ts`（上の2つの末尾を使わない） | `cases` |
 
 - 出力先は `test-results/pw/` にする。Playwright は実行のたびに `outputDir` を空にするので、失敗した実行の証跡、照合の確かめに使う写し、作った対象の ID、プロセスの ID のような診断用のファイルは、QA リポジトリのルートの `.qa-scratch/`（`.gitignore` で除外されている）に置く。`test-results/` に置くと次の実行で消える
-- プロファイルの `test_commands` は、プロジェクトかファイルで絞った形で書く（例 `npx playwright test -c automation/web --project=characterization`）。何も絞らない `npx playwright test` は、ほかの Skill の spec まで流す。TC-ID の範囲で絞るときは、ファイルを指定するか、`|` を使わない `--grep`（例 `--grep "TC-loans-char-00[1-3]"`）にする
+- プロファイルの `test_commands` は、プロジェクトかファイルで絞った形で書く（例 `cd automation/web && npx playwright test --project=characterization`）。`automation/web` に入り、そこにインストール済みの Playwright で流す。QA リポジトリのルートから `npx playwright test -c automation/web` で流すと、npx が別の版の Playwright を取ってきて失敗する。何も絞らない `npx playwright test` は、ほかの Skill の spec まで流す。TC-ID の範囲で絞るときは、ファイルを指定するか、`|` を使わない `--grep`（例 `--grep "TC-loans-char-00[1-3]"`）にする
+- `--grep` は「[プロジェクト] › ファイル › 題名」の全体に対して照合する。`^TC-...` のように先頭を固定する書き方は一致しない。TC-ID の部分だけで照合する
 - Windows では、`npx` が cmd の中継（`npx.cmd`）を通るため、`--grep "a|b"` の `|` がパイプとして扱われて壊れることがある（実機で確かめた）。`|` が要るときは、中継を通さず `node node_modules/@playwright/test/cli.js test --grep "a|b"` で流すか、ファイルとプロジェクトで絞る
 - spec のファイルは、エージェントのファイルを書く道具で書き、シェルのヒアドキュメントで書かない。正規表現の `\` や `$` がシェルに解釈されて壊れる（実機で確かめた）。区切りの語を引用符で囲んだ形（`<<'EOF'`）でも、実行の環境によっては `\\` が `\` に変わる。書いた後に、正規表現の行を読み返して `\` の数を確かめる
 
@@ -130,6 +131,7 @@ await file.saveAs(path.join(runDir, 'evidence', 'TC-loans-char-020', file.sugges
 - ダウンロードの待ち受けは、操作の前に登録する
 - ファイルがあることだけで成功としない。CSV は列の名前、行数、値を、PDF は文字の内容を記録してアサートする。並び順が仕様なら順序も見る
 - 作成日時のように毎回変わる値は、次の節の正規化の規則で限られた項目だけを置き換える。元のファイルは残す
+- ダウンロードになる画面遷移では、`page.goto` が応答を返さない。状態コードが要るときは、遷移の前に `page.waitForResponse`（または `page.on('request')`）を登録し、遷移と一緒に待って読む
 - ダウンロードの URL を直接開いて代わりにしない。画面の操作で出ることを記録するのが目的である
 - OS の保存ダイアログが出る実装は、ブラウザの外の操作になる。マニフェストで `native-required` にし、aidev-qa-desktop-gui に渡す
 
