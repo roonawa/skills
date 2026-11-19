@@ -2,8 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { join, dirname } from 'node:path';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { createGiteaClient, fetchGiteaTransport } from '../dist/gitea.js';
+import { createIssueFromRun } from '../dist/qa-issue.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const serverPath = join(root, 'templates', 'qa', 'samples', 'gitea-fake', 'server.mjs');
@@ -102,4 +105,51 @@ test('不正な URL でもサーバーは落ちず、次の要求に答える', 
   assert.equal(bad.status, 400);
   const ok = await call(base + '/api/v1/repos/o/r/issues', {headers: auth});
   assert.equal(ok.status, 200);
+});
+
+test('GET /api/v1/user はトークンが要り、作った Issue に user.login が付く', async t => {
+  const base = await start(t);
+  assert.equal((await call(base + '/api/v1/user')).status, 401);
+  const me = await (await call(base + '/api/v1/user', {headers: auth})).json();
+  assert.equal(me.login, 'fake-user');
+  const made = await (await call(base + '/api/v1/repos/o/r/issues', {method: 'POST', headers: auth, body: '{"title":"t"}'})).json();
+  assert.deepEqual(made.user, {login: 'fake-user'});
+  const found = await (await call(base + '/api/v1/repos/o/r/issues?q=t', {headers: auth})).json();
+  assert.equal(found[0].user.login, 'fake-user');
+});
+
+test('qa issue create の本物の通信で、1回目は作成・2回目は重複として見つかる', async t => {
+  const base = await start(t);
+  const RUN = 'runs/20261118-fake';
+  const result = [
+    '# 実行結果', '', '- 環境: new', '',
+    '| TC-ID | 結果 | 証跡 | Issue |', '|---|---|---|---|',
+    '| TC-fake-001 | NG | runs/20261118-fake/evidence/TC-fake-001/ | |', '',
+    '## NG の詳細', '', '### TC-fake-001 確認用の失敗',
+    '- 再現手順', '  1. 画面を開く', '- 期待結果: 表示される', '- 実際の結果: 表示されない', '- 再現: 3回とも同じ', '',
+  ].join('\n');
+  const fresh = () => {
+    const root = mkdtempSync(join(tmpdir(), 'aidev-gitea-fake-'));
+    t.after(() => { rmSync(root, {recursive: true, force: true}); });
+    mkdirSync(join(root, 'knowledge', 'sample-web'), {recursive: true});
+    writeFileSync(join(root, 'knowledge', 'sample-web', 'profile.md'),
+      '---\nproduct: sample-web\nissue_tracker: {type: gitea, url: ' + base + ', repo: qa-org/sample-web}\n---\n# 観点\n');
+    mkdirSync(join(root, ...RUN.split('/')), {recursive: true});
+    const file = join(root, ...RUN.split('/'), 'result.md');
+    writeFileSync(file, result);
+    return {root, read: () => readFileSync(file, 'utf8')};
+  };
+  const options = root => ({root, profile: 'knowledge/sample-web/profile.md', run: RUN, tc: 'TC-fake-001', dryRun: false, token: TOKEN, giteaUrl: base});
+  const a = fresh();
+  const first = await createIssueFromRun(options(a.root));
+  assert.equal(first.created, true);
+  assert.equal(first.issue.number, 1);
+  assert.match(a.read(), /\| TC-fake-001 \| NG \|[^|]+\| #1 \|/);
+  const b = fresh();
+  const second = await createIssueFromRun(options(b.root));
+  assert.equal(second.created, false);
+  assert.equal(second.issue.number, 1);
+  assert.match(b.read(), /\| #1 \|/);
+  const all = await (await call(base + '/__issues', {headers: auth})).json();
+  assert.equal(all.length, 1);
 });

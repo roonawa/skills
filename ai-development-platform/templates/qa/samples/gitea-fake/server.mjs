@@ -23,6 +23,7 @@ if (!token) {
 const digest = value => createHash('sha256').update(value).digest();
 const expected = digest('token ' + token);
 
+const login = 'fake-user';
 const issues = [];
 
 function send(res, status, body) {
@@ -61,6 +62,7 @@ const server = createServer(async (req, res) => {
 
 async function handle(req, res) {
   const url = new URL(req.url, 'http://localhost');
+  if (req.method === 'GET' && url.pathname === '/api/v1/user') return send(res, 200, {login});
   if (req.method === 'GET' && url.pathname === '/__issues') return send(res, 200, issues);
   const m = /^\/api\/v1\/repos\/([^/]+)\/([^/]+)\/issues$/.exec(url.pathname);
   if (!m) { req.resume(); return send(res, 404, {message: 'not found'}); }
@@ -78,7 +80,7 @@ async function handle(req, res) {
     }
     const number = issues.filter(i => i.owner === owner && i.repo === repo).length + 1;
     const origin = 'http://127.0.0.1:' + server.address().port;
-    const issue = {number, title: input.title, body: typeof input.body === 'string' ? input.body : '', state: 'open',
+    const issue = {number, title: input.title, body: typeof input.body === 'string' ? input.body : '', state: 'open', user: {login},
       html_url: origin + '/' + owner + '/' + repo + '/issues/' + number, owner, repo};
     issues.push(issue);
     return send(res, 201, issue);
