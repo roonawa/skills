@@ -114,9 +114,9 @@ export function traceRepository(repo: QaRepository): TraceReport {
     const entry: TraceReport['coverage'][number] = {ac: ac.id, cases: linked.map(item => item.id), latest: [], notRun: []};
     for (const item of linked) {
       const found = latest.get(item.id);
-      const execution = item.execution ? {execution: item.execution} : {};
-      if (found) entry.latest.push({tc: item.id, result: found.row.result, run: found.run.dir, issues: [...found.row.issues], ...execution});
-      else entry.notRun.push({tc: item.id, ...execution});
+      const extra = {...(item.priority ? {priority: item.priority} : {}), ...(item.execution ? {execution: item.execution} : {})};
+      if (found) entry.latest.push({tc: item.id, result: found.row.result, run: found.run.dir, issues: [...found.row.issues], ...extra});
+      else entry.notRun.push({tc: item.id, ...extra});
     }
     return entry;
   });

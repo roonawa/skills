@@ -359,7 +359,7 @@ cd .. && aidev qa trace qa-<案件> --html qa-<案件>-trace.html
 ```
 
 - 読むのは `plan/acceptance.md`、`cases/*.md`、`runs/<YYYYMMDD>-<run-id>/result.md` だけで、README.md とコードの囲みの中は読まない。リンクはたどらず、QA リポジトリの外も読まない。Gitea にも C-HUB にも問い合わせない。
-- JSON は `ok` のほか、`acs`・`cases`・`runs`（件数）、`runDetails`（run ごとの OK・NG・実行不能の数、表の行 `rows`（TC-ID・結果・Issue 番号だけ）、改修確認の判定）、`coverage`（AC ごとの TC、最新の結果 `latest`、未実行 `notRun`。どちらにも実行の種類 `execution`）、`issues`（Issue ごとの TC と状態）、`findings`（指摘）を持つ。
+- JSON は `ok` のほか、`acs`・`cases`・`runs`（件数）、`runDetails`（run ごとの OK・NG・実行不能の数、表の行 `rows`（TC-ID・結果・Issue 番号だけ）、改修確認の判定）、`coverage`（AC ごとの TC、最新の結果 `latest`、未実行 `notRun`。どちらにもケースの優先度 `priority` と実行の種類 `execution`）、`issues`（Issue ごとの TC と状態）、`findings`（指摘）を持つ。
 - run は日付、次に run-id の文字列の順に並べ、後ろの run の行をその TC の最新の結果とする。同じ日に2つ以上の run を作るときは、実行した順に run-id が並ぶよう、日付の後に2桁の連番か開始の時刻（HHMM）を置く（例：`20261119-01-detail`、`20261119-02-fix`）。同じ日の run で、冒頭の実行日時の開始（先頭の `YYYY-MM-DD HH:MM[:SS]`）の順が run-id の順と逆なら `run-order` の警告を出す。開始が読めない run は比べない。
 - Issue の列には `#3, #4` のように複数の番号を書けて、trace はどれも読む。`aidev qa issue create` が書き込むのは Issue の列が空の行だけで、番号が2つ以上ある行では止まる。
 - Issue の状態は result.md の記録だけで決める。確認済みになるのは、改修確認の run の冒頭に `- 改修確認: #N 確認済み` があるときだけ。その run 自身か後の run でその Issue の TC が NG になれば要確認に戻す。
