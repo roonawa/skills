@@ -12,6 +12,7 @@ import { checkProfile } from './qa-profile.js';
 import { compareReport } from './qa-compare.js';
 import { createIssueFromRun } from './qa-issue.js';
 import { traceDirectory, traceQaRepository } from './qa-trace.js';
+import { traceHtmlPath, writeTraceHtml } from './qa-trace-html.js';
 
 /** Session limits for `workflow run`, from the environment. Invalid values stop before any session starts. */
 function sessionOptions(env: NodeJS.ProcessEnv): ClaudeOptions {
@@ -53,9 +54,12 @@ async function run(args: string[]) {
       (words.length === 4 || (words.length === 5 && words[4] === '--link'))) {
     return compareReport(root,words[2],words[3],words.length === 5);
   }
-  if (command === 'qa' && action === 'trace' && words.length === 3 && !dryRun) {
-    // Reads only: neither the QA repository nor any service is written to.
-    const report = traceQaRepository(traceDirectory(root,name));
+  if (command === 'qa' && action === 'trace' && !dryRun && (words.length === 3 || (words.length === 5 && words[3] === '--html'))) {
+    // Reads only: neither the QA repository nor any service is written to. The --html page is the only file written.
+    const out = words.length === 5 ? traceHtmlPath(root,words[4]) : undefined;
+    const directory = traceDirectory(root,name);
+    const report = traceQaRepository(directory);
+    if (out) writeTraceHtml(directory,report,out);
     const ok = !report.findings.some(finding => finding.level === 'error');
     process.exitCode = ok ? 0 : 1;
     return {ok,...report};
@@ -108,7 +112,7 @@ async function run(args: string[]) {
       return {node:process.versions.node,platform:process.platform,registryCount:listSkills().length,...config};
     }
   }
-  throw new Error('使用法: aidev init NAME [--template core|react|unity|qa] | skill list | skill add NAME | skill update NAME | skill validate NAME | skill eval NAME [--observations FILE] | doctor | verify | check | spec check FILE | qa profile check FILE [--skill NAME] | qa compare-report MANIFEST OUT [--link] | qa issue create --profile FILE --run RUNDIR --tc TC-ID [--dry-run] | qa trace DIR | workflow check TASK --review FILE | workflow run TASK --spec FILE | workflow status TASK。init/add/update/qa issue create は末尾に --dry-run を指定できます。');
+  throw new Error('使用法: aidev init NAME [--template core|react|unity|qa] | skill list | skill add NAME | skill update NAME | skill validate NAME | skill eval NAME [--observations FILE] | doctor | verify | check | spec check FILE | qa profile check FILE [--skill NAME] | qa compare-report MANIFEST OUT [--link] | qa issue create --profile FILE --run RUNDIR --tc TC-ID [--dry-run] | qa trace DIR [--html FILE] | workflow check TASK --review FILE | workflow run TASK --spec FILE | workflow status TASK。init/add/update/qa issue create は末尾に --dry-run を指定できます。');
 }
 try {
   console.log(JSON.stringify({ok:true,...await run(process.argv.slice(2))}));
