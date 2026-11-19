@@ -114,9 +114,10 @@ front matter の項目（必須かどうかは、使う Skill ごとに決める
 - `product`：識別子
 - `environments`：環境名、ベース URL、用途（例：ST・PT、old-ST・new-PT）
 - `roles`：ロール名と、テスト用アカウントの secrets のキー名
-- `login`：方式（saml・oidc・form・certificate）、IdP、入口の URL
+- `login`：方式（saml・oidc・form・native-form・certificate・none）、IdP、入口の URL。native-form は、デスクトップアプリ自身のログイン画面に、ID とパスワードを aidev-qa-desktop-gui が環境変数から読んで入力する方式で、ブラウザを通らないので storageState は作らない
 - `stack`：フロントエンド・API・クライアントの技術（例：vue＋graphql、webview2、wpf）
 - `test_commands`：テストの実行方法（例：`npx playwright test`、`dotnet test`）
+- `issue_tracker`：NG のケースを起票する Gitea の種類、URL、リポジトリ（aidev-qa-bug-ticket が使う。トークンは書かない）
 - `evidence`：証跡の保存方式と保持期間。方式は `lfs`（QA リポジトリの `runs/<run-id>/evidence/` を Git LFS で管理）、`external`（社内ストレージ。`result.md` には保存先の参照だけを書く）、`local`（作業者の PC）から案件ごとに選ぶ。個人情報が映る案件では `lfs` を選ばないよう、雛形に注意を書く。各 Skill は方式にかかわらず、`result.md` から証跡を同じ形で参照する
 
 本文には、観点、落とし穴、テストデータの準備方法、画面への到達手順を書く。各 Skill は実行の最初にプロファイルを読み、使う項目が欠けていれば作業者に確認する。推測で埋めない。
@@ -185,7 +186,7 @@ AC の全件は `plan/acceptance.md` に置く（AC-ID、本文、出どころ�
 
 ### 5.11 Gitea Issue の起票（設計者の判断）
 
-qa-bug-ticket は `aidev qa issue create` を呼ぶ。このコマンドは Gitea の API で Issue を作り、TC-ID・AC-ID・run-id・証跡の参照を、テンプレートに沿った本文で送る。トークンは作業者個人のもの（環境変数 `GITEA_TOKEN`）を使う。AI 専用アカウントは無人実行ランナー用で、このプロジェクトでは使わない。コマンドは段階3で TypeScript で実装し、Gitea を模した偽のサーバーでテストする（`test/chub-fake.mjs` と同じ方式）。
+qa-bug-ticket は `aidev qa issue create` を呼ぶ。このコマンドは Gitea の API で Issue を作り、TC-ID・AC-ID・run-id・証跡の参照を、テンプレートに沿った本文で送る。トークンは作業者個人のもの（環境変数 `GITEA_TOKEN`）を使う。AI 専用アカウントは無人実行ランナー用で、このプロジェクトでは使わない。トークンの送り先は、作業者がトークンと並べて設定する環境変数 `GITEA_URL` とする。プロファイルの `issue_tracker.url` は送り先を決めず、その接続先（スキーム・ホスト・ポート）が `GITEA_URL` と一致することだけを確かめ、一致しなければトークンを送らずに止める。リポジトリのファイルを書き換えられても、トークンが別のホストへ流れないようにするための、段階3の実装で決めた判断である。コマンドは段階3で TypeScript で実装し、Gitea を模した偽のサーバーでテストする（`test/chub-fake.mjs` と同じ方式）。
 
 ### 5.12 既存の成果物（設計者の判断）
 

@@ -84,7 +84,7 @@ export function releasedHashes(name: string): Record<string, string[]> {
   const override = process.env.AIDEV_HISTORY_FILE;
   const file = override ? resolve(override) : fileURLToPath(new URL('../skills/history.json', import.meta.url));
   const text = content(file);
-  if (text === undefined) throw new Error('Skill の版の記録（skills/history.json）がありません。');
+  if (text === undefined) throw new Error('Skill の版の記録（' + (override ? file : 'skills/history.json') + '）がありません。');
   const versions: unknown = (JSON.parse(text) as Record<string, unknown>)[safeName(name)];
   if (typeof versions !== 'object' || versions === null) return {};
   const result: Record<string, string[]> = {};

@@ -28,11 +28,11 @@
 | cs-native-regression-test | aidev-qa-desktop-gui | WebView2 の外のダイアログとネイティブのログイン |
 | automating-wpf-with-flaui | aidev-qa-desktop-gui | FlaUI の書き方は `references/flaui.md`、ダイアログは `references/dialogs.md` |
 | orchestrating-capi-screen-verification | aidev-qa-screen-verification | 段階2 |
-| cause-repro | aidev-qa-cause-repro（予定） | 後の段階で追加する予定で、まだない。旧 Skill を使い続ける |
-| test-verify | aidev-qa-fix-verify（予定） | 後の段階で追加する予定で、まだない。旧 Skill を使い続ける |
-| uat-verify | aidev-qa-fix-verify（予定） | 同上 |
+| cause-repro | aidev-qa-cause-repro | 段階3。原因の調査と再現手順は `reports/cause-<Issue番号 または TC-ID>.md` に書く |
+| test-verify | aidev-qa-fix-verify | 段階3。結果は新しい `runs/<YYYYMMDD>-<run-id>/result.md` に書く。旧版の HTML レポートは作らない |
+| uat-verify | aidev-qa-fix-verify | 同上 |
 
-予定の Skill が出るまで、cause-repro、test-verify、uat-verify は消さないでください。このメモの対象にも含めていません。
+cause-repro、test-verify、uat-verify も、新しい Skill への移行が済んだ案件から、利用者が消すかどうかを決めます。このメモの対象には含めていません。
 
 ## 旧 Skill を消すかどうかは利用者が決める
 

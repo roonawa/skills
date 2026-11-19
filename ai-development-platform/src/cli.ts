@@ -10,6 +10,7 @@ import { claudeRunner, runLoop, type ClaudeOptions } from './loop.js';
 import { checkSpec } from './spec.js';
 import { checkProfile } from './qa-profile.js';
 import { compareReport } from './qa-compare.js';
+import { createIssueFromRun } from './qa-issue.js';
 
 /** Session limits for `workflow run`, from the environment. Invalid values stop before any session starts. */
 function sessionOptions(env: NodeJS.ProcessEnv): ClaudeOptions {
@@ -51,6 +52,16 @@ async function run(args: string[]) {
       (words.length === 4 || (words.length === 5 && words[4] === '--link'))) {
     return compareReport(root,words[2],words[3],words.length === 5);
   }
+  if (command === 'qa' && action === 'issue' && name === 'create' && words.length === 9) {
+    const flags = new Map<string, string>();
+    for (let i = 3; i < words.length; i += 2) if (!flags.has(words[i])) flags.set(words[i], words[i + 1]);
+    const [profile, run, tc] = ['--profile', '--run', '--tc'].map(flag => flags.get(flag));
+    if (profile !== undefined && run !== undefined && tc !== undefined) {
+      // GITEA_TOKEN and GITEA_URL are read here only; the token is never part of the output.
+      return createIssueFromRun({root, profile, run, tc, dryRun, token: dryRun ? undefined : process.env.GITEA_TOKEN,
+        giteaUrl: process.env.GITEA_URL});
+    }
+  }
   if (!dryRun) {
     if (command === 'skill' && action === 'eval' && (words.length === 3 ||
         (words.length === 5 && words[3] === '--observations'))) {
@@ -89,7 +100,7 @@ async function run(args: string[]) {
       return {node:process.versions.node,platform:process.platform,registryCount:listSkills().length,...config};
     }
   }
-  throw new Error('使用法: aidev init NAME [--template core|react|unity|qa] | skill list | skill add NAME | skill update NAME | skill validate NAME | skill eval NAME [--observations FILE] | doctor | verify | check | spec check FILE | qa profile check FILE [--skill NAME] | qa compare-report MANIFEST OUT [--link] | workflow check TASK --review FILE | workflow run TASK --spec FILE | workflow status TASK。init/add/update は末尾に --dry-run を指定できます。');
+  throw new Error('使用法: aidev init NAME [--template core|react|unity|qa] | skill list | skill add NAME | skill update NAME | skill validate NAME | skill eval NAME [--observations FILE] | doctor | verify | check | spec check FILE | qa profile check FILE [--skill NAME] | qa compare-report MANIFEST OUT [--link] | qa issue create --profile FILE --run RUNDIR --tc TC-ID [--dry-run] | workflow check TASK --review FILE | workflow run TASK --spec FILE | workflow status TASK。init/add/update/qa issue create は末尾に --dry-run を指定できます。');
 }
 try {
   console.log(JSON.stringify({ok:true,...await run(process.argv.slice(2))}));

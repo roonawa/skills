@@ -151,7 +151,7 @@ API を呼ばない画面では、画面に出た値を構造化したものが�
 - 比較先: "12,000"（runs/20261120-new-orders/evidence/TC-orders-char-020/orders.csv の 2 行目。引用符で囲まれている）
 - 根拠を探した範囲: plan/acceptance.md、基本設計書 6章。書き方の変更の記述はない
 - 裏取り: 不要（値の書き方の差で、データの有無の問題ではない）
-- Issue: （後の段階で追加する予定の aidev-qa-bug-ticket が書く）
+- Issue: （起票すると aidev-qa-bug-ticket が番号を書く）
 
 ## 照合できなかったケース
 
