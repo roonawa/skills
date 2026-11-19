@@ -68,7 +68,8 @@ function findDetail(lines: Line[], tc: string): Detail {
   let i = start + 1;
   const found: number[] = [];
   for (; i < lines.length && (heading(lines[i]) === 0 || heading(lines[i]) > 2); i++) {
-    const match = heading(lines[i]) === 3 ? /^###\s+(\S+)(?:\s+(.*))?$/.exec(lines[i].text.trim()) : null;
+    // The s flag: a case name may contain U+2028 or U+2029, which `.` would not match otherwise.
+    const match = heading(lines[i]) === 3 ? /^###\s+(\S+)(?:\s+(.*))?$/s.exec(lines[i].text.trim()) : null;
     if (match?.[1] === tc) found.push(i);
   }
   if (found.length > 1) {
@@ -77,7 +78,7 @@ function findDetail(lines: Line[], tc: string): Detail {
   }
   if (found.length === 0) throw new Error('result.md の NG の詳細に ' + tc + ' の節がありません。');
   i = found[0];
-  const name = /^###\s+\S+(?:\s+(.*))?$/.exec(lines[i].text.trim())?.[1]?.trim() ?? '';
+  const name = /^###\s+\S+(?:\s+(.*))?$/s.exec(lines[i].text.trim())?.[1]?.trim() ?? '';
   const fields = new Map<string, string>();
   let label: string | undefined;
   let first = '';
@@ -140,8 +141,12 @@ const titleCharacters: Record<string, string> = {
   '@': '＠', '#': '＃', '!': '！', '<': '＜', '>': '＞', '[': '［', ']': '］', '(': '（', ')': '）', '\\': '＼', '`': '｀',
   ':': '：', '/': '／',
 };
-/** C0 and C1 controls (tab, CR and LF are turned into spaces below, so they stay out of this set) and the bidirectional controls. */
-const titleInvisible = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
+/**
+ * C0 and C1 controls (tab, CR and LF are turned into spaces below, so they stay out of this set), the bidirectional
+ * controls (U+061C, U+200E, U+200F, U+202A\u2013U+202E, U+2066\u2013U+2069), the line and paragraph separators (U+2028, U+2029)
+ * and the zero-width characters (U+200B\u2013U+200D, U+2060, U+FEFF).
+ */
+const titleInvisible = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028-\u202e\u2060\u2066-\u2069\ufeff]/g;
 /** Gitea refuses titles over 255 characters. */
 const titleLimit = 255;
 function plainTitle(title: string): string {

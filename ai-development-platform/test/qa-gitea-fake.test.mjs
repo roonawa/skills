@@ -186,3 +186,26 @@ test('要求の途中で切れてもサーバーは待ち続けず、次の要�
   });
   assert.equal((await call(base + '/api/v1/repos/o/r/issues', {headers: auth})).status, 200);
 });
+
+test('413 を返したあとも本文を読み切り、送り手に接続のリセットを返さない', async t => {
+  const base = await start(t);
+  const { connect } = await import('node:net');
+  const body = Buffer.alloc(32 * 1024 * 1024, 'x');
+  const got = await new Promise(resolve => {
+    let text = '';
+    let error;
+    const socket = connect(Number(new URL(base).port), '127.0.0.1', () => {
+      socket.write('POST /api/v1/repos/o/r/issues HTTP/1.1\r\nHost: x\r\nAuthorization: token ' + TOKEN +
+        '\r\nContent-Type: application/json\r\nContent-Length: ' + body.length + '\r\n\r\n');
+      socket.write(body);
+    });
+    socket.setEncoding('utf8');
+    socket.on('data', d => { text += d; });
+    socket.on('error', e => { error = e.code; });
+    socket.on('close', () => resolve({text, error}));
+    setTimeout(() => socket.destroy(), 10000);
+  });
+  assert.equal(got.error, undefined);
+  assert.match(got.text, /^HTTP\/1\.1 413 /);
+  assert.equal((await call(base + '/api/v1/repos/o/r/issues', {headers: auth})).status, 200);
+});

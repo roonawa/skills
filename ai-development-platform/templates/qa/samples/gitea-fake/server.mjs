@@ -5,6 +5,8 @@ import { createServer } from 'node:http';
 import { createHash, timingSafeEqual } from 'node:crypto';
 
 const MAX_BODY = 64 * 1024;
+// readBody が上限を超えたときに返す目印。文字列の本文と取り違えないよう、ほかと一致しない値にする。
+const TOO_LARGE = Symbol('too large');
 
 let port = 3000;
 const argv = process.argv.slice(2);
@@ -32,7 +34,7 @@ function send(res, status, body) {
   res.end(text);
 }
 
-// 本文を読む。上限を超えたら読むのをやめて too_large を返す。途中で切れたとき（close・aborted・error）も必ず終わる。
+// 本文を読む。上限を超えたら TOO_LARGE を返し、残りは貯めずに読み捨てる。途中で切れたとき（close・aborted・error）も必ず終わる。
 function readBody(req) {
   return new Promise(resolve => {
     const chunks = [];
@@ -40,8 +42,9 @@ function readBody(req) {
     let done = false;
     const finish = value => { if (!done) { done = true; resolve(value); } };
     req.on('data', chunk => {
+      if (done) return;
       size += chunk.length;
-      if (size > MAX_BODY) { chunks.length = 0; finish('too_large'); req.pause(); return; }
+      if (size > MAX_BODY) { chunks.length = 0; finish(TOO_LARGE); return; }
       chunks.push(chunk);
     });
     req.on('end', () => finish(Buffer.concat(chunks).toString('utf8')));
@@ -85,9 +88,17 @@ async function handle(req, res) {
   }
   if (req.method === 'POST') {
     const raw = await readBody(req);
-    if (raw === 'too_large') {
-      res.writeHead(413, {'content-type': 'application/json; charset=utf-8', connection: 'close'});
-      return res.end(JSON.stringify({message: 'request body too large'}));
+    if (raw === TOO_LARGE) {
+      // 送り手が書き終わる前に接続を閉じると、送り手には接続のリセットが届く。本文を読み切ってから閉じる。
+      req.resume();
+      const close = () => {
+        res.writeHead(413, {'content-type': 'application/json; charset=utf-8', connection: 'close'});
+        res.end(JSON.stringify({message: 'request body too large'}));
+      };
+      if (req.complete) return close();
+      req.once('end', close);
+      req.once('close', () => { if (!res.headersSent) res.destroy(); });
+      return;
     }
     let input;
     try { input = JSON.parse(raw); } catch { input = null; }

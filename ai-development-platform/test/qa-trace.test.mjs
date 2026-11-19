@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
-import { traceQaRepository } from '../dist/qa-trace.js';
+import { traceDirectory, traceQaRepository } from '../dist/qa-trace.js';
 
 const fixture = fileURLToPath(new URL('./fixtures/qa-repo', import.meta.url));
 const cli = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
@@ -117,7 +117,7 @@ test('other parser problems are reported with their file and line', t => {
     result([['TC-a-001', 'OK'], ['TC-a-002', 'たぶん OK']], {head: '- 改修確認: #5 なおった\n'})})));
   assert.deepEqual(report.findings.map(f => [f.level, f.code, f.file, f.line]), [
     ['warning', 'fix-check', 'runs/20261119-r1/result.md', 6],
-    ['warning', 'run-result', 'runs/20261119-r1/result.md', 11],
+    ['error', 'run-result', 'runs/20261119-r1/result.md', 11],
     ['warning', 'case-not-run', 'cases/a.md', 10]]);
   const missing = traceQaRepository(sandbox(t, {'cases/a.md': '# a\n\n' + tcase('TC-a-001', 'AC-001')}));
   assert.ok(missing.findings.some(f => f.level === 'error' && f.code === 'missing-acceptance'));
@@ -234,4 +234,78 @@ test('cli trace refuses paths outside the repository and absolute paths', t => {
   assert.match(usage.json.error, /qa trace DIR/);
   const dry = runCli(root, ['qa', 'trace', 'qa', '--dry-run']);
   assert.equal(dry.status, 1);
+});
+
+test('an NG in the fix run itself reopens the issue', t => {
+  const fixOwnNG = traceQaRepository(sandbox(t, base({
+    'runs/20261119-r1/result.md': result([['TC-a-001', 'NG', '#1'], ['TC-a-002', 'NG', '#1']]),
+    'runs/20261120-fix/result.md': result([['TC-a-001', 'OK', '#1'], ['TC-a-002', 'NG', '#1']], {head: '- 改修確認: #1 確認済み\n'})})));
+  assert.deepEqual(fixOwnNG.issues[0], {number: 1, tcs: ['TC-a-001', 'TC-a-002'], status: '要確認', fixRun: 'runs/20261120-fix'});
+  const finding = fixOwnNG.findings.find(f => f.code === 'issue-unconfirmed');
+  assert.deepEqual([finding.file, finding.line, finding.tc], ['runs/20261120-fix/result.md', 11, 'TC-a-002']);
+  assert.equal(finding.message, '#1 は runs/20261120-fix で確認済みとされていますが、同じ run で TC-a-002 が NG です。');
+});
+
+test('the reopen message names the confirming run and the later NG', t => {
+  const report = traceQaRepository(sandbox(t, base({
+    'runs/20261119-r1/result.md': result([['TC-a-001', 'NG', '#1'], ['TC-a-002', 'NG', '#1']]),
+    'runs/20261120-fix/result.md': result([['TC-a-001', 'OK', '#1'], ['TC-a-002', 'OK', '#1']], {head: '- 改修確認: #1 確認済み\n'}),
+    'runs/20261121-r2/result.md': result([['TC-a-001', 'OK'], ['TC-a-002', 'NG', '#5']])})));
+  const finding = report.findings.find(f => f.code === 'issue-unconfirmed' && f.issue === 1);
+  assert.equal(finding.message, '#1 は runs/20261120-fix で確認済みですが、その後の runs/20261121-r2 で TC-a-002 が NG です。');
+  assert.deepEqual([finding.file, finding.line, finding.tc], ['runs/20261121-r2/result.md', 10, 'TC-a-002']);
+  // The other messages name the fix-check run too.
+  const unsure = traceQaRepository(sandbox(t, base({'runs/20261120-fix/result.md': result([['TC-a-001', 'OK', '#1'], ['TC-a-002', 'OK', '#2']],
+    {head: '- 改修確認: #1 要確認\n- 改修確認: #2 効いていない\n'})})));
+  assert.deepEqual(unsure.findings.filter(f => f.code === 'issue-unconfirmed').map(f => [f.message, f.file]), [
+    ['#1 は runs/20261120-fix の改修確認の結果が要確認です。', 'runs/20261120-fix/result.md'],
+    ['#2 は runs/20261120-fix の改修確認で、修正が効いていないとされました。', 'runs/20261120-fix/result.md']]);
+});
+
+test('run findings carry the line of the row', t => {
+  const report = traceQaRepository(sandbox(t, base({'runs/20261119-r1/result.md':
+    result([['TC-a-001', 'NG'], ['TC-a-002', '実行不能'], ['TC-b-001', 'OK']])})));
+  assert.deepEqual(report.findings.map(f => [f.code, f.file, f.line]), [
+    ['ng-without-issue', 'runs/20261119-r1/result.md', 9],
+    ['blocked-without-reason', 'runs/20261119-r1/result.md', 10],
+    ['run-unknown-tc', 'runs/20261119-r1/result.md', 11]]);
+});
+
+test('malformed and duplicate run rows fail the trace', t => {
+  const head = '# 実行結果\n\n- 環境: new\n\n| TC-ID | 結果 | 証跡 | Issue |\n|---|---|---|---|\n';
+  for (const [name, rows, code] of [
+    ['short NG row', '| TC-a-001 | ng |\n| TC-a-002 | OK | | |\n', 'run-row'],
+    ['unknown result', '| TC-a-001 | ng | | |\n| TC-a-002 | OK | | |\n', 'run-result'],
+    ['bad TC-ID', '| TC-a-001 | OK | | |\n| TC-a-002 | OK | | |\n| TC-a | NG | | |\n', 'run-tc'],
+    ['OK then NG', '| TC-a-001 | OK | | |\n| TC-a-002 | OK | | |\n| TC-a-001 | NG | | |\n', 'duplicate-run-row'],
+    ['no table', '表がない\n', 'no-result-table'],
+  ]) {
+    const text = code === 'no-result-table' ? '# 実行結果\n\n- 環境: new\n\n' + rows : head + rows;
+    const root = sandbox(t, base({'runs/20261119-r1/result.md': text}));
+    const out = runCli(root, ['qa', 'trace', '.']);
+    assert.equal(out.status, 1, name);
+    assert.equal(out.json.ok, false, name);
+    assert.ok(out.json.findings.some(f => f.level === 'error' && f.code === code), name + ' ' + JSON.stringify(out.json.findings));
+  }
+  const missing = sandbox(t, base({'runs/20261119-r1/memo.md': 'x\n', 'runs/20261119-r2/result.md': result([['TC-a-001', 'OK'], ['TC-a-002', 'OK']])}));
+  const out = runCli(missing, ['qa', 'trace', '.']);
+  assert.equal(out.status, 1);
+  assert.deepEqual(out.json.findings.map(f => f.level + ' ' + f.code), ['error missing-result']);
+});
+
+test('cli trace refuses an empty DIR', t => {
+  const root = sandbox(t, base({}));
+  const out = runCli(root, ['qa', 'trace', '']);
+  assert.equal(out.status, 1);
+  assert.equal(out.json.ok, false);
+  assert.ok(out.json.error);
+  assert.equal(out.json.findings, undefined);
+});
+
+test('a DIR with many separators is checked quickly', () => {
+  const started = performance.now();
+  assert.throws(() => traceDirectory(fixture, '.' + '/'.repeat(100000) + 'x'));
+  assert.throws(() => traceDirectory(fixture, 'x' + '/'.repeat(100000) + 'y'));
+  const elapsed = performance.now() - started;
+  assert.ok(elapsed < 500, 'took ' + Math.round(elapsed) + ' ms');
 });

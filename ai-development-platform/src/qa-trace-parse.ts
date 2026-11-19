@@ -9,6 +9,10 @@ import { checked, content } from './files.js';
  *
  * The fence and table-cell handling follows src/qa-issue.ts (readLines, cellsOf). It is duplicated here on purpose
  * so that this read-only parser does not change the module that writes result.md.
+ *
+ * Every line is up to 1 MiB long, so the patterns here must stay linear. `- label: value` is split at the first
+ * colon without a regular expression, and the patterns that end in `(.*)$` or `(.+)$` use the s flag: without it,
+ * `.` stops at U+2028 or U+2029 (which \s matches), and the match backtracks over the whole line for every space.
  */
 
 export interface AcceptanceItem { id: string; text: string; source?: string; line: number }
@@ -16,14 +20,15 @@ export interface CaseItem {
   id: string; name: string; feature: string; file: string; acs: string[];
   priority?: string; execution?: '自動' | '手動'; line: number;
 }
-export interface RunRow { tc: string; result: 'OK' | 'NG' | '実行不能'; evidence?: string; issues: number[]; reason?: string }
+export interface RunRow { tc: string; result: 'OK' | 'NG' | '実行不能'; evidence?: string; issues: number[]; reason?: string; line: number }
 export type FixVerdict = '確認済み' | '要確認' | '効いていない';
 export interface FixCheck { issue: number; verdict: FixVerdict; note?: string; commit?: string }
 export interface RunRecord {
   dir: string; date: string; runId: string; environment?: string; version?: string; executedAt?: string;
   fixChecks: FixCheck[]; origin?: string; rows: RunRow[];
 }
-export interface QaProblem { code: string; file: string; line?: number; message: string }
+/** `id` is set for duplicate-acceptance and duplicate-case: the AC-ID or TC-ID written twice. */
+export interface QaProblem { code: string; file: string; line?: number; id?: string; message: string }
 export interface QaRepository { acceptance: AcceptanceItem[]; cases: CaseItem[]; runs: RunRecord[]; problems: QaProblem[] }
 
 interface Line { text: string; fenced: boolean }
@@ -33,7 +38,7 @@ function readLines(markdown: string): Line[] {
   let fence: string | undefined;
   return markdown.split('\n').map(raw => {
     const text = raw.endsWith('\r') ? raw.slice(0, -1) : raw;
-    const open = /^\s{0,3}(`{3,}|~{3,})/.exec(text);
+    const open = /^\s*(`{3,}|~{3,})/.exec(text);
     if (fence === undefined && open) { fence = open[1]; return {text, fenced: true}; }
     if (fence !== undefined) {
       if (open && open[1][0] === fence[0] && open[1].length >= fence.length && text.trim() === open[1]) fence = undefined;
@@ -47,8 +52,36 @@ function readLines(markdown: string): Line[] {
 const cellsOf = (text: string) => text.split(/(?<!\\)\|/).slice(1, -1).map(cell => cell.trim().replace(/\\\|/g, '|'));
 const isRow = (line: Line) => !line.fenced && line.text.trimStart().startsWith('|');
 const headingLevel = (line: Line) => line.fenced ? 0 : (/^(#{1,6})(?:\s|$)/.exec(line.text)?.[1].length ?? 0);
-/** `- label: value` (also with a full-width colon). */
-const labeled = /^[-*]\s+([^:：]+?)\s*[:：]\s*(.*)$/;
+/**
+ * `- label: value` (also with a full-width colon), as [label, value] with both trimmed, or undefined. The label is
+ * what comes before the first colon. Parsed without a regular expression so that a long line stays linear.
+ */
+function labeled(text: string): [string, string] | undefined {
+  if (text[0] !== '-' && text[0] !== '*') return undefined;
+  if (!/\s/.test(text[1] ?? '')) return undefined;
+  const half = text.indexOf(':');
+  const full = text.indexOf('：');
+  const colon = half < 0 ? full : full < 0 ? half : Math.min(half, full);
+  if (colon < 0) return undefined;
+  const label = text.slice(1, colon).trim();
+  return label ? [label, text.slice(colon + 1).trim()] : undefined;
+}
+
+/**
+ * `本文（出どころ: 場所）` as [本文, 場所], or undefined when the body does not end with such a note. The first
+ * `（出どころ` (or `(出どころ`) followed by a colon starts the note, and the body must end with `）` or `)`.
+ */
+function sourceNote(body: string): [string, string] | undefined {
+  const last = body[body.length - 1];
+  if (last !== '）' && last !== ')') return undefined;
+  for (let at = body.indexOf('出どころ'); at >= 0; at = body.indexOf('出どころ', at + 1)) {
+    if (at === 0 || (body[at - 1] !== '（' && body[at - 1] !== '(')) continue;
+    const rest = body.slice(at + '出どころ'.length, -1).trimStart();
+    if (rest[0] !== ':' && rest[0] !== '：') continue;
+    return [body.slice(0, at - 1).trimEnd(), rest.slice(1).trim()];
+  }
+  return undefined;
+}
 
 const acId = /^AC-\d{1,6}$/;
 const tcId = /^TC-(\S+)-(\d+)$/;
@@ -101,19 +134,19 @@ function readAcceptance(reader: Reader): AcceptanceItem[] {
   const seen = new Set<string>();
   lines?.forEach((line, index) => {
     if (line.fenced || !/^[-*]\s+AC-/.test(line.text.trim())) return;
-    const match = /^[-*]\s+(AC-\d{1,6})\s*[:：]\s*(.*)$/.exec(line.text.trim());
-    if (!match || !match[2].trim()) {
+    const field = labeled(line.text.trim());
+    if (!field || !acId.test(field[0]) || !field[1]) {
       reader.problem('acceptance-line', file, index + 1, '受け入れ条件の行の形が「- AC-<1〜6桁の数字>: 本文」ではありません。');
       return;
     }
-    const [, id, body] = match;
+    const [id, body] = field;
     if (seen.has(id)) {
-      reader.problem('duplicate-acceptance', file, index + 1, id + ' が2回以上あります。最初の行を使います。');
+      reader.problems.push({code: 'duplicate-acceptance', file, line: index + 1, id, message: id + ' が2回以上あります。最初の行を使います。'});
       return;
     }
     seen.add(id);
-    const source = /^(.*?)\s*[（(]出どころ\s*[:：]\s*(.*?)\s*[）)]\s*$/.exec(body.trim());
-    items.push(source ? {id, text: source[1], source: source[2], line: index + 1} : {id, text: body.trim(), line: index + 1});
+    const source = sourceNote(body);
+    items.push(source ? {id, text: source[0], source: source[1], line: index + 1} : {id, text: body, line: index + 1});
   });
   return items;
 }
@@ -127,8 +160,10 @@ function readCases(reader: Reader): CaseItem[] {
   const cases: CaseItem[] = [];
   const seen = new Map<string, string>();
   for (const entry of entries) {
-    if (!entry.isFile() || !entry.name.endsWith('.md') || entry.name.toLowerCase() === 'readme.md') continue;
+    if (!entry.name.endsWith('.md') || entry.name.toLowerCase() === 'readme.md') continue;
     const file = 'cases/' + entry.name;
+    if (entry.isSymbolicLink()) { reader.problem('unreadable', file, undefined, linkMessage); continue; }
+    if (!entry.isFile()) continue;
     const lines = reader.lines(file);
     if (!lines) continue;
     let current: CaseItem | undefined;
@@ -139,14 +174,15 @@ function readCases(reader: Reader): CaseItem[] {
         current = undefined;
         inFields = false;
         if (level !== 3 || !/^###\s+TC-/.test(line.text)) return;
-        const match = /^###\s+(\S+)(?:\s+(.*))?$/.exec(line.text.trim());
+        const match = /^###\s+(\S+)(?:\s+(.*))?$/s.exec(line.text.trim());
         const id = match ? tcId.exec(match[1]) : null;
         if (!match || !id) {
           reader.problem('case-heading', file, index + 1, 'ケースの見出しの形が「### TC-<機能>-<連番> <名前>」ではありません。');
           return;
         }
         if (seen.has(match[1])) {
-          reader.problem('duplicate-case', file, index + 1, match[1] + ' は ' + seen.get(match[1]) + ' にもあります。最初の見出しを使います。');
+          reader.problems.push({code: 'duplicate-case', file, line: index + 1, id: match[1],
+            message: match[1] + ' は ' + seen.get(match[1]) + ' にもあります。最初の見出しを使います。'});
           return;
         }
         seen.set(match[1], file);
@@ -158,9 +194,9 @@ function readCases(reader: Reader): CaseItem[] {
       if (!current || !inFields || line.fenced) return;
       const text = line.text.trim();
       if (!text) return;
-      const field = labeled.exec(text);
+      const field = labeled(text);
       if (!field) { inFields = false; return; }
-      const [, label, value] = field;
+      const [label, value] = field;
       if (label === 'AC') {
         for (const token of value.split(/[\s,、，]+/).filter(Boolean)) {
           if (acId.test(token)) { if (!current.acs.includes(token)) current.acs.push(token); }
@@ -178,16 +214,17 @@ function readCases(reader: Reader): CaseItem[] {
   return cases;
 }
 
+const linkMessage = 'リンク（ジャンクションを含む）はたどりません。中身は読んでいません。';
+
 const clip = (text: string) => text.length > 40 ? text.slice(0, 40) + '…' : text;
 
 function readHeader(reader: Reader, file: string, lines: Line[], end: number, run: RunRecord): void {
   const commits: {issue: number; commit: string; line: number}[] = [];
   for (let i = 0; i < end; i++) {
     if (lines[i].fenced) continue;
-    const field = labeled.exec(lines[i].text.trim());
+    const field = labeled(lines[i].text.trim());
     if (!field) continue;
-    const [, label, raw] = field;
-    const value = raw.trim();
+    const [label, value] = field;
     if (label === '環境') run.environment ??= value;
     else if (label === '版') run.version ??= value;
     else if (label === '実行日時') run.executedAt ??= value;
@@ -214,12 +251,12 @@ function readHeader(reader: Reader, file: string, lines: Line[], end: number, ru
 }
 
 function parseFixCheck(value: string): FixCheck | undefined {
-  const match = /^#(\d+)\s+(.+)$/.exec(value);
+  const match = /^#(\d+)\s+(.+)$/s.exec(value);
   if (!match) return undefined;
   const issue = Number(match[1]);
   const verdict = match[2].trim();
   if (verdict === '確認済み' || verdict === '効いていない') return {issue, verdict};
-  const unsure = /^要確認(?:\s*[（(](.*)[）)])?$/.exec(verdict);
+  const unsure = /^要確認(?:\s*[（(](.*)[）)])?$/s.exec(verdict);
   if (!unsure) return undefined;
   return unsure[1]?.trim() ? {issue, verdict: '要確認', note: unsure[1].trim()} : {issue, verdict: '要確認'};
 }
@@ -235,8 +272,8 @@ function readReasons(lines: Line[], from: number): Map<string, string> {
     if (level === 1 || level === 2) break;
     if (level > 0) { tc = level === 3 ? /^###\s+(\S+)/.exec(lines[i].text.trim())?.[1] : undefined; continue; }
     if (!tc || lines[i].fenced || reasons.has(tc)) continue;
-    const field = labeled.exec(lines[i].text.trim());
-    if (field && field[1] === '理由' && field[2].trim()) reasons.set(tc, field[2].trim());
+    const field = labeled(lines[i].text.trim());
+    if (field && field[0] === '理由' && field[1]) reasons.set(tc, field[1]);
   }
   return reasons;
 }
@@ -288,9 +325,10 @@ function readRun(reader: Reader, dir: string, date: string, runId: string): RunR
       else badIssue = true;
     }
     if (badIssue) reader.problem('run-issue', file, line, tc + ' の Issue の列に「#番号」以外の値があります。');
-    const row: RunRow = {tc, result, issues};
+    const row: RunRow = {tc, result, issues, line};
+    // An empty cell and `-` both mean that the row has no evidence.
     const evidence = columns.evidence >= 0 ? cells[columns.evidence] : '';
-    if (evidence) row.evidence = evidence;
+    if (evidence && evidence !== '-') row.evidence = evidence;
     run.rows.push(row);
   }
   if (run.rows.some(row => row.result === '実行不能')) {
@@ -303,9 +341,11 @@ function readRun(reader: Reader, dir: string, date: string, runId: string): RunR
 function readRuns(reader: Reader): RunRecord[] {
   const runs: RunRecord[] = [];
   for (const entry of reader.entries('runs') ?? []) {
-    // Files directly under runs/ (README.md, <run>.compare.json) are not runs; links are not followed.
-    if (!entry.isDirectory()) continue;
+    // Files directly under runs/ (README.md, <run>.compare.json) are not runs. Links are not followed but reported,
+    // so that a run behind a link (or a junction) is not silently left out.
     const dir = 'runs/' + entry.name;
+    if (entry.isSymbolicLink()) { reader.problem('unreadable', dir, undefined, linkMessage); continue; }
+    if (!entry.isDirectory()) continue;
     const name = runDir.exec(entry.name);
     if (!name) {
       if (!entry.name.startsWith('.')) reader.problem('run-dir', dir, undefined, 'run のディレクトリ名が「YYYYMMDD-run-id」ではありません。');

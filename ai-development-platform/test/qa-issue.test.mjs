@@ -472,11 +472,12 @@ test('many continuation lines and a long case name are handled', () => {
 });
 
 test('control and bidi characters are removed from the title', () => {
-  const dirty = '\u0000a\u0007b\u001bc\u007fd\u0085e\u009ff\u200eg\u200fh\u202ai\u202bj\u202ck\u202dl\u202em\u2066n\u2067o\u2068p\u2069q';
+  const dirty = '\u0000a\u0007b\u001bc\u007fd\u0085e\u009ff\u200eg\u200fh\u202ai\u202bj\u202ck\u202dl\u202em\u2066n\u2067o\u2068p\u2069q' +
+    '\u061cr\u2028s\u2029t\u200bu\u200cv\u200dw\u2060x\ufeffy';
   const text = result.replace('### TC-order-004 送料が表示されない', '### TC-order-004 ' + dirty);
   const {title} = buildIssue(text, 'TC-order-004', {product: 'sample-web', run: RUN});
-  assert.equal(title, '［TC-order-004］ abcdefghijklmnopq');
-  assert.ok(!/[\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/.test(title));
+  assert.equal(title, '［TC-order-004］ abcdefghijklmnopqrstuvwxy');
+  assert.ok(!/[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028-\u202e\u2060\u2066-\u2069\ufeff]/.test(title));
 });
 
 test('a second section for the same TC is an error that names both lines', () => {

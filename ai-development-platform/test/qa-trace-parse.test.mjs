@@ -4,6 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from 'node
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
 import { readQaRepository } from '../dist/qa-trace-parse.js';
 
 const fixture = fileURLToPath(new URL('./fixtures/qa-repo', import.meta.url));
@@ -44,7 +45,7 @@ test('ignore fenced blocks and READMEs', () => {
   const detail = repo.runs.find(run => run.runId === 'csv-detail');
   assert.equal(detail.rows.length, 4, 'the fenced table and the 流し直し table are not result rows');
   assert.deepEqual(detail.rows.find(row => row.tc === 'TC-detail-001'),
-    {tc: 'TC-detail-001', result: '実行不能', issues: [], reason: '手動確認待ち（実行が「手動」のケース）。手動確認の項目に再現手順を書いた'});
+    {tc: 'TC-detail-001', result: '実行不能', issues: [], line: 13, reason: '手動確認待ち（実行が「手動」のケース）。手動確認の項目に再現手順を書いた'});
 });
 
 test('skip files directly under runs', () => {
@@ -191,4 +192,88 @@ test('large repository stays fast', t => {
   assert.equal(repo.runs[0].rows.length, rows.length);
   assert.deepEqual(repo.problems, []);
   assert.ok(elapsed < 3000, 'took ' + elapsed + ' ms');
+});
+
+/** Reads the repository in a child process, so that a regular expression that never ends cannot hang the tests. */
+function timedRead(root, name) {
+  const module = new URL('../dist/qa-trace-parse.js', import.meta.url).href;
+  const code = 'const {readQaRepository} = await import(' + JSON.stringify(module) + ');' +
+    'const t = performance.now(); const repo = readQaRepository(' + JSON.stringify(root) + ');' +
+    'console.log(JSON.stringify({ms: performance.now() - t, problems: repo.problems.map(p => p.code)}));';
+  const out = spawnSync(process.execPath, ['--input-type=module', '-e', code], {encoding: 'utf8', timeout: 10000});
+  assert.equal(out.status, 0, name + ': the read did not finish: ' + (out.error?.code ?? out.stderr));
+  return JSON.parse(out.stdout);
+}
+
+test('long padded lines are read in linear time', t => {
+  // Just under the 1 MiB limit of a file, with no colon to stop at.
+  const pad = ' '.repeat(1024 * 1024 - 4096);
+  const files = {
+    'acceptance bullet': {'plan/acceptance.md': '- ' + pad + 'z\n'},
+    'acceptance source': {'plan/acceptance.md': '- AC-001: a' + pad + 'b（出どころ: c' + ' '.repeat(2000) + 'd\n'},
+    'case field': {'plan/acceptance.md': '- AC-001: a\n', 'cases/a.md': '### TC-a-001 x\n- AC: AC-001\n- ' + pad + 'z\n'},
+    'result header': {'plan/acceptance.md': '- AC-001: a\n', 'runs/20261120-r/result.md': '# 実行結果\n\n- ' + pad + 'z\n\n' + table + '| TC-a-001 | OK | | |\n'},
+    'result reason': {'plan/acceptance.md': '- AC-001: a\n', 'runs/20261120-r/result.md': header + table + '| TC-a-001 | 実行不能 | | |\n\n## 実行不能の理由\n\n### TC-a-001\n- ' + pad + 'z\n'},
+    // U+2028 is not matched by `.` without the s flag, and is \s: a pattern like \s+(.+)$ would backtrack.
+    'case heading with U+2028': {'plan/acceptance.md': '- AC-001: a\n', 'cases/a.md': '### TC-a-001' + pad + 'a\u2028b\n- AC: AC-001\n'},
+    'fix check with U+2028': {'plan/acceptance.md': '- AC-001: a\n', 'runs/20261120-r/result.md': '# 実行結果\n\n- 改修確認: #1' + pad + 'a\u2028b\n\n' + table + '| TC-a-001 | OK | | |\n'},
+  };
+  for (const [name, content] of Object.entries(files)) {
+    const {ms} = timedRead(sandbox(t, content), name);
+    assert.ok(ms < 2000, name + ' took ' + Math.round(ms) + ' ms');
+  }
+});
+
+test('an indented fence is still a fence', t => {
+  const fence = '    ```\n';
+  const root = sandbox(t, {
+    'plan/acceptance.md': '- AC-001: a\n' + fence + '- AC-002: 囲みの中\n' + fence,
+    'cases/a.md': '### TC-a-001 x\n- AC: AC-001\n\n' + fence + '### TC-a-002 囲みの中\n- AC: AC-001\n' + fence,
+    'runs/20261120-r/result.md': header + table + '| TC-a-001 | OK | | |\n\n' + fence + table + '| TC-a-002 | OK | | |\n' + fence,
+  });
+  const repo = readQaRepository(root);
+  assert.deepEqual(repo.acceptance.map(item => item.id), ['AC-001']);
+  assert.deepEqual(repo.cases.map(item => item.id), ['TC-a-001']);
+  assert.deepEqual(repo.runs[0].rows.map(row => row.tc), ['TC-a-001']);
+});
+
+test('links under cases and runs are reported, not skipped', t => {
+  const outside = sandbox(t, {
+    'cases/x.md/keep': 'x',
+    'runs/20261120-outside/result.md': header + table + '| TC-outside-001 | OK | | |\n',
+  });
+  const root = sandbox(t, {'plan/acceptance.md': '- AC-001: a（出どころ: 1）\n', 'cases/a.md': '### TC-a-001 x\n- AC: AC-001\n'});
+  mkdirSync(join(root, 'runs'));
+  try {
+    symlinkSync(join(outside, 'cases', 'x.md'), join(root, 'cases', 'linked.md'), 'junction');
+    symlinkSync(join(outside, 'runs', '20261120-outside'), join(root, 'runs', '20261120-outside'), 'junction');
+  } catch (error) {
+    t.skip('links cannot be created here: ' + error.code);
+    return;
+  }
+  const repo = readQaRepository(root);
+  assert.deepEqual(repo.problems.map(problem => [problem.code, problem.file]),
+    [['unreadable', 'cases/linked.md'], ['unreadable', 'runs/20261120-outside']]);
+  assert.deepEqual(repo.cases.map(item => item.id), ['TC-a-001']);
+  assert.deepEqual(repo.runs, []);
+  assert.ok(!JSON.stringify(repo).includes('outside-001'));
+});
+
+test('an evidence cell of "-" means no evidence', t => {
+  const root = sandbox(t, {'runs/20261120-r/result.md': header + table + '| TC-a-001 | OK | - | |\n| TC-a-002 | OK | runs/x/ | |\n'});
+  const [first, second] = readQaRepository(root).runs[0].rows;
+  assert.equal(first.evidence, undefined);
+  assert.equal(second.evidence, 'runs/x/');
+});
+
+test('duplicate IDs and run rows carry the ID and the line', t => {
+  const root = sandbox(t, {
+    'plan/acceptance.md': '- AC-001: a\n- AC-001: b\n',
+    'cases/a.md': '### TC-a-001 x\n- AC: AC-001\n\n### TC-a-001 y\n',
+    'runs/20261120-r/result.md': header + table + '| TC-a-001 | OK | | |\n| TC-a-002 | NG | | #1 |\n',
+  });
+  const repo = readQaRepository(root);
+  assert.deepEqual(repo.problems.map(problem => [problem.code, problem.id, problem.line]),
+    [['duplicate-acceptance', 'AC-001', 2], ['duplicate-case', 'TC-a-001', 4]]);
+  assert.deepEqual(repo.runs[0].rows.map(row => [row.tc, row.line]), [['TC-a-001', 9], ['TC-a-002', 10]]);
 });

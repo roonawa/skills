@@ -18,8 +18,13 @@ export interface TraceReport {
   findings: TraceFinding[];
 }
 
-/** Parser problems that make the trace untrustworthy. The other problems are warnings. */
-const errorProblems = new Set(['missing-acceptance', 'missing-cases', 'unreadable']);
+/**
+ * Parser problems that make the trace untrustworthy: a file that could not be read, or a run whose results could
+ * not all be read (a row of the wrong form, a row written twice, no result table, no result.md). The other problems
+ * (the form of a fix check, a fix commit, the AC or 実行 of a case, ...) are warnings.
+ */
+const errorProblems = new Set(['missing-acceptance', 'missing-cases', 'unreadable',
+  'run-row', 'run-tc', 'run-result', 'duplicate-run-row', 'no-result-table', 'missing-result']);
 const duplicateProblems = new Set(['duplicate-acceptance', 'duplicate-case']);
 
 const resultFile = (run: RunRecord) => run.dir + '/result.md';
@@ -29,10 +34,9 @@ function parserFindings(repo: QaRepository): TraceFinding[] {
     const finding: TraceFinding = duplicateProblems.has(problem.code)
       ? {level: 'error', code: 'duplicate-id', message: problem.message}
       : {level: errorProblems.has(problem.code) ? 'error' : 'warning', code: problem.code, message: problem.message};
-    if (duplicateProblems.has(problem.code)) {
-      const id = /^((?:AC|TC)-\S+?) (?:が|は)/.exec(problem.message)?.[1];
-      if (id?.startsWith('AC-')) finding.ac = id;
-      else if (id) finding.tc = id;
+    if (duplicateProblems.has(problem.code) && problem.id) {
+      if (problem.code === 'duplicate-acceptance') finding.ac = problem.id;
+      else finding.tc = problem.id;
     }
     finding.file = problem.file;
     if (problem.line !== undefined) finding.line = problem.line;
@@ -74,11 +78,11 @@ export function traceQaRepository(root: string): TraceReport {
   for (const [tc, {row, run}] of latest) {
     if (row.result === 'NG' && !row.issues.length) {
       findings.push({level: 'error', code: 'ng-without-issue', message: tc + ' の最新の結果は NG ですが、Issue の列が空です。',
-        tc, file: resultFile(run)});
+        tc, file: resultFile(run), line: row.line});
     }
     if (row.result === '実行不能' && !row.reason) {
       findings.push({level: 'error', code: 'blocked-without-reason',
-        message: tc + ' の最新の結果は実行不能ですが、「実行不能の理由」に理由がありません。', tc, file: resultFile(run)});
+        message: tc + ' の最新の結果は実行不能ですが、「実行不能の理由」に理由がありません。', tc, file: resultFile(run), line: row.line});
     }
   }
   for (const item of repo.cases) {
@@ -88,22 +92,39 @@ export function traceQaRepository(root: string): TraceReport {
   }
   for (const run of repo.runs) for (const row of run.rows) {
     if (caseIds.has(row.tc)) continue;
-    findings.push({level: 'warning', code: 'run-unknown-tc', message: row.tc + ' は cases/ にないケースです。', tc: row.tc, file: resultFile(run)});
+    findings.push({level: 'warning', code: 'run-unknown-tc', message: row.tc + ' は cases/ にないケースです。', tc: row.tc, file: resultFile(run),
+      line: row.line});
   }
 
-  const issues = traceIssues(repo, caseOrder);
-  for (const issue of issues) {
+  const traced = traceIssues(repo, caseOrder);
+  for (const {issue, reopen} of traced) {
     if (issue.status === '確認済み') continue;
-    const message = '#' + issue.number + ' は' + (issue.status === '未確認' ? '改修確認の run がありません。' :
-      issue.status === '要確認' ? '改修確認の結果が要確認です。' : '改修確認で修正が効いていないとされました。');
-    const finding: TraceFinding = {level: 'warning', code: 'issue-unconfirmed', message, issue: issue.number};
-    if (issue.fixRun) finding.file = issue.fixRun + '/result.md';
+    const head = '#' + issue.number + ' は';
+    let finding: TraceFinding;
+    if (reopen) {
+      // Confirmed by a fix check, then an NG of one of its TCs: point at that NG row.
+      const where = reopen.run.dir === issue.fixRun ? '確認済みとされていますが、同じ run で ' : '確認済みですが、その後の ' + reopen.run.dir + ' で ';
+      finding = {level: 'warning', code: 'issue-unconfirmed', message: head + ' ' + issue.fixRun + ' で' + where + reopen.row.tc + ' が NG です。',
+        issue: issue.number, tc: reopen.row.tc, file: resultFile(reopen.run), line: reopen.row.line};
+    } else {
+      const message = head + (issue.status === '未確認' ? '改修確認の run がありません。' :
+        issue.status === '要確認' ? ' ' + issue.fixRun + ' の改修確認の結果が要確認です。' : ' ' + issue.fixRun + ' の改修確認で、修正が効いていないとされました。');
+      finding = {level: 'warning', code: 'issue-unconfirmed', message, issue: issue.number};
+      if (issue.fixRun) finding.file = issue.fixRun + '/result.md';
+    }
     findings.push(finding);
   }
+  const issues = traced.map(item => item.issue);
   return {acs: repo.acceptance.length, cases: repo.cases.length, runs: repo.runs.length, coverage, issues, findings};
 }
 
-function traceIssues(repo: QaRepository, caseOrder: Map<string, number>): TraceReport['issues'] {
+type TracedIssue = TraceReport['issues'][number];
+
+/**
+ * The status of every issue, with the reason when a confirmed issue was reopened: the first NG row of one of its
+ * TCs in the confirming run itself or in a later run.
+ */
+function traceIssues(repo: QaRepository, caseOrder: Map<string, number>): {issue: TracedIssue; reopen?: {run: RunRecord; row: RunRow}}[] {
   const tcs = new Map<number, string[]>();
   const fix = new Map<number, {index: number; verdict: IssueStatus}>();
   repo.runs.forEach((run, index) => {
@@ -120,20 +141,27 @@ function traceIssues(repo: QaRepository, caseOrder: Map<string, number>): TraceR
   return numbers.map(number => {
     const list = [...(tcs.get(number) ?? [])].sort((a, b) => order(a) - order(b));
     const check = fix.get(number);
-    if (!check) return {number, tcs: list, status: '未確認' as IssueStatus};
-    let status = check.verdict;
-    // An NG of one of the issue's TCs after a confirming run reopens it.
-    if (status === '確認済み' && repo.runs.slice(check.index + 1).some(run => run.rows.some(row => row.result === 'NG' && list.includes(row.tc)))) {
-      status = '要確認';
+    if (!check) return {issue: {number, tcs: list, status: '未確認' as IssueStatus}};
+    const fixRun = repo.runs[check.index].dir;
+    if (check.verdict !== '確認済み') return {issue: {number, tcs: list, status: check.verdict, fixRun}};
+    // An NG of one of the issue's TCs in the confirming run itself or after it reopens the issue. The NG may name
+    // another issue: the TC that confirmed the fix fails again either way.
+    for (const run of repo.runs.slice(check.index)) {
+      const row = run.rows.find(item => item.result === 'NG' && list.includes(item.tc));
+      if (row) return {issue: {number, tcs: list, status: '要確認' as IssueStatus, fixRun}, reopen: {run, row}};
     }
-    return {number, tcs: list, status, fixRun: repo.runs[check.index].dir};
+    return {issue: {number, tcs: list, status: '確認済み' as IssueStatus, fixRun}};
   });
 }
 
 /** `DIR` of `aidev qa trace`, relative to the working directory: `.`, `./qa` and `qa/` are accepted, links and `..` are not. */
 export function traceDirectory(root: string, dir: string): string {
+  if (!dir.trim()) throw new Error('DIR に QA リポジトリのディレクトリを指定してください。');
   if (isAbsolute(dir) || /^[A-Za-z]:/.test(dir)) throw new Error('絶対パスは使用できません。');
-  const trimmed = dir.replace(/^(?:\.[\\/]+)+/, '').replace(/[\\/]+$/, '');
+  // Trailing separators are cut with a loop: /[\\/]+$/ takes quadratic time on a long run of separators.
+  let end = dir.length;
+  while (end > 0 && (dir[end - 1] === '/' || dir[end - 1] === '\\')) end--;
+  const trimmed = dir.slice(0, end).replace(/^(?:\.[\\/]+)+/, '');
   const path = trimmed === '' || trimmed === '.' ? root : checked(root, trimmed);
   if (!lstatSync(path, {throwIfNoEntry: false})?.isDirectory()) throw new Error('DIR に QA リポジトリのディレクトリがありません。');
   return path;
