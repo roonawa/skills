@@ -31,6 +31,13 @@ const messages: Record<number, string> = {
   422: 'Gitea: 422 Issue の内容が受け付けられませんでした（題名や本文を確認してください）',
 };
 
+// Node trusts only its bundled CAs. A server certificate from an in-house CA fails with these codes, and Node can be
+// told to use the operating system's store instead. An expired or mismatched certificate is not fixed by that, so no hint.
+const untrustedIssuer = new Set(['UNABLE_TO_GET_ISSUER_CERT_LOCALLY', 'UNABLE_TO_GET_ISSUER_CERT', 'SELF_SIGNED_CERT_IN_CHAIN',
+  'DEPTH_ZERO_SELF_SIGNED_CERT', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE']);
+const untrustedIssuerHint = '。社内の認証局の証明書なら、OS の証明書ストアを使うよう NODE_OPTIONS=--use-system-ca を設定してください' +
+  '（Node 22.15 以上）。証明書の検証を切らないでください。';
+
 /** Default transport: Node's fetch with no redirects (the token must not follow one), 30 s timeout, 2 MiB body limit. */
 export const fetchGiteaTransport: GiteaTransport = async request => {
   let response: Response;
@@ -42,7 +49,7 @@ export const fetchGiteaTransport: GiteaTransport = async request => {
     const cause = (error as {cause?: {code?: unknown}}).cause;
     const code = typeof cause?.code === 'string' && /^[A-Z0-9_]{1,64}$/.test(cause.code) ? cause.code :
       (error as {name?: unknown}).name === 'TimeoutError' ? 'TIMEOUT' : 'UNKNOWN';
-    throw new GiteaError('Gitea に接続できません（' + code + '）');
+    throw new GiteaError('Gitea に接続できません（' + code + '）' + (untrustedIssuer.has(code) ? untrustedIssuerHint : ''));
   }
   if (response.status < 200 || response.status > 299) {
     await response.body?.cancel();
