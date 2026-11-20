@@ -192,6 +192,8 @@ native対象ケースの両環境実行・比較・証跡確認・復元が揃�
 
 report.htmlにはnative接点の網羅状況（棚卸し件数・実施件数・未カバーの接点）、ケース別結果、両環境の画像、ファイル比較、差異の根拠、未実施・残作業、占有終了と復元状態を記載する。
 
+報告の入口は、run ごとの report.html ではなく、全 run をタブで切り替えて見られる1つのHTMLにする（run が1つでも作る）。`cs-webview-regression-test` の `scripts/make-tabbed-report.cjs` を使い、手順・確認項目も同スキルの「報告書は、全画面をタブでまとめた1つのHTMLにする」に従う。各 run には comparison.json（`cases[].verdict`）と report.html を置く。同じ依頼で WebView2 側の run もあれば、同じまとめに並べてよい（タブ名で native と分かるようにする）。
+
 ## よくある誤り
 
 - WebView2実行から自動でnativeへ切り替える。占有枠を別途確保して専用ケースを実行する。
