@@ -4,13 +4,14 @@
  * cs-webview-regression-test・cs-native-regression-test の run（evidence/<run-id>/）に共通で使う。
  *
  * 使い方:
- *   node make-tabbed-report.cjs --out <まとめ.html> [--title <題名>] [--task <依頼・タスク>] [--embed]
- *        [--missing "<画面名>=<未実施の理由>"]... <run-dir> [<run-dir>...]
+ *   node make-tabbed-report.cjs --out <まとめ.html> [--title <題名>] [--task <依頼・タスク>] [--embed] [--draft]
+ *        <run-dir> [<run-dir>...]
  *
  *   - run-dir は報告に載せる順に並べる。各 run-dir に report.html と comparison.json が必要（manifest.json は任意）。
  *   - 既定では画像を「まとめ.html から各 run-dir への相対パス」で参照する。まとめ.html は証跡フォルダ（run-dir の親）に置き、
  *     フォルダごと渡す。--embed を付けると画像を data URI で埋め込み、1ファイルで持ち出せる（大きくなる）。
- *   - --missing は実施しなかった画面（メニューに無い等）。まとめのタブの表に「未実施」として載せる。
+ *   - 報告書には未実施を残さない。ケースの判定か API の呼び出し箇所に「未実施」「期待未設定」が残っていれば、
+ *     一覧を出して終了コード3で止まる。作業途中の確認用だけ --draft で作れる（題名に【途中経過】が付く）。
  *   - 秘密値は扱わない。入力の report.html・comparison.json に出ていない情報は足さない。
  */
 "use strict";
@@ -18,18 +19,15 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 function parseArgs(argv) {
-    const o = { runs: [], missing: [], embed: false, title: null, task: null, out: null };
+    const o = { runs: [], embed: false, draft: false, title: null, task: null, out: null };
     for (let i = 0; i < argv.length; i++) {
         const a = argv[i];
         if (a === "--out") o.out = argv[++i];
         else if (a === "--title") o.title = argv[++i];
         else if (a === "--task") o.task = argv[++i];
         else if (a === "--embed") o.embed = true;
-        else if (a === "--missing") {
-            const v = argv[++i] ?? "";
-            const k = v.indexOf("=");
-            o.missing.push(k < 0 ? { name: v, reason: "" } : { name: v.slice(0, k), reason: v.slice(k + 1) });
-        } else if (a === "-h" || a === "--help") o.help = true;
+        else if (a === "--draft") o.draft = true;
+        else if (a === "-h" || a === "--help") o.help = true;
         else o.runs.push(a);
     }
     return o;
@@ -72,7 +70,7 @@ const BADGE = { 一致: "ok", 期待どおり: "ok", 意図した差分: "info",
 function main() {
     const o = parseArgs(process.argv.slice(2));
     if (o.help || !o.out || !o.runs.length) {
-        console.error("usage: node make-tabbed-report.cjs --out <まとめ.html> [--title T] [--task T] [--embed] [--missing \"画面=理由\"]... <run-dir>...");
+        console.error("usage: node make-tabbed-report.cjs --out <まとめ.html> [--title T] [--task T] [--embed] [--draft] <run-dir>...");
         process.exit(o.help ? 0 : 2);
     }
     const outFile = path.resolve(o.out);
@@ -93,6 +91,21 @@ function main() {
         screens.push({ i, prefix, runDir, label, comp, man, body: adaptReport(html, prefix, runDir, outDir, o.embed) });
     });
 
+    // ---- 未実施の確認（報告書には残さない）
+    const PENDING = /^(未実施|期待未設定)/;
+    const pending = screens.flatMap((s) => [
+        ...s.comp.cases.filter((c) => PENDING.test(c.verdict)).map((c) => ({ s, kind: "ケース", what: `${c.id} ${c.operation ?? ""}`, why: (c.reasons ?? []).join(" ／ ") })),
+        ...(s.comp.apis ?? [])
+            .filter((a) => Object.values(a.perEnv ?? {}).some((p) => PENDING.test(p.verdict)))
+            .map((a) => ({ s, kind: "API", what: `${a.name} @${a.at}`, why: Object.values(a.perEnv).map((p) => p.detail).find(Boolean) ?? "" })),
+    ]);
+    if (pending.length && !o.draft) {
+        console.error(`未実施が ${pending.length} 件残っている。WebView2で実施する・cs-native で実施する（報告書の前に利用者へ報告）・母数から外す（excluded に理由）のどれかに片付けてから作り直す。作業途中の確認だけなら --draft。`);
+        for (const x of pending) console.error(`  [${x.s.label}] ${x.kind} ${x.what} :: ${String(x.why).slice(0, 160)}`);
+        process.exit(3);
+    }
+    const title = (o.draft ? "【途中経過】" : "") + (o.title ?? "回帰テスト結果");
+
     // ---- まとめ（集計）
     const verdicts = [...new Set([...VERDICT_ORDER, ...screens.flatMap((s) => s.comp.cases.map((c) => c.verdict))])].filter((v) =>
         screens.some((s) => s.comp.cases.some((c) => c.verdict === v)),
@@ -101,6 +114,8 @@ function main() {
     let totalCases = 0;
     let totalApi = 0;
     let totalApiNg = 0;
+    let totalApiEx = 0;
+    const isEx = (a) => Object.values(a.perEnv ?? {}).every((p) => /^除外/.test(p.verdict));
     const rows = screens.map((s) => {
         const cnt = Object.fromEntries(verdicts.map((v) => [v, s.comp.cases.filter((c) => c.verdict === v).length]));
         verdicts.forEach((v) => (total[v] += cnt[v]));
@@ -108,16 +123,17 @@ function main() {
         const apiNg = (s.comp.apis ?? []).filter((a) => Object.values(a.perEnv ?? {}).some((p) => /要確認/.test(p.verdict))).length;
         totalApi += (s.comp.apis ?? []).length;
         totalApiNg += apiNg;
+        const apiEx = (s.comp.apis ?? []).filter(isEx).length;
+        totalApiEx += apiEx;
         const envs = (s.comp.envs ?? []).join("・");
         const at = Object.values(s.man.env ?? {}).map((e) => e.executedAt).filter(Boolean)[0] ?? jst(s.comp.generatedAt);
         return `<tr><td><a href="#${s.prefix}" data-tab="${s.prefix}">${esc(s.label)}</a></td><td>${esc(envs)}</td><td class="n">${s.comp.cases.length}</td>${verdicts
             .map((v) => `<td class="n">${cnt[v] ? `<span class="b ${BADGE[v] ?? "info"}">${cnt[v]}</span>` : '<span class="mut">0</span>'}</td>`)
-            .join("")}<td class="n">${(s.comp.apis ?? []).length}</td><td class="n">${apiNg ? `<span class="b ng">${apiNg}</span>` : '<span class="mut">0</span>'}</td><td class="mut">${esc(at)}</td></tr>`;
+            .join("")}<td class="n">${(s.comp.apis ?? []).length}</td><td class="n">${apiNg ? `<span class="b ng">${apiNg}</span>` : '<span class="mut">0</span>'}</td><td class="n">${apiEx || '<span class="mut">0</span>'}</td><td class="mut">${esc(at)}</td></tr>`;
     });
-    o.missing.forEach((m) => rows.push(`<tr><td>${esc(m.name)}</td><td colspan="${verdicts.length + 5}"><span class="b warn">未実施</span> ${esc(m.reason)}</td></tr>`));
-    const totalRow = `<tr class="tot"><th>合計（${screens.length}画面${o.missing.length ? `・未実施${o.missing.length}画面` : ""}）</th><td></td><td class="n">${totalCases}</td>${verdicts
+    const totalRow = `<tr class="tot"><th>合計（${screens.length}画面）</th><td></td><td class="n">${totalCases}</td>${verdicts
         .map((v) => `<td class="n">${total[v]}</td>`)
-        .join("")}<td class="n">${totalApi}</td><td class="n">${totalApiNg}</td><td></td></tr>`;
+        .join("")}<td class="n">${totalApi}</td><td class="n">${totalApiNg}</td><td class="n">${totalApiEx}</td><td></td></tr>`;
 
     const pick = (pred) =>
         screens.flatMap((s) =>
@@ -127,7 +143,10 @@ function main() {
             ),
         );
     const ngRows = pick((c) => c.verdict === "要確認" || c.verdict === "比較不能");
-    const naRows = pick((c) => c.verdict === "未実施");
+    const naRows = pending.map((x) => `<tr><td><a href="#${x.s.prefix}">${esc(x.s.label)}</a></td><td>${esc(x.kind)} ${esc(x.what)}</td><td>${esc(x.why)}</td></tr>`);
+    const exRows = screens.flatMap((s) =>
+        (s.comp.apis ?? []).filter(isEx).map((a) => `<tr><td>${esc(s.label)}</td><td>${esc(a.name)}</td><td>${esc(a.at)}</td><td>${esc(Object.values(a.perEnv).map((p) => p.detail).find(Boolean) ?? "")}</td></tr>`),
+    );
     const apiNgRows = screens.flatMap((s) =>
         (s.comp.apis ?? [])
             .filter((a) => Object.values(a.perEnv ?? {}).some((p) => /要確認/.test(p.verdict)))
@@ -137,18 +156,20 @@ function main() {
         body.length ? `<div class="wrap"><table><thead><tr>${head.map((h) => `<th>${esc(h)}</th>`).join("")}</tr></thead><tbody>${body.join("")}</tbody></table></div>` : `<p class="mut">${esc(empty)}</p>`;
 
     const summary = `
-<h1>${esc(o.title ?? "回帰テスト結果")}</h1>
+<h1>${esc(title)}</h1>
 ${o.task ? `<p class="mut">${esc(o.task)}</p>` : ""}
 <p class="mut">作成 ${esc(jst(Date.now()))}（各画面の report.html・comparison.json から集計）。画面名を押すと、その画面のタブに移る。</p>
 <h2>画面ごとの判定</h2>
-<div class="wrap"><table class="sum"><thead><tr><th>画面</th><th>環境</th><th>ケース</th>${verdicts.map((v) => `<th>${esc(v)}</th>`).join("")}<th>API 箇所</th><th>API 要確認</th><th>実行</th></tr></thead>
+<div class="wrap"><table class="sum"><thead><tr><th>画面</th><th>環境</th><th>ケース</th>${verdicts.map((v) => `<th>${esc(v)}</th>`).join("")}<th>API 箇所</th><th>API 要確認</th><th>API 除外</th><th>実行</th></tr></thead>
 <tbody>${rows.join("")}</tbody><tfoot>${totalRow}</tfoot></table></div>
 <h2>要確認・比較不能のケース</h2>
 ${table(["ケース", "操作", "原因・提案"], ngRows, "なし")}
 <h2>API の要確認</h2>
 ${table(["画面", "API", "呼び出し箇所", "記録"], apiNgRows, "なし")}
-<h2>未実施のケース</h2>
-${table(["ケース", "操作", "理由・実施の手段"], naRows, "なし")}`;
+${o.draft ? `<h2>未実施（途中経過。報告書の前に片付ける）</h2>
+${table(["画面", "対象", "理由"], naRows, "なし")}` : ""}
+<h2>母数から外した API の呼び出し箇所</h2>
+${table(["画面", "API", "呼び出し箇所", "理由"], exRows, "なし")}`;
 
     const tabs = [`<button role="tab" id="t-sum" aria-controls="sum" data-tab="sum">まとめ</button>`]
         .concat(
@@ -163,7 +184,7 @@ ${table(["ケース", "操作", "理由・実施の手段"], naRows, "なし")}`
         .join("\n");
 
     const page = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${esc(o.title ?? "回帰テスト結果")}</title><style>${style}
+<title>${esc(title)}</title><style>${style}
 .tabs{position:sticky;top:0;z-index:5;background:var(--bg,#fff);display:flex;gap:4px;overflow-x:auto;border-bottom:2px solid var(--line,#d9dee3);padding:8px 16px 0;margin:0 -16px 16px;scrollbar-width:thin}
 .tabs button{flex:0 0 auto;font:inherit;font-size:13px;color:var(--fg,#1d2329);background:var(--head,#f4f6f8);border:1px solid var(--line,#d9dee3);border-bottom:none;border-radius:6px 6px 0 0;padding:6px 12px;cursor:pointer;white-space:nowrap}
 .tabs button[aria-selected="true"]{background:var(--bg,#fff);font-weight:700;box-shadow:inset 0 3px 0 var(--info,#1f5fa8)}
@@ -201,7 +222,7 @@ ${panels}
     fs.mkdirSync(outDir, { recursive: true });
     fs.writeFileSync(outFile, page, "utf8");
     const size = fs.statSync(outFile).size;
-    console.log(JSON.stringify({ out: outFile, screens: screens.length, missing: o.missing.length, cases: totalCases, verdicts: total, apiSites: totalApi, apiNg: totalApiNg, embed: o.embed, bytes: size }));
+    console.log(JSON.stringify({ out: outFile, screens: screens.length, cases: totalCases, verdicts: total, apiSites: totalApi, apiNg: totalApiNg, apiExcluded: totalApiEx, pending: pending.length, draft: o.draft, embed: o.embed, bytes: size }));
 }
 
 try {
