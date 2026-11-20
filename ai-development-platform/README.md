@@ -47,7 +47,9 @@ CLI は既存プロジェクトの AGENTS.md を上書きしない。既存プ�
 |verify|プロジェクト直下。登録した Skill の欠損・内容差・版差を検出。未登録なら空配列|
 |check|プロジェクト直下。aidev.json の template に対応するアプリの検査結果を JSON で返す。qa では knowledge/<製品>/profile.md ごとに、--skill なしの qa profile check と同じ検査（形式・秘密情報・product の有無）を行う。Skill ごとの必須項目は見ない。1件もなければ 2 を返す|
 |qa profile check FILE [--skill NAME]|任意の場所。FILE は実行場所から下の相対パスで指定する（絶対パスや .. は使えない）。QA の案件プロファイルの形式と秘密情報らしい値を検査し、--skill を付けるとその Skill の必須項目も検査する|
+|qa issue create --profile FILE --run RUNDIR --tc TC-ID [--dry-run]|QA リポジトリの直下。result.md の NG のケースを Gitea の Issue にする。詳細は「段階3で足したもの」|
 |qa compare-report MANIFEST OUT [--link]|任意の場所。新旧の証跡を並べた自己完結の比較 HTML を作る。MANIFEST は比較マニフェスト（JSON）、OUT は .html か .htm で終わり、MANIFEST と別のファイル。MANIFEST と OUT はカレントディレクトリの下を指す相対パスにする（絶対パスや .. は使えない）。画像は png・jpg・jpeg・gif・webp で1枚20 MiB まで、マニフェストと同じディレクトリの下に置く。既定は画像を HTML に埋め込み、--link を付けると OUT のディレクトリの assets/ へ複製して参照する|
+|qa trace DIR [--html FILE]|任意の場所。DIR は実行場所から下の QA リポジトリ。AC・TC・run の結果・Issue のつながりを読むだけで検査し、JSON で返す（QA リポジトリにも Gitea にも書き込まない）。エラーの指摘があれば 1 を返す。--html を付けると、つながりを1枚の自己完結 HTML にして FILE に書く。FILE は .html か .htm で終わる実行場所から下の相対パス。QA リポジトリの中も拒まないが、生成物がリポジトリに混ざらないよう、compare-report と同じく QA リポジトリの外に書くことを勧める|
 |spec check FILE|任意の場所。FILE は実行場所から下の相対パスで指定する（絶対パスや .. は使えない）。実装ループに渡す仕様書の形式（受け入れ条件・やらないこと・判断待ち）を検査する|
 |workflow check TASK --review FILE|一つの実装タスクに対し、単体テスト・セキュリティ・仕様乖離と過剰実装のゲート結果と修正回数を記録して次の作業を決める|
 |workflow run TASK --spec FILE|実装・レビュー・ゲートを別々の Claude Code セッションで自動で回し、review か needs-human で止まる|
@@ -265,7 +267,7 @@ claude mcp login c-hub
 
 `aidev init NAME --template qa` は QA リポジトリの雛形（plan/、cases/、runs/、reports/、knowledge/profile.template.md）を作る。製品ごとのプロファイルは `knowledge/<製品>/profile.md` に置き、`aidev qa profile check FILE [--skill NAME]` で検査する。検査するのは形式、Skill ごとの必須項目、秘密情報らしい値で、`*_env` の項目に書く環境変数名と証明書の拇印だけは許可する。qa プロジェクトの `aidev check` は、すべての profile.md に --skill なしの検査（形式・秘密情報・product の有無）を行い、Skill ごとの必須項目は見ない。
 
-設計は [QA Skill 汎用化の設計書](docs/superpowers/specs/2026-11-18-qa-skills-generalization-design.md)、段階1の確認結果は [qa-phase1-verification](docs/qa-phase1-verification.md)、段階2の確認結果は [qa-phase2-verification](docs/qa-phase2-verification.md) にある。
+設計は [QA Skill 汎用化の設計書](docs/superpowers/specs/2026-11-18-qa-skills-generalization-design.md)、段階1の確認結果は [qa-phase1-verification](docs/qa-phase1-verification.md)、段階2の確認結果は [qa-phase2-verification](docs/qa-phase2-verification.md)、段階3の確認結果は [qa-phase3-verification](docs/qa-phase3-verification.md) にある。
 
 ### 段階2で足したもの
 
@@ -297,5 +299,73 @@ templates/qa/samples/ に、Skill の動作確認用の見本アプリを置く�
 - web: 貸出の一覧と詳細を持つ Web アプリ。`node templates/qa/samples/web/app/server.mjs --version old --port 4101` で旧版、`--version new` で新版を起動する。`--port` を省略すると旧版は 4101、新版は 4102 を使う。ログインの資格情報は、見本のプロファイル（knowledge/sample-web/profile.md）の user_env・password_env に書かれた環境変数（SAMPLE_STAFF_USER、SAMPLE_STAFF_PASSWORD など）で渡す。
 - desktop: 在庫を表示する Windows のデスクトップアプリ。`dotnet build templates/qa/samples/desktop/app` でビルドする。基盤のテストは、Windows で環境変数 `AIDEV_TEST_DESKTOP=1` を設定したときだけこのビルドを確かめ、設定しなければ skip する。
 
+### 段階3で足したもの
+
+段階3では、NG の起票、修正後の確認、原因の調査の3つの Skill と、Gitea に Issue を作るコマンド、確認用の偽の Gitea サーバーを足した。
+
+|Skill|用途|
+|---|---|
+|aidev-qa-bug-ticket|result.md に記録した NG のケースを Gitea の Issue に起票する。起票の前に、NG が製品の不具合であることを確かめ、同じ原因の NG は1件にまとめる。まず --dry-run で題名と本文を作業者に見せ、了承を得てから送る|
+|aidev-qa-fix-verify|直ったという主張（Issue、修正の説明、コミット）を受け、修正コミットを特定して主張をコードで裏取りする。作業用の複製で修正だけを戻し、テストが症状どおりに失敗し、修正の入った版で成功することを確かめて、新しい run の result.md に残す|
+|aidev-qa-cause-repro|症状だけがある不具合について、実装のコードを読んで原因を特定し、人が追える再現手順を reports/cause-<Issue番号 または TC-ID>.md に書く。情報が足りないときは、IT に詳しくない人にも答えられる追加の質問の文面を作る|
+
+#### aidev qa issue create
+
+```sh
+aidev qa issue create --profile knowledge/<製品>/profile.md --run runs/<YYYYMMDD>-<run-id> --tc TC-001 --dry-run
+aidev qa issue create --profile knowledge/<製品>/profile.md --run runs/<YYYYMMDD>-<run-id> --tc TC-001
+```
+
+- 送り先は環境変数で渡す。GITEA_TOKEN は作業者個人のトークン（Issue の書き込み権限が要る）、GITEA_URL は Gitea の URL。トークンは出力・エラー文・本文に出さない。AI 専用のアカウントは使わない。
+- プロファイルの `issue_tracker`（type は gitea、url、repo は owner/name の形）の接続先（スキーム・ホスト・ポート）が GITEA_URL と一致しなければ、トークンを送らずに止める。url は https:// のみ（http:// は localhost と 127.0.0.1 だけ）。
+- --dry-run は何も送らず、何も書かない。送り先と、組み立てた題名と本文を返す。トークンも要らない（GITEA_URL は要る）。
+- 題名では、記号 ``@ # ! < > [ ] ( ) \ ` : /`` を全角にする（URL や owner/repo の形を残さないため）。
+- 題名と本文は送る前に秘密情報の検査を通す。引っかかると送らずに止まる。
+- 本文の1行目の目印（製品と TC-ID）で重複を調べる。重複とみなすのは、トークンの持ち主自身が作った、開いている Issue だけ。閉じた Issue や別のユーザーの Issue は無視して返す。検索は 50 件ずつ、最大 5 ページ（250 件）まで続けて読む。それでも見つからない場合がありうるので、同じ不具合の Issue がないかは Gitea の画面でも確かめる。
+- 起票したら、その TC の行の Issue の列に `#番号` だけを書く。result.md の他の部分は変えない。Issue の列にすでに `#番号` があるときは、その番号がトークンの持ち主自身の、目印のある開いた Issue の中にあれば、既存の Issue として返し、何も書かない。見つからなければ書き換えずに止まる。`#番号` 以外が書かれている行も止まる。trace は `#3, #4` のように番号が2つ以上ある Issue の列も読むが、このコマンドはそういう行でも止まるので、2つ目の番号は手で足す。
+- Gitea への書き込みは Issue の作成だけで、読むのは `GET /api/v1/user` と Issue の検索だけ。コメント、編集、クローズ、ラベルの付与はしない。
+
+案件プロファイルでは、`aidev qa profile check FILE --skill aidev-qa-bug-ticket` が product と issue_tracker を必須として検査する。
+
+#### ログイン方式 native-form
+
+`login.method` に `native-form` を指定できる。デスクトップアプリ自身のログイン画面（WPF や WinForms）に ID とパスワードを入れる方式で、ブラウザを通らないので storageState は作らない。入力は aidev-qa-desktop-gui が、プロファイルの `*_env` にある環境変数から読んで行う。
+
+### 偽の Gitea サーバーで試す
+
+templates/qa/samples/gitea-fake/ に、Issue の作成と検索（`POST`・`GET /api/v1/repos/:owner/:repo/issues`）、`GET /api/v1/user`（トークンの持ち主の確認）の3つの経路に答え、確認用に `GET /__issues` も返す偽の Gitea サーバーを置く。実際の Gitea には何も送らない。Issue はメモリ上にだけ持つ。利用者のプロジェクトには配らない。
+
+```sh
+GITEA_FAKE_TOKEN=確認用の任意の値 node templates/qa/samples/gitea-fake/server.mjs --port 3000
+```
+
+`aidev qa issue create` を試すときは、GITEA_TOKEN にサーバーと同じ値を、GITEA_URL に `http://127.0.0.1:3000` を設定し、プロファイルの issue_tracker.url も同じ接続先にする。localhost ではなく 127.0.0.1 を使う（IPv6 に解決される環境では届かない）。--port 0 なら空いているポートを使い、起動時に `listening http://localhost:N` を出す。N を GITEA_URL に使う。
+
+### 段階4で足したもの
+
+段階4では、QA リポジトリのつながりを検査する `aidev qa trace DIR [--html FILE]`（使い方は上の表）と、報告の Skill を足した。
+
+|Skill|用途|
+|---|---|
+|aidev-qa-report|`aidev qa trace` の JSON から数えた数字で、日次のまとめ（reports/<YYYYMMDD>-daily.md）と品質レポート（reports/quality-<YYYYMMDD>.md）を書く。品質レポートでは plan/strategy.md のリスクの評価と未解決の NG・未確認の Issue を突き合わせる。trace にエラーの指摘があれば先頭に書く。Gitea と C-HUB には書き込まない|
+
+aidev-qa-test-design、aidev-qa-test-run、aidev-qa-bug-ticket、aidev-qa-fix-verify は、成果物を書いた後に `aidev qa trace .` を流して指摘を直す手順になった。
+
+#### aidev qa trace
+
+```sh
+aidev qa trace .
+cd .. && aidev qa trace qa-<案件> --html qa-<案件>-trace.html
+```
+
+- 読むのは `plan/acceptance.md`、`cases/*.md`、`runs/<YYYYMMDD>-<run-id>/result.md` だけで、README.md とコードの囲みの中は読まない。リンクはたどらず、QA リポジトリの外も読まない。Gitea にも C-HUB にも問い合わせない。
+- JSON は `ok` のほか、`acs`・`cases`・`runs`（件数）、`runDetails`（run ごとの OK・NG・実行不能の数、表の行 `rows`（TC-ID・結果・Issue 番号だけ）、改修確認の判定）、`coverage`（AC ごとの TC、最新の結果 `latest`、未実行 `notRun`。どちらにもケースの優先度 `priority` と実行の種類 `execution`）、`issues`（Issue ごとの TC と状態）、`findings`（指摘）を持つ。
+- run は日付、次に run-id の文字列の順に並べ、後ろの run の行をその TC の最新の結果とする。同じ日に2つ以上の run を作るときは、実行した順に run-id が並ぶよう、日付の後に2桁の連番か開始の時刻（HHMM）を置く（例：`20261119-01-detail`、`20261119-02-fix`）。同じ日の run で、冒頭の実行日時の開始（先頭の `YYYY-MM-DD HH:MM[:SS]`）の順が run-id の順と逆なら `run-order` の警告を出す。開始が読めない run は比べない。
+- Issue の列には `#3, #4` のように複数の番号を書けて、trace はどれも読む。`aidev qa issue create` が書き込むのは Issue の列が空の行だけで、番号が2つ以上ある行では止まる。
+- Issue の状態は result.md の記録だけで決める。確認済みになるのは、改修確認の run の冒頭に `- 改修確認: #N 確認済み` があるときだけ。その run 自身か後の run でその Issue の TC が NG になれば要確認に戻す。
+- 指摘の level が error になるのは、記録が抜けていて数字が信用できないとき（どの TC も参照しない AC、acceptance.md にない AC を参照する TC、Issue のない NG、理由のない実行不能、重複した ID、形が崩れて読み飛ばされた AC の行・ケースの見出し・result.md の表の行、読めないファイル）。error が1つでもあれば終了コードは 1 になる。改修確認や修正コミットの行の形、ケースの AC と実行の行、Issue の列の `#番号` 以外の値、名前が `YYYYMMDD-run-id` でない runs/ の下のフォルダ、同じ日の run の順（run-order）、未実行のケース、未確認の Issue は warning で、終了コードに響かない。
+- テストしないと決めた AC は、`plan/acceptance.md` から消さず、ケースも作らない（aidev-qa-test-design の手順と同じ）。trace はその AC に `ac-uncovered` の error を出し続け、終了コードは 1 のままになる。わざとそうしている。消すと AC の記録が失われ、決めたことを記録するだけのケースを作ると未実行の数が水増しされる。テストしない理由は `plan/strategy.md` の対象外の節に AC-ID と一緒に書き、trace の結果を伝えるときは、その AC の `ac-uncovered` が対象外にしたものだと添える。
+- HTML は求められたときだけ作る生成物で、報告の正本は reports/*.md（aidev-qa-report）とする。設計書 5.10 では HTML を trace と qa-report で作る想定だったが、HTML は `--html` だけが書き、aidev-qa-report は作業者に求められたときにそれを使う。HTML には TC-ID、結果、Issue 番号、run のディレクトリまでを載せ、result.md の自由記述（実際の結果、証跡の欄）は載せない。外部のファイルやスクリプトを読まない自己完結の1枚で、error があっても書き出す。
+
 ## 設計と次の開発
-[構成](docs/architecture.md) / [技術選定と調査元](docs/technical-decisions.md) / [実装計画](docs/implementation-plan.md) / [バックログ](docs/initial-backlog.md) / [無人実行ランナーと C-HUB 連携（案）](docs/autonomous-runner-design.md) / [QA Skill 汎用化の設計書](docs/superpowers/specs/2026-11-18-qa-skills-generalization-design.md) / [QA Skill 段階1の確認結果](docs/qa-phase1-verification.md) / [QA Skill 段階2の確認結果](docs/qa-phase2-verification.md) / [旧 QA Skill の案件固有の知見の移行メモ](docs/qa-migration-notes/README.md)
+[構成](docs/architecture.md) / [技術選定と調査元](docs/technical-decisions.md) / [実装計画](docs/implementation-plan.md) / [バックログ](docs/initial-backlog.md) / [無人実行ランナーと C-HUB 連携（案）](docs/autonomous-runner-design.md) / [QA Skill 汎用化の設計書](docs/superpowers/specs/2026-11-18-qa-skills-generalization-design.md) / [QA Skill 段階1の確認結果](docs/qa-phase1-verification.md) / [QA Skill 段階2の確認結果](docs/qa-phase2-verification.md) / [QA Skill 段階3の確認結果](docs/qa-phase3-verification.md) / [旧 QA Skill の案件固有の知見の移行メモ](docs/qa-migration-notes/README.md)

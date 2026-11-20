@@ -42,7 +42,8 @@
 | csFixture.ts | CDP 接続の `page`（既存 context から対象ホストの `/CS/` を選び、host object を確認）、操作ヘルパー `act`（click・dblclick・fill・check。操作後に `CS_ACTION_WAIT_MS`＝500ms）、`Recorder`（checkpoint の撮影・値・時刻、`CS_RECORD_API=1` で API 記録） |
 | run-cs.sh | `run-cs.sh <launch-json> <spec の相対パス> [grep]`。launch の JSON から接続先を決め、API 記録を既定で有効にし、`--list` で対象を出してから実行する。spec はファイル名まで指定する（部分一致で別の spec が走るのを防ぐ） |
 | apiInventory.cjs | `node apiInventory.cjs <画面.vue> <出力json>`。import を再帰的にたどり、API の呼び出し箇所をファイル・行で一覧にする |
-| makeReport.cjs | `CS_SCREEN_MANIFEST=<coverage/cs-screens/X.json> node makeReport.cjs <run-dir> <Screen> PT`。cases.json・各 result.json・judgements.json・manifest.json と画面マニフェストの `apis` から comparison.json と report.html（画像埋め込み、API一覧、テスト×API対応表）を作る |
+| makeReport.cjs | `CS_SCREEN_MANIFEST=<coverage/cs-screens/X.json> node makeReport.cjs <run-dir> <Screen> PT ST`。cases.json・各 result.json・judgements.json・manifest.json と画面マニフェストの `apis` から comparison.json と report.html（画像は run からの相対参照、API一覧、テスト×API対応表）を作る |
+| （スキル側）scripts/make-tabbed-report.cjs | ハーネスではなくスキルに置く。全 run の report.html を、まとめタブ付きのタブ切り替えの1つのHTMLにまとめる（SKILL.md「報告書は、全画面をタブでまとめた1つのHTMLにする」）。2026-11-20 のカリキュラム登録（13 run・画像560枚）で、全タブの画像・アンカー・スマホ幅・ダーク表示を確認済み |
 | <Screen>/screen.ts・*.cs.spec.ts | 画面ごとの操作と spec（参照系と更新系を別ファイルにする） |
 
 Playwright 本体は `frontend/node_modules`。実行は Volta の `node.exe` で `@playwright/test/cli.js` を直接呼ぶ（run-cs.sh が行う）。`node -e` の出力は Bash ツール経由で消えることがあるので、集計はスクリプトファイルにする。

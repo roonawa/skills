@@ -59,3 +59,15 @@ test('reject unsupported files in a qa skill', t => {
     for (const d of dirs) rmSync(d, {recursive: true, force: true});
   }
 });
+test('a missing history file named by AIDEV_HISTORY_FILE is named in the error', async t => {
+  const { releasedHashes } = await import('../dist/registry.js');
+  const dir = mkdtempSync(join(tmpdir(), 'aidev-history-missing-'));
+  const file = join(dir, 'absent-history.json');
+  const before = process.env.AIDEV_HISTORY_FILE;
+  process.env.AIDEV_HISTORY_FILE = file;
+  t.after(() => {
+    if (before === undefined) delete process.env.AIDEV_HISTORY_FILE; else process.env.AIDEV_HISTORY_FILE = before;
+    rmSync(dir, {recursive: true, force: true});
+  });
+  assert.throws(() => releasedHashes('aidev-testing'), e => e.message.includes(file) && !e.message.includes('skills/history.json'));
+});

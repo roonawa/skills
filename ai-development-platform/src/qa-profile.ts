@@ -23,17 +23,19 @@ export const profileRequirements: Record<string, string[]> = {
   'aidev-qa-screen-verification': onlyProduct,
   'aidev-qa-fix-verify': onlyProduct,
   'aidev-qa-cause-repro': onlyProduct,
-  'aidev-qa-bug-ticket': onlyProduct,
+  'aidev-qa-bug-ticket': ['product', 'issue_tracker'],
   'aidev-qa-report': onlyProduct,
 };
 const minimum: Record<string, Record<string, number>> = {
   'aidev-qa-regression-compare': {environments: 2},
   'aidev-qa-authz-test': {roles: 2},
 };
-const loginMethods = ['saml', 'oidc', 'form', 'certificate', 'none'];
+const loginMethods = ['saml', 'oidc', 'form', 'native-form', 'certificate', 'none'];
 const evidenceMethods = ['lfs', 'external', 'local'];
 const envName = /^[A-Z][A-Z0-9_]*$/;
 const productName = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+/** owner/name with the same name rule as the Gitea client ("." and ".." alone are refused). */
+const giteaRepo = /^(?!\.+\/)[A-Za-z0-9_.-]+\/(?!\.+$)[A-Za-z0-9_.-]+$/;
 
 const secretPatterns: {name: string; pattern: RegExp}[] = [
   {name: 'Bearer トークン', pattern: /\bBearer\s+[A-Za-z0-9._~+/=-]{10,}/},
@@ -100,10 +102,25 @@ function secretIn(line: string): string | undefined {
   return undefined;
 }
 
+/** The same rule as the Gitea client: https, or http only to this machine; no user info, query or fragment. */
+function giteaUrl(value: unknown): boolean {
+  try {
+    if (typeof value !== 'string') return false;
+    const url = new URL(value);
+    const local = url.protocol === 'http:' && (url.hostname === 'localhost' || url.hostname === '127.0.0.1');
+    return (url.protocol === 'https:' || local) && !url.username && !url.password && !url.search && !url.hash;
+  } catch { return false; }
+}
+
 const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
 export function checkProfileText(file: string, text: string, skill?: string): ProfileReport {
+  return inspectProfileText(file, text, skill).report;
+}
+
+/** Checks a profile and also returns its parsed front matter (only when it could be parsed as a map). */
+export function inspectProfileText(file: string, text: string, skill?: string): {report: ProfileReport; data?: Record<string, unknown>} {
   if (skill !== undefined && !Object.hasOwn(profileRequirements, skill)) {
     throw new Error('不明な Skill 名です: ' + skill + '（' + Object.keys(profileRequirements).join(', ') + '）');
   }
@@ -118,17 +135,17 @@ export function checkProfileText(file: string, text: string, skill?: string): Pr
   const parts = /^---\n([\s\S]*?)\n---(?:\n|$)/.exec(normalized);
   if (!parts) {
     error('front-matter', '先頭に --- で囲んだ YAML の front matter がありません。');
-    return report;
+    return {report};
   }
   const yaml = parseDocument(parts[1]);
   if (yaml.errors.length || yaml.warnings.length) {
     error('front-matter', 'front matter の YAML が不正です。');
-    return report;
+    return {report};
   }
   const data: unknown = yaml.toJS({maxAliasCount: 0});
   if (!isObject(data)) {
     error('front-matter', 'front matter はキーと値の組で書いてください。');
-    return report;
+    return {report};
   }
   if (typeof data.product === 'string') report.product = data.product;
 
@@ -213,7 +230,24 @@ export function checkProfileText(file: string, text: string, skill?: string): Pr
     }
   }
 
-  const required = skill === undefined ? onlyProduct : profileRequirements[skill];
+  if (data.issue_tracker !== undefined) {
+    const tracker = data.issue_tracker;
+    if (!isObject(tracker)) shape('issue_tracker', 'issue_tracker はキーと値の組（type、url、repo）で書いてください。');
+    else {
+      if (tracker.type !== 'gitea') shape('issue_tracker.type', 'issue_tracker.type は gitea にしてください。');
+      if (!giteaUrl(tracker.url)) {
+        error('url', 'issue_tracker.url は https:// で始まる URL にしてください（http:// は localhost と 127.0.0.1 だけ）。ユーザー名、パスワード、クエリ、# は含めません。', 'issue_tracker.url');
+      }
+      if (!(typeof tracker.repo === 'string' && giteaRepo.test(tracker.repo))) {
+        shape('issue_tracker.repo', 'issue_tracker.repo は owner/name の形（英数字、_、.、-）で書いてください。');
+      }
+    }
+  }
+
+  const base = skill === undefined ? onlyProduct : profileRequirements[skill];
+  // A native form is signed in per role, so roles are needed whichever skill reads the profile.
+  const nativeForm = isObject(data.login) && data.login.method === 'native-form';
+  const required = nativeForm && !base.includes('roles') ? [...base, 'roles'] : base;
   for (const key of required) {
     const value = data[key];
     const empty = value === undefined || value === null || value === '' || (Array.isArray(value) && value.length === 0);
@@ -223,7 +257,14 @@ export function checkProfileText(file: string, text: string, skill?: string): Pr
       error('required', key + ' は ' + least + ' 件以上必要です（' + skill + '）。', key);
     }
   }
-  return report;
+  return {report, data};
+}
+
+/** Reads a profile inside the project, checks it and returns the parsed front matter with the report. */
+export function loadProfile(root: string, file: string, skill?: string): {report: ProfileReport; data?: Record<string, unknown>} {
+  const text = content(checked(root, file));
+  if (text === undefined) throw new Error('プロファイルがありません: ' + file);
+  return inspectProfileText(file, text, skill);
 }
 
 /** Reads and checks a profile inside the project. */
