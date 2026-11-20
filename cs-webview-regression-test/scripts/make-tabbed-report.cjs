@@ -114,8 +114,9 @@ function main() {
     let totalCases = 0;
     let totalApi = 0;
     let totalApiNg = 0;
-    let totalApiEx = 0;
-    const isEx = (a) => Object.values(a.perEnv ?? {}).every((p) => /^除外/.test(p.verdict));
+    // 母数から外した（除外の）呼び出し箇所は報告書に載せない。古い comparison.json に残っていても数えない
+    const isEx = (a) => Object.values(a.perEnv ?? {}).every((p) => p.verdict === "除外");
+    for (const s of screens) s.comp.apis = (s.comp.apis ?? []).filter((a) => !isEx(a));
     const rows = screens.map((s) => {
         const cnt = Object.fromEntries(verdicts.map((v) => [v, s.comp.cases.filter((c) => c.verdict === v).length]));
         verdicts.forEach((v) => (total[v] += cnt[v]));
@@ -123,17 +124,15 @@ function main() {
         const apiNg = (s.comp.apis ?? []).filter((a) => Object.values(a.perEnv ?? {}).some((p) => /要確認/.test(p.verdict))).length;
         totalApi += (s.comp.apis ?? []).length;
         totalApiNg += apiNg;
-        const apiEx = (s.comp.apis ?? []).filter(isEx).length;
-        totalApiEx += apiEx;
         const envs = (s.comp.envs ?? []).join("・");
         const at = Object.values(s.man.env ?? {}).map((e) => e.executedAt).filter(Boolean)[0] ?? jst(s.comp.generatedAt);
         return `<tr><td><a href="#${s.prefix}" data-tab="${s.prefix}">${esc(s.label)}</a></td><td>${esc(envs)}</td><td class="n">${s.comp.cases.length}</td>${verdicts
             .map((v) => `<td class="n">${cnt[v] ? `<span class="b ${BADGE[v] ?? "info"}">${cnt[v]}</span>` : '<span class="mut">0</span>'}</td>`)
-            .join("")}<td class="n">${(s.comp.apis ?? []).length}</td><td class="n">${apiNg ? `<span class="b ng">${apiNg}</span>` : '<span class="mut">0</span>'}</td><td class="n">${apiEx || '<span class="mut">0</span>'}</td><td class="mut">${esc(at)}</td></tr>`;
+            .join("")}<td class="n">${(s.comp.apis ?? []).length}</td><td class="n">${apiNg ? `<span class="b ng">${apiNg}</span>` : '<span class="mut">0</span>'}</td><td class="mut">${esc(at)}</td></tr>`;
     });
     const totalRow = `<tr class="tot"><th>合計（${screens.length}画面）</th><td></td><td class="n">${totalCases}</td>${verdicts
         .map((v) => `<td class="n">${total[v]}</td>`)
-        .join("")}<td class="n">${totalApi}</td><td class="n">${totalApiNg}</td><td class="n">${totalApiEx}</td><td></td></tr>`;
+        .join("")}<td class="n">${totalApi}</td><td class="n">${totalApiNg}</td><td></td></tr>`;
 
     const pick = (pred) =>
         screens.flatMap((s) =>
@@ -144,9 +143,6 @@ function main() {
         );
     const ngRows = pick((c) => c.verdict === "要確認" || c.verdict === "比較不能");
     const naRows = pending.map((x) => `<tr><td><a href="#${x.s.prefix}">${esc(x.s.label)}</a></td><td>${esc(x.kind)} ${esc(x.what)}</td><td>${esc(x.why)}</td></tr>`);
-    const exRows = screens.flatMap((s) =>
-        (s.comp.apis ?? []).filter(isEx).map((a) => `<tr><td>${esc(s.label)}</td><td>${esc(a.name)}</td><td>${esc(a.at)}</td><td>${esc(Object.values(a.perEnv).map((p) => p.detail).find(Boolean) ?? "")}</td></tr>`),
-    );
     const apiNgRows = screens.flatMap((s) =>
         (s.comp.apis ?? [])
             .filter((a) => Object.values(a.perEnv ?? {}).some((p) => /要確認/.test(p.verdict)))
@@ -160,16 +156,14 @@ function main() {
 ${o.task ? `<p class="mut">${esc(o.task)}</p>` : ""}
 <p class="mut">作成 ${esc(jst(Date.now()))}（各画面の report.html・comparison.json から集計）。画面名を押すと、その画面のタブに移る。</p>
 <h2>画面ごとの判定</h2>
-<div class="wrap"><table class="sum"><thead><tr><th>画面</th><th>環境</th><th>ケース</th>${verdicts.map((v) => `<th>${esc(v)}</th>`).join("")}<th>API 箇所</th><th>API 要確認</th><th>API 除外</th><th>実行</th></tr></thead>
+<div class="wrap"><table class="sum"><thead><tr><th>画面</th><th>環境</th><th>ケース</th>${verdicts.map((v) => `<th>${esc(v)}</th>`).join("")}<th>API 箇所</th><th>API 要確認</th><th>実行</th></tr></thead>
 <tbody>${rows.join("")}</tbody><tfoot>${totalRow}</tfoot></table></div>
 <h2>要確認・比較不能のケース</h2>
 ${table(["ケース", "操作", "原因・提案"], ngRows, "なし")}
 <h2>API の要確認</h2>
 ${table(["画面", "API", "呼び出し箇所", "記録"], apiNgRows, "なし")}
 ${o.draft ? `<h2>未実施（途中経過。報告書の前に片付ける）</h2>
-${table(["画面", "対象", "理由"], naRows, "なし")}` : ""}
-<h2>母数から外した API の呼び出し箇所</h2>
-${table(["画面", "API", "呼び出し箇所", "理由"], exRows, "なし")}`;
+${table(["画面", "対象", "理由"], naRows, "なし")}` : ""}`;
 
     const tabs = [`<button role="tab" id="t-sum" aria-controls="sum" data-tab="sum">まとめ</button>`]
         .concat(
@@ -222,7 +216,7 @@ ${panels}
     fs.mkdirSync(outDir, { recursive: true });
     fs.writeFileSync(outFile, page, "utf8");
     const size = fs.statSync(outFile).size;
-    console.log(JSON.stringify({ out: outFile, screens: screens.length, cases: totalCases, verdicts: total, apiSites: totalApi, apiNg: totalApiNg, apiExcluded: totalApiEx, pending: pending.length, draft: o.draft, embed: o.embed, bytes: size }));
+    console.log(JSON.stringify({ out: outFile, screens: screens.length, cases: totalCases, verdicts: total, apiSites: totalApi, apiNg: totalApiNg, pending: pending.length, draft: o.draft, embed: o.embed, bytes: size }));
 }
 
 try {
