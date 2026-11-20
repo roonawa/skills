@@ -10,6 +10,9 @@
  *   - run-dir は報告に載せる順に並べる。各 run-dir に report.html と comparison.json が必要（manifest.json は任意）。
  *   - 既定では画像を「まとめ.html から各 run-dir への相対パス」で参照する。まとめ.html は証跡フォルダ（run-dir の親）に置き、
  *     フォルダごと渡す。--embed を付けると画像を data URI で埋め込み、1ファイルで持ち出せる（大きくなる）。
+ *   - --copy-evidence を付けると、報告書が参照するファイルだけを「まとめ.html と同じ場所の 証跡/<run-id>/」へ写し、
+ *     そこを参照する。証跡フォルダの外（報告書の格納先 C:\_cs_regression\<対象> 等）へ置くときに使う。
+ *     参照先が見つからないファイルがあれば一覧を出して終了コード4で止まる。
  *   - 報告書には未実施を残さない。ケースの判定か API の呼び出し箇所に「未実施」「期待未設定」が残っていれば、
  *     一覧を出して終了コード3で止まる。作業途中の確認用だけ --draft で作れる（題名に【途中経過】が付く）。
  *   - 秘密値は扱わない。入力の report.html・comparison.json に出ていない情報は足さない。
@@ -27,6 +30,7 @@ function parseArgs(argv) {
         else if (a === "--task") o.task = argv[++i];
         else if (a === "--embed") o.embed = true;
         else if (a === "--draft") o.draft = true;
+        else if (a === "--copy-evidence") o.copyEvidence = true;
         else if (a === "-h" || a === "--help") o.help = true;
         else o.runs.push(a);
     }
@@ -40,7 +44,8 @@ const isLocalRef = (u) => u && !/^(#|data:|https?:|mailto:|javascript:|\/)/i.tes
 const jst = (d) => new Date(d).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", hour12: false });
 
 /** report.html の <main> の中身を取り出し、id・アンカー・画像・リンクを1つのページ用に書き換える */
-function adaptReport(html, prefix, runDir, outDir, embed) {
+const copied = { n: 0, missing: [] };
+function adaptReport(html, prefix, runDir, outDir, embed, copyDir) {
     const m = html.match(/<main[^>]*>([\s\S]*)<\/main>/i) ?? html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
     let body = m ? m[1] : html;
     body = body.replace(/<script[\s\S]*?<\/script>/gi, "");
@@ -48,7 +53,19 @@ function adaptReport(html, prefix, runDir, outDir, embed) {
     body = body.replace(/<table\b/gi, '<div class="tscroll"><table').replace(/<\/table>/gi, "</table></div>");
     body = body.replace(/\sid="([^"]+)"/g, (_, id) => ` id="${prefix}-${id}"`);
     body = body.replace(/\shref="#([^"]*)"/g, (_, id) => ` href="#${prefix}-${id}"`);
-    const rel = (u) => path.relative(outDir, path.join(runDir, decodeURIComponent(u))).split(path.sep).join("/");
+    const rel = (u) => {
+        if (!copyDir) return path.relative(outDir, path.join(runDir, decodeURIComponent(u))).split(path.sep).join("/");
+        // --copy-evidence：参照するファイルだけを <まとめの置き場>/証跡/<run-id>/ へ写し、そこを参照する
+        const sub = decodeURIComponent(u).split(/[\\/]/);
+        const src = path.join(runDir, ...sub);
+        const dst = path.join(copyDir, path.basename(runDir), ...sub);
+        if (fs.existsSync(src)) {
+            fs.mkdirSync(path.dirname(dst), { recursive: true });
+            fs.copyFileSync(src, dst);
+            copied.n++;
+        } else copied.missing.push(path.join(path.basename(runDir), ...sub));
+        return path.relative(outDir, dst).split(path.sep).join("/");
+    };
     body = body.replace(/<img\b([^>]*?)\ssrc="([^"]+)"([^>]*)>/gi, (all, pre, src, post) => {
         if (!isLocalRef(src)) return all;
         if (embed) {
@@ -70,7 +87,7 @@ const BADGE = { 一致: "ok", 期待どおり: "ok", 意図した差分: "info",
 function main() {
     const o = parseArgs(process.argv.slice(2));
     if (o.help || !o.out || !o.runs.length) {
-        console.error("usage: node make-tabbed-report.cjs --out <まとめ.html> [--title T] [--task T] [--embed] [--draft] <run-dir>...");
+        console.error("usage: node make-tabbed-report.cjs --out <まとめ.html> [--title T] [--task T] [--embed] [--copy-evidence] [--draft] <run-dir>...");
         process.exit(o.help ? 0 : 2);
     }
     const outFile = path.resolve(o.out);
@@ -88,7 +105,8 @@ function main() {
         const title = (html.match(/<title>([\s\S]*?)<\/title>/i) ?? [])[1]?.replace(/\s*(回帰テスト|レポート)\s*$/, "").trim();
         const label = String(man.screen ?? "").match(/（(.+)）\s*$/)?.[1] ?? title ?? comp.screen ?? path.basename(runDir);
         const prefix = `s${i + 1}`;
-        screens.push({ i, prefix, runDir, label, comp, man, body: adaptReport(html, prefix, runDir, outDir, o.embed) });
+        const copyDir = o.copyEvidence && !o.embed ? path.join(outDir, "証跡") : null;
+        screens.push({ i, prefix, runDir, label, comp, man, body: adaptReport(html, prefix, runDir, outDir, o.embed, copyDir) });
     });
 
     // ---- 未実施の確認（報告書には残さない）
@@ -216,7 +234,12 @@ ${panels}
     fs.mkdirSync(outDir, { recursive: true });
     fs.writeFileSync(outFile, page, "utf8");
     const size = fs.statSync(outFile).size;
-    console.log(JSON.stringify({ out: outFile, screens: screens.length, cases: totalCases, verdicts: total, apiSites: totalApi, apiNg: totalApiNg, pending: pending.length, draft: o.draft, embed: o.embed, bytes: size }));
+    console.log(JSON.stringify({ out: outFile, screens: screens.length, cases: totalCases, verdicts: total, apiSites: totalApi, apiNg: totalApiNg, pending: pending.length, draft: o.draft, embed: o.embed, copiedEvidence: o.copyEvidence ? copied.n : undefined, bytes: size }));
+    if (copied.missing.length) {
+        console.error(`証跡の写しで、参照先が見つからないファイルが ${copied.missing.length} 件ある（報告書の画像が欠ける）。`);
+        for (const f of copied.missing.slice(0, 20)) console.error(`  ${f}`);
+        process.exit(4);
+    }
 }
 
 try {
