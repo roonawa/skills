@@ -2,7 +2,7 @@
 name: aidev-qa-bug-ticket
 description: aidev-qa-test-run などが runs/<YYYYMMDD>-<run-id>/result.md に記録した NG のケースを、Gitea の Issue に起票するときに使う。起票の前に、NG がテストのコード、データ、環境のせいではなく製品の不具合であることを aidev-qa-test-run の NG と実行不能の基準で確かめ、同じ原因の NG は1件の Issue にまとめる。Issue は `aidev qa issue create` で作り、題名と本文は result.md の NG の詳細から組み立てる。まず --dry-run で題名と本文を作って作業者に送信先と本文を見せ、了承を得てから送る。トークンは作業者個人のもの（環境変数 GITEA_TOKEN）を使い、本文に秘密情報と個人情報を載せず、証跡はリポジトリの中のパスで示して画像を貼らない。起票した番号は result.md の Issue の列に書く。Issue へのコメント、編集、クローズ、ラベル付けと、C-HUB への転記はしない。「NG を起票して」「このケースの不具合を Gitea に Issue にして」「テスト結果の NG をチケットにして」という相談で使う。原因が分からない NG の調査は aidev-qa-cause-repro、修正後の確認は aidev-qa-fix-verify、ケースの実行は aidev-qa-test-run を使う。
 metadata:
-  version: "0.1.3"
+  version: "0.1.4"
 ---
 # NG のケースの起票
 

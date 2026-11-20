@@ -182,6 +182,30 @@ test('fetchGiteaTransport reports only an error code when the connection fails',
   });
 });
 
+test('fetchGiteaTransport points to the system certificate store when the certificate is not trusted', async t => {
+  const original = globalThis.fetch;
+  t.after(() => { globalThis.fetch = original; });
+  const failWith = code => { globalThis.fetch = async () => { throw Object.assign(new TypeError('fetch failed'), {cause: {code}}); }; };
+  for (const code of ['UNABLE_TO_GET_ISSUER_CERT_LOCALLY', 'SELF_SIGNED_CERT_IN_CHAIN', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'DEPTH_ZERO_SELF_SIGNED_CERT']) {
+    failWith(code);
+    await assert.rejects(fetchGiteaTransport({method: 'GET', url: 'https://gitea.invalid/api/v1/user', headers: {}}), error => {
+      assert.ok(error instanceof GiteaError);
+      assert.ok(error.message.includes('（' + code + '）'), error.message);
+      assert.ok(error.message.includes('NODE_OPTIONS=--use-system-ca'), error.message);
+      assert.ok(!error.message.includes('gitea.invalid'));
+      return true;
+    });
+  }
+  // Other failures, including an expired certificate, get no such hint: the system store would not fix them.
+  for (const code of ['ECONNREFUSED', 'CERT_HAS_EXPIRED']) {
+    failWith(code);
+    await assert.rejects(fetchGiteaTransport({method: 'GET', url: 'https://gitea.invalid/', headers: {}}), error => {
+      assert.equal(error.message, 'Gitea に接続できません（' + code + '）');
+      return true;
+    });
+  }
+});
+
 test('the token is checked at the client boundary and never echoed', () => {
   for (const token of [undefined, '', ' ', 'has space', 'tab\tx', 'line\nbreak', 'トークン', 'x\u007f']) {
     assert.throws(() => createGiteaClient({baseUrl: BASE, token, transport: fakeGitea().transport}), error => {

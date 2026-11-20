@@ -319,6 +319,7 @@ aidev qa issue create --profile knowledge/<製品>/profile.md --run runs/<YYYYMM
 - 送り先は環境変数で渡す。GITEA_TOKEN は作業者個人のトークン（Issue の書き込み権限が要る）、GITEA_URL は Gitea の URL。トークンは出力・エラー文・本文に出さない。AI 専用のアカウントは使わない。
 - プロファイルの `issue_tracker`（type は gitea、url、repo は owner/name の形）の接続先（スキーム・ホスト・ポート）が GITEA_URL と一致しなければ、トークンを送らずに止める。url は https:// のみ（http:// は localhost と 127.0.0.1 だけ）。
 - --dry-run は何も送らず、何も書かない。送り先と、組み立てた題名と本文を返す。トークンも要らない（GITEA_URL は要る）。
+- Gitea の証明書を社内の認証局が出している場合、Node は標準ではその証明書を受け入れず、`Gitea に接続できません（UNABLE_TO_GET_ISSUER_CERT_LOCALLY）` で止まる。このときエラー文に案内が付く。`NODE_OPTIONS=--use-system-ca`（Node 22.15 以上）を設定すると、ブラウザと同じ OS の証明書ストアを使う。証明書の検証を切る設定（`NODE_TLS_REJECT_UNAUTHORIZED=0`）は使わない。
 - 題名では、記号 ``@ # ! < > [ ] ( ) \ ` : /`` を全角にする（URL や owner/repo の形を残さないため）。
 - 題名と本文は送る前に秘密情報の検査を通す。引っかかると送らずに止まる。
 - 本文の1行目の目印（製品と TC-ID）で重複を調べる。重複とみなすのは、トークンの持ち主自身が作った、開いている Issue だけ。閉じた Issue や別のユーザーの Issue は無視して返す。検索は 50 件ずつ、最大 5 ページ（250 件）まで続けて読む。それでも見つからない場合がありうるので、同じ不具合の Issue がないかは Gitea の画面でも確かめる。
