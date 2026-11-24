@@ -24,6 +24,8 @@
 - **証明書方式（ClientCertMode=true）では `--address` は無視される**（MainForm が `!clientCertMode` のときだけ上書き）。PT の exe で ST に接続することはできない。ST を対象にするには ST の配布物が要る。
 - ST の配布物が古い（証明書方式に未対応の版など）ときは、利用者にスタートメニューの「All-Campus(ST)」を一度起動して ClickOnce で更新してもらう（配布物のダウンロードをエージェントがしない）。
 - Web版は画面右下の表示（例 `fc93f20987 2026/10/26 08:33`）で記録する。同じ日でも再デプロイで変わる。
+- **どのリポジトリのコードか**：`ailesys-dev/allcampus-feat` は開発用のリポジトリ（開発用ブランチ → allcampus-feat/main → 自動PRで allcampus/main）で、サーバーの環境ではない。ST の配布物が allcampus-feat/main から作られることがある（2026-11-19 実測：DesktopST 1.0.0.326 ＝ `966a4ae`＝allcampus-feat の PR #49 のマージコミットで、allcampus/main には無い）。版の所属は `e2e-cs/identify-build.cjs` で確かめる（`build-<ENV>.json` に CSアプリ・Web版それぞれのコミットと、それを main に含むリポジトリを書く）。
+- **配布物が古いかの確かめ方**：配布元の `.application`（PT＝`http://allcweb1.local.ailesys.co.jp/install/Desktop.application`、ST＝`http://allcweb3.local.ailesys.co.jp/install/DesktopST.application`）の `assemblyIdentity` の `version` と、インストール済みの `%LOCALAPPDATA%\Apps\2.0\…\manifests\` の同じ版の manifest があるかを比べる（`.application` は読むだけ。保存・実行しない）。`.application` の `dependentAssembly` の `size` は、インストールされた `.manifest` のサイズと一致するので、どのフォルダが何番の版かの対応付けに使える。
 
 ## テスト環境としての扱い（依頼者の確認）
 
@@ -48,6 +50,9 @@
 | run-cs.sh | `run-cs.sh <launch-json> <spec の相対パス> [grep]`。launch の JSON から接続先を決め、API 記録を既定で有効にし、`--list` で対象を出してから実行する。spec はファイル名まで指定する（部分一致で別の spec が走るのを防ぐ） |
 | apiInventory.cjs | `node apiInventory.cjs <画面.vue> <出力json>`。import を再帰的にたどり、API の呼び出し箇所をファイル・行で一覧にする |
 | makeReport.cjs | `CS_SCREEN_MANIFEST=<coverage/cs-screens/X.json> node makeReport.cjs <run-dir> <Screen> PT ST`。cases.json・各 result.json・judgements.json・manifest.json と画面マニフェストの `apis` から comparison.json と report.html（画像は run からの相対参照、API一覧、テスト×API対応表）を作る |
+| launch-cs.ps1・wait-cs.ps1 | 起動（空きポート・専用TEMP・`launch-<ENV>.json`）と、ログイン完了待ち（`/json/list` に `/CS/`、PID の生存も見る。`login-handoff-<ENV>.json` を書く） |
+| identify-build.cjs | `node identify-build.cjs <launch-ENV.json>`。CSアプリ（DLL の製品バージョン）と Web版（画面右下）のコミットが、allcampus・allcampus-feat のどちらの main に含まれるかを `gh api` の compare で判定し、`build-<ENV>.json` を書く（読み取りだけ。Web版はログイン後でないと読めない） |
+| （スキル側）scripts/verify-report.cjs | `node verify-report.cjs <まとめ.html> [<不具合報告書.html>]`。全タブの切り替え・画像（遅延読み込みを eager にして decode）・コンソールのエラー・画面内リンク・390px のはみ出し・ダーク表示・不具合報告書の画像とリンク先を確かめる。2026-11-24 にカリキュラム登録（15タブ・714枚）で問題なし、壊した写しで検出することを確認済み |
 | （スキル側）scripts/make-tabbed-report.cjs | ハーネスではなくスキルに置く。全 run の report.html を、まとめタブ付きのタブ切り替えの1つのHTMLにまとめる（SKILL.md「報告書は、全画面をタブでまとめた1つのHTMLにする」）。2026-11-20 のカリキュラム登録（13 run・画像560枚）で、全タブの画像・アンカー・スマホ幅・ダーク表示を確認済み |
 | <Screen>/screen.ts・*.cs.spec.ts | 画面ごとの操作と spec（参照系と更新系を別ファイルにする） |
 
