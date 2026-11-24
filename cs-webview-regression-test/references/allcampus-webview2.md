@@ -58,6 +58,11 @@
 
 Playwright 本体は `frontend/node_modules`。実行は Volta の `node.exe` で `@playwright/test/cli.js` を直接呼ぶ（run-cs.sh が行う）。`node -e` の出力は Bash ツール経由で消えることがあるので、集計はスクリプトファイルにする。
 
+## 通信の記録に出ない API（BatchBridge）
+
+- 証明書方式の CSアプリでは、一括処理（`services.batch`、`/api/batch…` の REST。例 `batchRegistTblBukaikoubi`・`batchDeleteCascadeTblBusyozokukamoku`・取込の `batchRegistTblBusyozokukamoku`）を、画面が直接送らず C# の `BatchBridge`（host object）が中継して送る（`frontend/share/src/services/BatchService.ts:136`、`desktop/Desktop/BatchBridge.cs`。WebView2 の横取りでは進捗が完了まで動かなくなるため）。CDP の `page.on('request')` には出ない。
+- 画面マニフェストの呼び出し箇所に `unrecordable` と `screenEvidence`（または `nativeEvidence`）を書けば、`makeReport.cjs` が根拠のケースの成功で「確認」と判定し、対応表で「1※」と数える（2026-11-24 から。それ以前の報告書では「記録なし（画面で確認）」「記録なし（native で確認）」と出ていた）。
+
 ## gakumu の UI 部品の扱い（実証済み）
 
 | 部品・状況 | 起きること | 扱い |
