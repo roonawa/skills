@@ -33,7 +33,7 @@ function setup(t, tasks) {
       return {task: name, state: 'review', reason: 'checks-passed', attempts: 1, exitCode: 0, steps: [], costUsd: 0};
     },
     publish: async () => ({url: 'https://gitea.example.internal/org/app/pulls/5'}),
-    notify: async messages => { sent.push(messages); },
+    notify: async messages => { if (messages.length) sent.push(messages); },
   };
   return {dir, client, records, deps, sent, loops, calls};
 }

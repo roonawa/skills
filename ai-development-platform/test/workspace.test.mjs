@@ -96,7 +96,7 @@ function setup(t, {branchExists = false} = {}) {
   git(dir, 'clone', '--quiet', '--bare', seed, origin);
   const state = join(dir, 'state');
   const file = join(dir, 'runner.json');
-  writeFileSync(file, JSON.stringify({boards: ['tp-1'], allowedRepositories: ['org/app'], stateDir: state, gitea: {baseUrl: GITEA}}));
+  writeFileSync(file, JSON.stringify({boards: ['tp-1'], allowedRepositories: ['org/app'], stateDir: state, gitea: {baseUrl: GITEA}, notify: false}));
   const pulls = [];
   const gitea = fakeGitea(request => {
     if (request.method === 'GET' && request.url.includes('/branches/')) return {status: branchExists ? 200 : 404, body: ''};

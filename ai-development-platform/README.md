@@ -217,7 +217,7 @@ CI は親リポジトリの .github/workflows/aidev.yml にある。依存監査
 |環境変数|内容|
 |---|---|
 |CHUB_BASE_URL|C-HUB の URL（https:// のみ。例 `https://chub.ailesys.co.jp`）|
-|CHUB_TOKEN|`task-manager:read` だけを付けた API キー。C-HUB の「プラグイン > AI とつなぐ」で申請する|
+|CHUB_TOKEN|`task-manager:read` を付けた API キー。C-HUB の「プラグイン > AI とつなぐ」で申請する。`--once` で相棒に通知するときは `sugar-forum:digest` も付ける。書き込みの権限は付けない|
 |AIDEV_CHUB_CONFIG|設定ファイルのパス（`--config FILE` でも指定できる）|
 
 設定ファイル（JSON）の例。リポジトリに置く場合は token を書かない。
@@ -265,7 +265,16 @@ node dist/runner.js --once --config runner.json
 2. 未処理の版のうち着手条件を満たさないものを記録し、足りない項目を通知する
 3. 着手可能で未処理の最古の1件について、作業フォルダを用意し、本文を `.aidev/specs/<タスク名>.md` に書いて `aidev workflow run` と同じループを回す。結果（review・needs-human・実行不能）を記録し、PR の URL とカードを移す先を通知する
 
-C-HUB は読むだけで、カードは通知を見た人が移す。通知の本文はテンプレートからだけ作り、AI の出力や指摘の内容は入れない。実行不能のときは止まった段階（workspace・spec・loop・publish）だけを記録する。相棒への通知の送信はまだ無く、通知の本文は出力の `notifications` に出る。
+C-HUB は読むだけで、カードは通知を見た人が移す。通知の本文はテンプレートからだけ作り、AI の出力や指摘の内容は入れない。実行不能のときは止まった段階（workspace・spec・loop・publish）だけを記録する。通知の本文は出力の `notifications` にも出る。
+
+相棒への通知（`src/notify.ts`）:
+
+- 1回の起動の通知を1通にまとめ、キーの持ち主本人の相棒に `POST /api/plugin/sugar-forum/digest` で送る。届くのは本人の相棒だけ
+- 1日（日本時間）5通まで。4通目までは結果ごとに送り、5通目に「以降は翌日にまとめる」と添える。それ以降の結果は stateDir の `notify.json` にためて、翌日の最初の起動でまとめて送る（結果が無い起動でも送る）
+- 1通は4000字まで。入りきらない通知は次の起動に回す。送れなかった通知も消さずに次の起動で送り直す。送れなくてもランナーは止まらず、出力の notifyError に理由が出る
+- 送る形式 `{ content }` は未確認（公開の資料にあるのは隣の窓口 digest/work-status の形だけ）。最初の実際の送信で確かめる。400 が返る場合は形式が違う
+- 通知用の通信処理は、この1つの窓口への POST しか送らない。タスクを読む通信処理は GET だけのまま
+- 設定の `notify` を false にすると送らない（キーに `sugar-forum:digest` が付くまでの間など）
 
 `--once` に要る設定は、dry-run の設定に次を足したもの。
 
@@ -277,6 +286,7 @@ C-HUB は読むだけで、カードは通知を見た人が移す。通知の�
 |workDir|作業フォルダの場所（絶対パス）。省略すると `<stateDir>/work`|
 |gitea.author|コミットの作者（name・email）。省略すると aidev-runner|
 |gitea.noRevocationCheck|true にすると、Windows の git で証明書の失効確認を省く（社内の認証局で失効情報を取れない場合だけ）|
+|notify|false にすると相棒に通知しない（既定は通知する）|
 
 Gitea での動き:
 

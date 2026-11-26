@@ -10,6 +10,7 @@ import { createRunRecords, isTaskName, taskNameOf, type RunRecord, type RunRecor
 import { claudeRunner, runLoop, sessionOptions, type LoopResult } from './loop.js';
 import { createGiteaRunnerClient, GiteaError, type GiteaTransport } from './gitea.js';
 import { createGiteaWorkspace, WorkspaceError } from './workspace.js';
+import { createDigestNotifier, NotifyError, type DigestTransport } from './notify.js';
 
 /**
  * Unattended runner (docs/autonomous-runner-design.md 5). The runner only reads C-HUB: its key has no write scope,
@@ -165,8 +166,11 @@ export interface RunnerDeps {
   publish?(root: string, decision: TaskDecision & {taskName: string}, result: LoopResult): Promise<{url: string}>;
   /** Whether Gitea already has the work branch `aidev/<task name>` (a lost run record must not cause a second run). */
   branchExists?(repository: string, branch: string): Promise<boolean>;
-  /** Sends one notification with all messages of this run. Failures are reported, not fatal: results stay in Gitea. */
-  notify(messages: string[]): Promise<void>;
+  /**
+   * Sends one notification with all messages of this run. Called on every start, also with no messages, so messages
+   * held back by the daily limit go out on the next day. Failures are reported, not fatal: results stay in Gitea.
+   */
+  notify(messages: string[]): Promise<unknown>;
 }
 
 export interface RunReport {
@@ -265,18 +269,18 @@ export async function runOnce(client: ChubClient, config: ChubConfig, deps: Runn
     messages.push(resultMessage(chosen, result) + moveTo(config, result.state));
   }
   const report: RunReport = {dryRun: false, boards, ran, notEligible, interrupted: interrupted.map(interruptedEntry), notifications: messages};
-  if (messages.length) {
-    try {
-      await deps.notify(messages);
-    } catch {
-      report.notifyError = '通知を送れませんでした。結果は実行記録と Gitea に残っています。';
-    }
+  try {
+    await deps.notify(messages);
+  } catch (error) {
+    // NotifyError texts are fixed and carry no token or address.
+    report.notifyError = (error instanceof NotifyError ? error.message + '。' : '') +
+      '通知を送れませんでした。次の起動で送り直します。結果は実行記録と Gitea に残っています。';
   }
   return {report, exitCode};
 }
 
 const usage = '使用法: node dist/runner.js --dry-run [--config FILE] | --once [--config FILE]。' +
-  '--once は1件を実行して PR を作ります（通知の送信は未実装で、通知の本文は出力の notifications に出ます）。';
+  '--once は1件を実行して PR を作り、相棒に通知します（設定の notify を false にすると通知を送らず、本文は出力にだけ出ます）。';
 
 /** Gitea settings for --once: `gitea` in the configuration file, GITEA_URL and GITEA_TOKEN (the token only from the environment). */
 function giteaSettings(file: string | undefined, env: NodeJS.ProcessEnv, stateDir: string) {
@@ -298,7 +302,9 @@ function giteaSettings(file: string | undefined, env: NodeJS.ProcessEnv, stateDi
   }
   const text = (value: unknown, fallback: string) => typeof value === 'string' && value.trim() ? value.trim() : fallback;
   const author = (typeof gitea.author === 'object' && gitea.author !== null ? gitea.author : {}) as Record<string, unknown>;
+  if (raw.notify !== undefined && typeof raw.notify !== 'boolean') throw new ChubError('設定の notify は true か false にしてください。');
   return {baseUrl, token, workDir: (raw.workDir as string | undefined) ?? join(stateDir, 'work'),
+    notify: raw.notify !== false,
     noRevocationCheck: gitea.noRevocationCheck === true,
     author: {name: text(author.name, 'aidev-runner'), email: text(author.email, 'aidev-runner@localhost')}};
 }
@@ -312,6 +318,9 @@ export interface MainDeps {
   /** Tests: replaces the Claude Code sessions. */
   runLoop?: RunnerDeps['runLoop'];
   notify?: RunnerDeps['notify'];
+  /** Tests: replaces the POST of the buddy notification. */
+  digestTransport?: DigestTransport;
+  now?: () => Date;
 }
 
 /** Entry point used by the command line and the tests. Returns the JSON line and the exit code. */
@@ -345,8 +354,9 @@ export async function main(args: string[], env: NodeJS.ProcessEnv, deps: MainDep
       publish: workspace.publish,
       branchExists: workspace.branchExists,
       runLoop: deps.runLoop ?? ((root, name, spec) => runLoop(root, name, spec, {runner: claudeRunner(sessionOptions(env))})),
-      // Sending to the buddy (sugar-forum digest) is not implemented yet; the messages are in the output.
-      notify: deps.notify ?? (async () => {}),
+      // The same C-HUB key: task-manager:read for the tasks and sugar-forum:digest for the buddy (design 1.1).
+      notify: deps.notify ?? (gitea.notify ? createDigestNotifier({baseUrl: config.baseUrl, token: config.token,
+        stateDir: config.stateDir, transport: deps.digestTransport, now: deps.now}).notify : async () => {}),
     });
     return {output: redact(JSON.stringify({ok: exitCode === 0, ...report}), secrets), exitCode};
   } catch (error) {

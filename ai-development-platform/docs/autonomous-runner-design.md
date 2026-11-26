@@ -252,7 +252,7 @@ Gitea への操作は AI 専用アカウントのトークンで行う。この�
 | 項目 | 確認方法 | 決まらない場合の影響 |
 |---|---|---|
 | キーの申請 | 本人が「AI とつなぐ」から `task-manager:read` と `sugar-forum:digest` だけを付けたキーを申請し、管理者かオーナーに承認してもらう。申請画面で、ほかの権限が付いていないことと有効期限を確かめる | キーが無ければ C-HUB を読めず、全段階が止まる |
-| 相棒への通知の形式 | `POST /api/plugin/sugar-forum/digest` の送る形式は公開の API 定義に載っていない。API 利用ガイドの記載か C-HUB の管理者に確かめ、テストとして自分の相棒に1通送る | 通知ができなければ、結果は Gitea の PR と通知（Gitea のメール等）だけで知る |
+| 相棒への通知の形式 | `POST /api/plugin/sugar-forum/digest` の送る形式は公開の API 定義に載っていない。実装は隣の窓口（digest/work-status）と同じ `{ content }`（4000字まで）と仮定した。API 利用ガイドの記載か C-HUB の管理者に確かめ、テストとして自分の相棒に1通送る | 通知ができなければ、結果は Gitea の PR と通知（Gitea のメール等）だけで知る |
 | 見せないプロジェクト | 本人が見えるプロジェクトのうち、外部の AI に見せたくないものを洗い出し、「AI に渡さない」にする | 読み取りキーでもそれらのタスクを読めてしまう |
 | Gitea の AI 専用アカウント | Gitea の管理者に、対象リポジトリへの書き込みだけを持つアカウントとトークンを作ってもらう。main を保護ブランチにする | PR を作れない。本人のトークンは使わない |
 | `aidev/*` ブランチでの Actions | 対象リポジトリのワークフローが `aidev/*` への push や PR で secrets を使って動かないか、Gitea の管理者と確かめる | AI の変更が CI 経由で secrets に触れる余地が残る（ランナーは CI の設定の変更を push しないが、既存のワークフローがテストなどのプロジェクトのコードを secrets 付きで動かす場合は防げない） |
@@ -301,7 +301,7 @@ C-HUB・Gitea に接続しない部分を先に実装した。使い方は READM
 - `src/runner.ts` の `runOnce`: 5.2・5.5・5.6 の処理。中断の通知、着手条件不足の通知、最古の1件の実行、結果の記録、1回の起動につき1通の通知。dry-run も実行記録を見て processed と interrupted を出す。`AI実行中` の扱いと設定の `sections.running` は削除し、通知でカードを移す先を示すため `sections.review` を足した
 - 着手条件の変更: タスク本文に `aidev spec check` と同じ検査をかけ、エラーを `spec-` 付きの理由にした。これにより「やらないこと」は必須になった（段階1の解釈では任意としていた）。タスク ID は版を付けても64文字以内に収まるよう、55文字までとした
 - Gitea との連携（同日）: `src/workspace.ts` と `createGiteaRunnerClient`（`src/gitea.ts`）。`node dist/runner.js --once` で1件を実行して PR まで作る。トークンは git コマンドごとの環境変数でだけ渡し、作業フォルダには残さない。作業後の作業フォルダは AI やゲートのスクリプトが `.git` を書き換えられるため信用せず、コミットと push は取得し直した別のフォルダで行う。push 先は `aidev/<タスク名>` だけで強制 push はしない。QA の Issue 起票用のクライアントとは分け、そちらからは PR を作れないままにした。テストはローカルの bare リポジトリと偽の Gitea API で行い、実際の Gitea には接続していない
-- 未実装: 相棒への通知の送信。それまで通知の本文は `--once` の出力の `notifications` に出る
+- 相棒への通知（同日）: `src/notify.ts`。4章のとおり1日5通の上限を守り、超えた分と送れなかった分は stateDir の `notify.json` にためて次に送る。通知用の通信処理は `POST /api/plugin/sugar-forum/digest` しか送らない。送る形式 `{ content }` は隣の窓口からの推定で、8章の確認事項のまま。設定の `notify: false` で止められる
 - 通知の1日5通の上限への対処（4章）は、通知の送信と合わせて実装する。`runOnce` は1回の起動の通知を1通にまとめるところまで
 
 ## 10. 実装する構成要素
@@ -315,6 +315,7 @@ aidev の規約（Node.js 22、strict TypeScript、`npm test`）に合わせ、a
 | `src/run-records.ts` | 実行記録と本文の版（5.2・5.6） |
 | `src/loop.ts` | 5.4 の実装とゲートのループ。`aidev workflow run` として単独でも使える（2026-11-16 実装。C-HUB・Gitea には接続しない） |
 | `src/gitea.ts` | Gitea の API。ランナー用（`createGiteaRunnerClient`）は作業ブランチの有無の確認と PR 作成だけ |
+| `src/notify.ts` | 相棒への通知と、1日5通の上限のための記録 |
 | `src/workspace.ts` | 作業フォルダの用意、別の取得し直したフォルダでのコミットと push、PR の本文 |
 
 C-HUB の API は公開の API 定義（`/openapi.json`）を正本とする。chub-team-status（Python）は旧接続先の実績として、注意点（`title`、`archived` の型の揺れ）を参照する。chub-team-status 自体は変更しない。
