@@ -34,8 +34,25 @@ test('git gets the token only as a header, with no credentials from the runner a
   assert.equal(config['http.extraHeader'], 'Authorization: Basic ' + Buffer.from(GITEA_TOKEN + ':x-oauth-basic').toString('base64'));
   assert.ok(!Object.values(env).some(value => value === GITEA_TOKEN), 'the raw token is not in any variable');
   assert.equal(config['core.protectNTFS'], 'true');
-  const withHooks = gitEnvironment({url: () => ''}, {}, '/runner/no-hooks');
-  assert.ok(Object.entries(withHooks).some(([k, v]) => k.startsWith('GIT_CONFIG_VALUE_') && v === '/runner/no-hooks'));
+  assert.match(config['core.hooksPath'], /^(NUL|\/dev\/null)$/, 'hooks point at the null device, which nobody can fill');
+});
+
+test('git reads neither the user nor the system configuration, nor git settings from the environment', () => {
+  const source = {PATH: 'p', GIT_CONFIG_GLOBAL: '/home/u/evil.gitconfig', GIT_CONFIG_PARAMETERS: "'url.x.insteadof'='y'",
+    GIT_SSH_COMMAND: 'evil', GIT_EXEC_PATH: '/evil', GIT_CONFIG_KEY_9: 'url.x.insteadOf'};
+  const windows = gitEnvironment({url: () => ''}, source, 'win32');
+  const linux = gitEnvironment({url: () => ''}, source, 'linux');
+  for (const env of [windows, linux]) {
+    assert.equal(env.GIT_CONFIG_NOSYSTEM, '1');
+    assert.match(env.GIT_CONFIG_GLOBAL, /^(NUL|\/dev\/null)$/);
+    assert.equal(env.GIT_CONFIG_PARAMETERS, undefined);
+    assert.equal(env.GIT_SSH_COMMAND, undefined);
+    assert.equal(env.GIT_EXEC_PATH, undefined);
+    assert.equal(env.GIT_CONFIG_KEY_9, undefined);
+  }
+  const values = env => Array.from({length: Number(env.GIT_CONFIG_COUNT)}, (_, i) => env['GIT_CONFIG_KEY_' + i] + '=' + env['GIT_CONFIG_VALUE_' + i]);
+  assert.ok(values(windows).includes('http.sslBackend=schannel'), 'the Windows store holds the in-house CA');
+  assert.ok(!values(linux).some(value => value.startsWith('http.sslBackend')));
 });
 
 test('names that Windows maps onto .git are never copied', () => {
@@ -184,12 +201,12 @@ test('needs-human opens a WIP pull request with the hand-off; an existing work b
   assert.equal(JSON.parse(second.output).ran, null);
 });
 
-test('a changed CI definition is not pushed and goes to a person', async t => {
+for (const ciDir of ['.gitea', '.GitHub']) test('a changed CI definition is not pushed and goes to a person: ' + ciDir, async t => {
   const s = setup(t);
   const {transport} = fakeChub({tasks: [task('task-ci', 351, template())]});
   const runLoop = async (root, taskName) => {
-    mkdirSync(join(root, '.gitea', 'workflows'), {recursive: true});
-    writeFileSync(join(root, '.gitea', 'workflows', 'leak.yml'), 'on: push\n');
+    mkdirSync(join(root, ciDir, 'workflows'), {recursive: true});
+    writeFileSync(join(root, ciDir, 'workflows', 'leak.yml'), 'on: push\n');
     return {task: taskName, state: 'review', reason: 'checks-passed', attempts: 1, exitCode: 0, costUsd: 0, steps: []};
   };
   const {output, exitCode} = await main(['--once', '--config', s.file], env,

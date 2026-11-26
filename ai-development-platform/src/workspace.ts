@@ -60,17 +60,28 @@ function runProcess(command: string, args: string[], cwd: string, env: NodeJS.Pr
   });
 }
 
-/** Environment for git: no credentials from the runner, no prompts, no stored credentials, the token as a header only. */
-export function gitEnvironment(remote: GitRemote, source: NodeJS.ProcessEnv = process.env, hooksDir?: string): NodeJS.ProcessEnv {
+/** Null device: a hooks path that can hold no hook, and an empty configuration file. */
+const nullDevice = process.platform === 'win32' ? 'NUL' : '/dev/null';
+
+/**
+ * Environment for git: no credentials from the runner, no prompts, no stored credentials, the token as a header only.
+ * Project code runs as the same user before git does, so the user's and the system's git configuration may have been
+ * changed (url.*.insteadOf or http.proxy could send the token elsewhere). Neither is read; what git needs is set here.
+ */
+export function gitEnvironment(remote: GitRemote, source: NodeJS.ProcessEnv = process.env,
+    platform: NodeJS.Platform = process.platform): NodeJS.ProcessEnv {
   const config: [string, string][] = [
     ['credential.helper', ''],
     ['core.fsmonitor', 'false'],
+    ['core.hooksPath', nullDevice],
     // Refuse paths that Windows or macOS would map onto .git, whatever the platform's default.
     ['core.protectNTFS', 'true'],
     ['core.protectHFS', 'true'],
-    ...(hooksDir ? [['core.hooksPath', hooksDir] as [string, string]] : []),
     ['http.followRedirects', 'false'],
     ['protocol.ext.allow', 'never'],
+    ['protocol.file.allow', 'user'],
+    // Without the system configuration, Git for Windows would use its own CA bundle; the Windows store holds the in-house CA.
+    ...(platform === 'win32' ? [['http.sslBackend', 'schannel'] as [string, string]] : []),
   ];
   if (remote.token) {
     // Gitea accepts a token as the user name of basic authentication when the password is "x-oauth-basic".
@@ -78,7 +89,11 @@ export function gitEnvironment(remote: GitRemote, source: NodeJS.ProcessEnv = pr
   }
   if (remote.noRevocationCheck) config.push(['http.schannelCheckRevoke', 'false']);
   const env: NodeJS.ProcessEnv = {...withoutCredentials(source), GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never',
-    GIT_CONFIG_COUNT: String(config.length)};
+    GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: nullDevice, GIT_CONFIG_COUNT: String(config.length)};
+  for (const name of Object.keys(env)) {
+    // Settings injected through the environment (GIT_CONFIG_PARAMETERS, GIT_SSH_COMMAND, GIT_EXEC_PATH...) are dropped.
+    if (/^GIT_/.test(name) && !/^GIT_(TERMINAL_PROMPT|CONFIG_NOSYSTEM|CONFIG_GLOBAL|CONFIG_COUNT)$/.test(name)) delete env[name];
+  }
   config.forEach(([key, value], index) => {
     env['GIT_CONFIG_KEY_' + index] = key;
     env['GIT_CONFIG_VALUE_' + index] = value;
@@ -99,7 +114,11 @@ export function notCopied(name: string): boolean {
 /** Top-level directories with CI definitions. A change there could run code with the repository's Actions secrets. */
 const ciDirectories = ['.gitea', '.github', '.forgejo'];
 
-/** Files under the CI directories, path → content, with links and other non-files marked. Compared before publishing. */
+/**
+ * Files under the CI directories, exact relative path → content. A top-level entry counts as a CI directory after
+ * normalising case and trailing dots and spaces, but the keys keep the exact names, so ".github" and ".GitHub" are
+ * two entries and neither can hide the other.
+ */
 function ciFiles(root: string): Map<string, string> {
   const files = new Map<string, string>();
   const visit = (path: string, relative: string) => {
@@ -109,10 +128,13 @@ function ciFiles(root: string): Map<string, string> {
     else for (const entry of readdirSync(path)) visit(join(path, entry), relative + '/' + entry);
   };
   for (const entry of readdirSync(root)) {
-    if (ciDirectories.includes(entry.replace(/[. ]+$/, '').toLowerCase())) visit(join(root, entry), entry.toLowerCase());
+    if (ciDirectories.includes(entry.replace(/[. ]+$/, '').toLowerCase())) visit(join(root, entry), entry);
   }
   return files;
 }
+
+const sameFiles = (a: Map<string, string>, b: Map<string, string>) =>
+  a.size === b.size && [...a].every(([path, content]) => b.has(path) && b.get(path) === content);
 
 /** Copies the working tree without .git, installed packages or symbolic links. */
 function copyTree(from: string, to: string): void {
@@ -201,10 +223,7 @@ export function pullRequestBody(task: RunnerTask, result: LoopResult, root: stri
 
 export function createGiteaWorkspace(options: WorkspaceOptions) {
   const timeoutMs = options.timeoutMs ?? 15 * 60_000;
-  // An empty hooks directory owned by the runner: no hook from any clone runs while the token is in the environment.
-  const hooksDir = join(options.workDir, '.no-hooks');
-  mkdirSync(hooksDir, {recursive: true});
-  const env = gitEnvironment(options.remote, process.env, hooksDir);
+  const env = gitEnvironment(options.remote);
   const git = async (args: string[], cwd: string, step: string) => {
     const status = await runProcess('git', args, cwd, env, timeoutMs);
     if (status !== 0) throw new WorkspaceError(step + ' に失敗しました（' + status + '）。');
@@ -252,13 +271,13 @@ export function createGiteaWorkspace(options: WorkspaceOptions) {
       const branch = branchOf(task);
       await git(['switch', '--quiet', '-c', branch, base], dir, 'git switch');
       // A changed CI definition on a pushed branch could run with the repository's Actions secrets; a person decides.
+      // The check compares the base commit with the files as copied into this clone, i.e. what would be committed.
       const before = ciFiles(dir);
-      const after = ciFiles(root);
-      if (before.size !== after.size || [...after].some(([path, content]) => before.get(path) !== content)) {
-        throw new WorkspaceError('CI の設定（.gitea・.github・.forgejo）が変わっているため push しません。', 'ci-config-changed');
-      }
       clearTree(dir);
       copyTree(root, dir);
+      if (!sameFiles(before, ciFiles(dir))) {
+        throw new WorkspaceError('CI の設定（.gitea・.github・.forgejo）が変わっているため push しません。', 'ci-config-changed');
+      }
       await git(['add', '-A'], dir, 'git add');
       const title = (result.state === 'needs-human' ? 'WIP: ' : '') + task.title + '（' + task.id + '）';
       await git(['-c', 'user.name=' + options.author.name, '-c', 'user.email=' + options.author.email,
