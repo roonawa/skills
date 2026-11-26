@@ -7,7 +7,7 @@ import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFi
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { main } from '../dist/runner.js';
-import { gitEnvironment } from '../dist/workspace.js';
+import { gitEnvironment, notCopied } from '../dist/workspace.js';
 import { taskNameOf } from '../dist/run-records.js';
 import { env as chubEnv, fakeChub, task, template } from './chub-fake.mjs';
 import { BASE as GITEA, TOKEN as GITEA_TOKEN, fakeGitea } from './gitea-fake.mjs';
@@ -33,6 +33,16 @@ test('git gets the token only as a header, with no credentials from the runner a
   assert.equal(config['http.schannelCheckRevoke'], 'false');
   assert.equal(config['http.extraHeader'], 'Authorization: Basic ' + Buffer.from(GITEA_TOKEN + ':x-oauth-basic').toString('base64'));
   assert.ok(!Object.values(env).some(value => value === GITEA_TOKEN), 'the raw token is not in any variable');
+  assert.equal(config['core.protectNTFS'], 'true');
+  const withHooks = gitEnvironment({url: () => ''}, {}, '/runner/no-hooks');
+  assert.ok(Object.entries(withHooks).some(([k, v]) => k.startsWith('GIT_CONFIG_VALUE_') && v === '/runner/no-hooks'));
+});
+
+test('names that Windows maps onto .git are never copied', () => {
+  for (const name of ['.git', '.GIT', '.git.', '.git ', '.Git. .', 'GIT~1', 'git~12', 'node_modules', 'Node_Modules.', 'a:b', '...']) {
+    assert.ok(notCopied(name), name);
+  }
+  for (const name of ['.gitignore', '.github', 'git~', 'src', '.aidev']) assert.ok(!notCopied(name), name);
 });
 
 function setup(t, {branchExists = false} = {}) {
@@ -172,6 +182,25 @@ test('needs-human opens a WIP pull request with the hand-off; an existing work b
   const second = await main(['--once', '--config', again.file], env, {transport, sleep, giteaTransport: again.gitea.transport,
     remoteUrl: again.remoteUrl, runLoop: async () => assert.fail('ran')});
   assert.equal(JSON.parse(second.output).ran, null);
+});
+
+test('a changed CI definition is not pushed and goes to a person', async t => {
+  const s = setup(t);
+  const {transport} = fakeChub({tasks: [task('task-ci', 351, template())]});
+  const runLoop = async (root, taskName) => {
+    mkdirSync(join(root, '.gitea', 'workflows'), {recursive: true});
+    writeFileSync(join(root, '.gitea', 'workflows', 'leak.yml'), 'on: push\n');
+    return {task: taskName, state: 'review', reason: 'checks-passed', attempts: 1, exitCode: 0, costUsd: 0, steps: []};
+  };
+  const {output, exitCode} = await main(['--once', '--config', s.file], env,
+    {transport, sleep, giteaTransport: s.gitea.transport, remoteUrl: s.remoteUrl, runLoop});
+  const report = JSON.parse(output);
+  assert.equal(exitCode, 0, output);
+  assert.deepEqual(report.ran.result, {state: 'needs-human', reason: 'ci-config-changed'});
+  assert.match(report.notifications[0], /CI の設定.*push していません/);
+  assert.equal(s.pulls.length, 0);
+  assert.equal(spawnSync('git', ['rev-parse', '--verify', '--quiet', 'aidev/' + taskNameOf('task-ci', template())], {cwd: s.origin}).status, 1,
+    'no branch was pushed');
 });
 
 test('--once needs stateDir and the Gitea token from the environment; a failed clone is a runner error', async t => {

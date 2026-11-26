@@ -58,6 +58,8 @@ const protectedFiles = ['package.json', '**/package.json', 'package-lock.json', 
   '.yarnrc*', '**/.yarnrc*', '.env*', '**/.env*', '.aidev/**', 'tsconfig*.json', 'biome.json', 'biome.jsonc',
   '.eslintrc*', 'eslint.config.*', 'vite.config.*', 'vitest.config.*', 'jest.config.*', 'playwright.config.*', '.c8rc*', '.nycrc*',
   '.claude/**', '.agents/**', 'AGENTS.md', 'CLAUDE.md', 'aidev.json',
+  // CI definitions run with the repository's Actions secrets once the work branch is pushed.
+  '.gitea/**', '.github/**', '.forgejo/**',
   // git settings can run commands when the runner calls git (core.fsmonitor, filters, hooks).
   '.git/**', '**/.git/**', '.gitattributes', '**/.gitattributes', '.gitmodules'];
 export const implementationDenied = protectedFiles.flatMap(path => ['Edit(' + path + ')', 'Write(' + path + ')']);

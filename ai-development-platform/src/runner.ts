@@ -190,6 +190,10 @@ const moveTo = (config: ChubConfig, state: string) =>
 function resultMessage(decision: TaskDecision, result: RunResult): string {
   const pr = result.url ? ' PR: ' + result.url : '';
   if (result.state === 'review') return '【review】' + label(decision) + ': 全ゲート合格（試行 ' + result.attempts + ' 回）。' + pr;
+  if (result.state === 'needs-human' && result.reason === 'ci-config-changed') {
+    return '【人の確認待ち】' + label(decision) + ': 実装が CI の設定（.gitea・.github・.forgejo）を変えたため push していません。' +
+      '作業はランナーの作業フォルダに残っています。';
+  }
   if (result.state === 'needs-human') {
     return '【人の確認待ち】' + label(decision) + ': ' + result.reason + '（試行 ' + (result.attempts ?? '-') + ' 回）。引継ぎ票を確認してください。' + pr;
   }
@@ -249,10 +253,12 @@ export async function runOnce(client: ChubClient, config: ChubConfig, deps: Runn
         result.url = (await deps.publish(root, chosen, loop)).url;
       }
       if (loop.state !== 'review' && loop.state !== 'needs-human') exitCode = 1;
-    } catch {
-      // Error texts may carry paths or server replies; only the stage is recorded and notified.
-      result = {state: 'runner-error', reason: stage};
-      exitCode = 1;
+    } catch (error) {
+      // A refusal to publish (a changed CI definition) is for a person to judge; nothing was pushed.
+      const refusal = error instanceof WorkspaceError && error.reason && /^[a-z-]{1,40}$/.test(error.reason) ? error.reason : undefined;
+      // Other error texts may carry paths or server replies; only the stage is recorded and notified.
+      result = refusal ? {state: 'needs-human', reason: refusal} : {state: 'runner-error', reason: stage};
+      if (!refusal) exitCode = 1;
     }
     deps.records.finish(chosen.taskName, result);
     ran = {taskId: chosen.id, taskName: chosen.taskName, result};

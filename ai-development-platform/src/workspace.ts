@@ -16,7 +16,12 @@ import type { TaskDecision } from './runner.js';
  *   filters). Commit and push therefore happen in a second, fresh clone; the files are copied over without .git.
  * - Only `aidev/<task name>` is pushed, never with force. Nothing is merged.
  */
-export class WorkspaceError extends Error {}
+export class WorkspaceError extends Error {
+  /** Set when the run should end as needs-human with this reason rather than as a runner error. */
+  constructor(message: string, readonly reason?: string) {
+    super(message);
+  }
+}
 
 export interface GitRemote {
   /** Clone URL of `org/repo` (https on Gitea; a local path in tests). Must not contain credentials. */
@@ -56,10 +61,14 @@ function runProcess(command: string, args: string[], cwd: string, env: NodeJS.Pr
 }
 
 /** Environment for git: no credentials from the runner, no prompts, no stored credentials, the token as a header only. */
-export function gitEnvironment(remote: GitRemote, source: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+export function gitEnvironment(remote: GitRemote, source: NodeJS.ProcessEnv = process.env, hooksDir?: string): NodeJS.ProcessEnv {
   const config: [string, string][] = [
     ['credential.helper', ''],
     ['core.fsmonitor', 'false'],
+    // Refuse paths that Windows or macOS would map onto .git, whatever the platform's default.
+    ['core.protectNTFS', 'true'],
+    ['core.protectHFS', 'true'],
+    ...(hooksDir ? [['core.hooksPath', hooksDir] as [string, string]] : []),
     ['http.followRedirects', 'false'],
     ['protocol.ext.allow', 'never'],
   ];
@@ -77,13 +86,38 @@ export function gitEnvironment(remote: GitRemote, source: NodeJS.ProcessEnv = pr
   return env;
 }
 
-// Never copied from the working copy into the publish clone: git metadata and installed packages.
-const notCopied = new Set(['.git', 'node_modules']);
+/**
+ * Names never copied from the working copy into the publish clone: git metadata and installed packages.
+ * Windows ignores trailing dots and spaces and case, and has 8.3 short names, so ".git.", ".GIT " and "GIT~1" can
+ * all reach the publish clone's .git; names with ":" would write alternate data streams.
+ */
+export function notCopied(name: string): boolean {
+  const normalized = name.replace(/[. ]+$/, '').toLowerCase();
+  return normalized === '.git' || normalized === 'node_modules' || /^git~\d+$/.test(normalized) || name.includes(':') || normalized === '';
+}
+
+/** Top-level directories with CI definitions. A change there could run code with the repository's Actions secrets. */
+const ciDirectories = ['.gitea', '.github', '.forgejo'];
+
+/** Files under the CI directories, path → content, with links and other non-files marked. Compared before publishing. */
+function ciFiles(root: string): Map<string, string> {
+  const files = new Map<string, string>();
+  const visit = (path: string, relative: string) => {
+    const stat = lstatSync(path);
+    if (stat.isSymbolicLink() || (!stat.isDirectory() && !stat.isFile())) files.set(relative, '\0link');
+    else if (stat.isFile()) files.set(relative, readFileSync(path, 'base64'));
+    else for (const entry of readdirSync(path)) visit(join(path, entry), relative + '/' + entry);
+  };
+  for (const entry of readdirSync(root)) {
+    if (ciDirectories.includes(entry.replace(/[. ]+$/, '').toLowerCase())) visit(join(root, entry), entry.toLowerCase());
+  }
+  return files;
+}
 
 /** Copies the working tree without .git, installed packages or symbolic links. */
 function copyTree(from: string, to: string): void {
   for (const entry of readdirSync(from, {withFileTypes: true})) {
-    if (notCopied.has(entry.name.toLowerCase())) continue;
+    if (notCopied(entry.name)) continue;
     const source = join(from, entry.name);
     const target = join(to, entry.name);
     const stat = lstatSync(source);
@@ -167,7 +201,10 @@ export function pullRequestBody(task: RunnerTask, result: LoopResult, root: stri
 
 export function createGiteaWorkspace(options: WorkspaceOptions) {
   const timeoutMs = options.timeoutMs ?? 15 * 60_000;
-  const env = gitEnvironment(options.remote);
+  // An empty hooks directory owned by the runner: no hook from any clone runs while the token is in the environment.
+  const hooksDir = join(options.workDir, '.no-hooks');
+  mkdirSync(hooksDir, {recursive: true});
+  const env = gitEnvironment(options.remote, process.env, hooksDir);
   const git = async (args: string[], cwd: string, step: string) => {
     const status = await runProcess('git', args, cwd, env, timeoutMs);
     if (status !== 0) throw new WorkspaceError(step + ' に失敗しました（' + status + '）。');
@@ -214,6 +251,12 @@ export function createGiteaWorkspace(options: WorkspaceOptions) {
       await clone(task, dir, false);
       const branch = branchOf(task);
       await git(['switch', '--quiet', '-c', branch, base], dir, 'git switch');
+      // A changed CI definition on a pushed branch could run with the repository's Actions secrets; a person decides.
+      const before = ciFiles(dir);
+      const after = ciFiles(root);
+      if (before.size !== after.size || [...after].some(([path, content]) => before.get(path) !== content)) {
+        throw new WorkspaceError('CI の設定（.gitea・.github・.forgejo）が変わっているため push しません。', 'ci-config-changed');
+      }
       clearTree(dir);
       copyTree(root, dir);
       await git(['add', '-A'], dir, 'git add');
