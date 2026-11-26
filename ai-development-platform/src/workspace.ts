@@ -1,7 +1,6 @@
 import { spawn } from 'node:child_process';
-import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { isAbsolute, join } from 'node:path';
+import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { isAbsolute, join, win32 } from 'node:path';
 import { withoutCredentials } from './environment.js';
 import { stopTree } from './react.js';
 import { checkBranch, type GiteaRunnerClient } from './gitea.js';
@@ -68,17 +67,22 @@ function runProcess(command: string, args: string[], cwd: string, env: NodeJS.Pr
 const nullDevice = '/dev/null';
 
 /**
- * Hooks directory for the runner's git: /dev/null elsewhere (no file can be created under it), and on Windows an
- * absolute, runner-created empty directory that is checked to be still empty before every git command.
+ * Hooks path for the runner's git: a path below a regular file, where no hook can ever be created. Elsewhere that is
+ * /dev/null; on Windows a system file an ordinary user cannot delete or replace (kernel32.dll in System32), so code
+ * running as the runner's user cannot turn the path into a folder between a check and the git command.
  */
-export function createHooksDirectory(platform: NodeJS.Platform = process.platform): {path: string; check(): void} {
+export function createHooksDirectory(platform: NodeJS.Platform = process.platform,
+    systemRoot = process.env.SystemRoot ?? 'C:\\Windows'): {path: string; check(): void} {
   if (platform !== 'win32') return {path: nullDevice, check() {}};
-  const path = mkdtempSync(join(tmpdir(), 'aidev-nohooks-'));
-  return {path, check() {
-    const stat = lstatSync(path);
-    if (stat.isSymbolicLink() || !stat.isDirectory() || readdirSync(path).length) {
-      throw new WorkspaceError('git のフックを無効にするフォルダが書き換えられています。');
+  const file = win32.join(systemRoot, 'System32', 'kernel32.dll');
+  return {path: win32.join(file, 'nohooks'), check() {
+    let regular = false;
+    try {
+      regular = lstatSync(file).isFile();
+    } catch {
+      regular = false;
     }
+    if (!regular) throw new WorkspaceError('git のフックを無効にする場所を用意できません（System32 のファイルが見つかりません）。');
   }};
 }
 

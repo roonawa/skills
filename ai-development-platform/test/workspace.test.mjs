@@ -58,16 +58,18 @@ test('git reads neither the user nor the system configuration, nor git settings 
   assert.ok(!values(linux).some(value => value.startsWith('http.sslBackend')));
 });
 
-test('on Windows the hooks folder is an absolute, empty, runner-created folder that is checked before each use', () => {
+test('the hooks path lies below a regular file, so no hook can be created there', t => {
   assert.equal(createHooksDirectory('linux').path, '/dev/null');
-  const hooks = createHooksDirectory('win32');
-  try {
+  assert.equal(createHooksDirectory('win32', 'C:\\Windows').path, 'C:\\Windows\\System32\\kernel32.dll\\nohooks');
+  // Without the system file the runner refuses to run git rather than fall back to a writable folder.
+  const dir = mkdtempSync(join(tmpdir(), 'aidev-root-'));
+  t.after(() => rmSync(dir, {recursive: true, force: true}));
+  assert.throws(() => createHooksDirectory('win32', dir).check(), /System32/);
+  if (process.platform === 'win32') {
+    const hooks = createHooksDirectory();
     assert.ok(isAbsolute(hooks.path));
     hooks.check();
-    writeFileSync(join(hooks.path, 'pre-commit'), 'evil');
-    assert.throws(() => hooks.check(), /書き換えられています/);
-  } finally {
-    rmSync(hooks.path, {recursive: true, force: true});
+    assert.throws(() => mkdirSync(hooks.path, {recursive: true}), 'a folder cannot be made below a file');
   }
 });
 
