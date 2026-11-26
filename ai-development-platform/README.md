@@ -208,7 +208,7 @@ CI は親リポジトリの .github/workflows/aidev.yml にある。依存監査
 
 ## C-HUB の読み取りと無人実行ランナー（段階1）
 
-[設計書（案）](docs/autonomous-runner-design.md) の段階1として、C-HUB を読むだけの部品を置く。C-HUB と Gitea には書き込まない。`src/chub.ts` は GET しか送らず、書き込みの関数を持たない。
+[設計書（案）](docs/autonomous-runner-design.md) の段階1として、C-HUB を読むだけの部品を置く。C-HUB と Gitea には書き込まない。`src/chub.ts` は GET しか送らず、書き込みの関数を持たない。段階2以降も C-HUB のタスクには書き込まず、結果は Gitea の PR と本人の相棒への通知で知らせる（2026-11-26 改訂）。
 
 ### 設定
 
@@ -245,7 +245,7 @@ node dist/runner.js --dry-run --config runner.json
 |---|---|
 |tasks[].eligible / reasons|着手の可否と理由。理由のコードは missing-repository、invalid-repository、repository-not-allowed、missing-base-branch、invalid-base-branch、missing-acceptance、invalid-task-id、section-changed|
 |next|次の起動で着手する予定のタスク（着手可能なうち最古）|
-|interrupted|「AI実行中」に残るタスク。段階2以降は人の確認待ちへ移す対象。段階1では表示だけ|
+|interrupted|「AI実行中」に残るタスク。段階1では表示だけ。2026-11-26 の設計改訂で C-HUB へは書き込まないことにしたため、段階2ではこの項目と running の設定をやめ、ランナーの手元の実行記録から中断を判定する|
 |boards|ボードとセクションが見つかったか、件数|
 
 依頼テンプレートの必須項目は「対象リポジトリ」（org/repo）、「基準ブランチ」、「受け入れ条件」（`- AC-001: 説明` の行が1件以上）。「やらないこと」「参考」は判定に使わない。成功は終了コード 0、設定や通信の失敗は 1。
