@@ -6,7 +6,7 @@ import { checkProject, parseTemplate } from './adapter.js';
 import { readWorkflowStatus, runWorkflow } from './workflow.js';
 import { evaluate } from './evaluator.js';
 import { readReview } from './review.js';
-import { claudeRunner, runLoop, type ClaudeOptions } from './loop.js';
+import { claudeRunner, runLoop, sessionOptions } from './loop.js';
 import { checkSpec } from './spec.js';
 import { checkProfile } from './qa-profile.js';
 import { compareReport } from './qa-compare.js';
@@ -14,20 +14,6 @@ import { createIssueFromRun } from './qa-issue.js';
 import { traceDirectory, traceRepository } from './qa-trace.js';
 import { readQaRepository } from './qa-trace-parse.js';
 import { traceHtmlPath, writeTraceHtml } from './qa-trace-html.js';
-
-/** Session limits for `workflow run`, from the environment. Invalid values stop before any session starts. */
-function sessionOptions(env: NodeJS.ProcessEnv): ClaudeOptions {
-  const number = (name: string, max: number) => {
-    const value = env[name];
-    if (value === undefined || value === '') return undefined;
-    const parsed = Number(value);
-    if (!Number.isFinite(parsed) || parsed <= 0 || parsed > max) throw new Error(name + ' には 0 より大きく ' + max + ' 以下の数を指定してください。');
-    return parsed;
-  };
-  const minutes = number('AIDEV_SESSION_TIMEOUT_MIN', 180);
-  return {command:env.AIDEV_CLAUDE || undefined, budgetUsd:number('AIDEV_SESSION_BUDGET_USD', 100),
-    timeoutMs:minutes === undefined ? undefined : minutes * 60_000, model:env.AIDEV_MODEL || undefined};
-}
 
 async function run(args: string[]) {
   const root = realpathSync(process.cwd());

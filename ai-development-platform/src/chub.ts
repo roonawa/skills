@@ -1,8 +1,10 @@
 import { readFileSync } from 'node:fs';
+import { isAbsolute } from 'node:path';
 
 /**
- * Read-only C-HUB client (stage 1 of docs/autonomous-runner-design.md).
- * Writes (comments, section moves) are deliberately absent: the API shape and the AI account are unconfirmed.
+ * Read-only C-HUB client (docs/autonomous-runner-design.md).
+ * Task writes (comments, section moves) are deliberately absent: since 2026-11-26 the runner never writes to tasks,
+ * and its key carries no write scope (design 1.1).
  * The request type only allows GET, and the client checks it again at run time.
  */
 export interface HttpRequest {
@@ -20,8 +22,11 @@ export interface ChubConfig {
   baseUrl: string;
   token: string;
   boards: string[];
-  sections: {ready: string; running?: string; needsHuman: string};
+  /** Section names. The runner only reads `ready`; the others appear in notifications as where a person moves the card. */
+  sections: {ready: string; review: string; needsHuman: string};
   allowedRepositories: string[];
+  /** Directory on the runner host for run records (docs/autonomous-runner-design.md 5.6). */
+  stateDir?: string;
 }
 
 export class ChubError extends Error {}
@@ -228,16 +233,21 @@ export function loadChubConfig(file: string | undefined, env: NodeJS.ProcessEnv 
   }
   const sections = (typeof raw.sections === 'object' && raw.sections !== null ? raw.sections : {}) as Record<string, unknown>;
   const name = (value: unknown, fallback: string) => typeof value === 'string' && value.trim() ? value.trim() : fallback;
+  if (raw.stateDir !== undefined && (typeof raw.stateDir !== 'string' || !isAbsolute(raw.stateDir))) {
+    throw new ChubError('設定の stateDir はランナーのホスト上の絶対パスにしてください。');
+  }
+  const stateDir = raw.stateDir as string | undefined;
   return {
     baseUrl,
     token,
     boards: raw.boards === undefined ? [] : strings(raw.boards, 'boards'),
     sections: {
       ready: name(sections.ready, 'AI実装待ち'),
-      running: name(sections.running, 'AI実行中'),
+      review: name(sections.review, '人のレビュー待ち'),
       needsHuman: name(sections.needsHuman, '人の確認待ち'),
     },
     allowedRepositories: raw.allowedRepositories === undefined ? [] : strings(raw.allowedRepositories, 'allowedRepositories'),
+    ...(stateDir ? {stateDir} : {}),
   };
 }
 

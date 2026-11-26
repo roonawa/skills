@@ -160,6 +160,7 @@ jobs:
    - 本文に「依頼テンプレート」（5.3）の必須項目がある
    - 対象リポジトリがランナー設定の許可リストにある
    - 受け入れ条件に AC-ID が1件以上ある
+   - 本文が `aidev spec check` の検査でエラーにならない（「やらないこと」がある、⚠要確認や未解決の判断待ちが無い）
 4. aidev のタスク名は `<C-HUB のタスク ID>-<本文の版>` とする。本文の版は、正規化した本文（改行を LF にそろえ、行末の空白を除く）の SHA-256 の先頭8桁。タスク ID（例: `task-1781599844340-3tml2`）と合わせても小文字・数字・ハイフンで64文字以内のため、aidev の名前規則に合う
 5. 実行を始める前に、手元の実行記録に「開始」を書く。終わったら結果を書く
 
@@ -290,6 +291,15 @@ C-HUB・Gitea に接続しない部分を先に実装した。使い方は READM
 - 配置済みの Skill は `aidev skill update` で、利用者が編集していない場合だけ新しい版に置き換えられる
 - Gitea Actions のワークフロー例（5.1）の `actions/checkout@v4` は、ランナーで使える版を確かめてから決める（GitHub 側の CI は 2026-11-17 に v7 へ更新）
 
+### 段階2のランナー本体の実装状況（2026-11-26）
+
+- `src/run-records.ts`: 実行記録（stateDir の `runs/<タスク名>.json`）。開始は排他的に作成し、同じ版を二重に取らない。壊れた記録も処理済みとして扱い、中断として閉じる。本文の版（5.2 の4）とタスク名もここで作る
+- `src/runner.ts` の `runOnce`: 5.2・5.5・5.6 の処理。中断の通知、着手条件不足の通知、最古の1件の実行、結果の記録、1回の起動につき1通の通知。dry-run も実行記録を見て processed と interrupted を出す。`AI実行中` の扱いと設定の `sections.running` は削除し、通知でカードを移す先を示すため `sections.review` を足した
+- 着手条件の変更: タスク本文に `aidev spec check` と同じ検査をかけ、エラーを `spec-` 付きの理由にした。これにより「やらないこと」は必須になった（段階1の解釈では任意としていた）。タスク ID は版を付けても64文字以内に収まるよう、55文字までとした
+- Gitea との連携（同日）: `src/workspace.ts` と `createGiteaRunnerClient`（`src/gitea.ts`）。`node dist/runner.js --once` で1件を実行して PR まで作る。トークンは git コマンドごとの環境変数でだけ渡し、作業フォルダには残さない。作業後の作業フォルダは AI やゲートのスクリプトが `.git` を書き換えられるため信用せず、コミットと push は取得し直した別のフォルダで行う。push 先は `aidev/<タスク名>` だけで強制 push はしない。QA の Issue 起票用のクライアントとは分け、そちらからは PR を作れないままにした。テストはローカルの bare リポジトリと偽の Gitea API で行い、実際の Gitea には接続していない
+- 未実装: 相棒への通知の送信。それまで通知の本文は `--once` の出力の `notifications` に出る
+- 通知の1日5通の上限への対処（4章）は、通知の送信と合わせて実装する。`runOnce` は1回の起動の通知を1通にまとめるところまで
+
 ## 10. 実装する構成要素
 
 aidev の規約（Node.js 22、strict TypeScript、`npm test`）に合わせ、ai-development-platform に追加する。
@@ -297,8 +307,10 @@ aidev の規約（Node.js 22、strict TypeScript、`npm test`）に合わせ、a
 | ファイル | 内容 |
 |---|---|
 | `src/chub.ts` | C-HUB の共通ライブラリ。読み取りと、相棒への通知（`sugar-forum/digest` の POST だけ）。タスクへの書き込みは作らない |
-| `src/runner.ts` | 5章のランナー処理（段階1は着手可否の dry-run だけ）。実行記録、処理済みの除外、通知のまとめ（1日5通の上限）を含む |
+| `src/runner.ts` | 5章のランナー処理。dry-run と、1回の起動分の処理（`runOnce`）。通知のまとめ（1日5通の上限）を含む |
+| `src/run-records.ts` | 実行記録と本文の版（5.2・5.6） |
 | `src/loop.ts` | 5.4 の実装とゲートのループ。`aidev workflow run` として単独でも使える（2026-11-16 実装。C-HUB・Gitea には接続しない） |
-| `src/gitea.ts` | ブランチの push と PR 作成 |
+| `src/gitea.ts` | Gitea の API。ランナー用（`createGiteaRunnerClient`）は作業ブランチの有無の確認と PR 作成だけ |
+| `src/workspace.ts` | 作業フォルダの用意、別の取得し直したフォルダでのコミットと push、PR の本文 |
 
 C-HUB の API は公開の API 定義（`/openapi.json`）を正本とする。chub-team-status（Python）は旧接続先の実績として、注意点（`title`、`archived` の型の揺れ）を参照する。chub-team-status 自体は変更しない。

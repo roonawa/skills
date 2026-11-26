@@ -378,3 +378,17 @@ export async function runLoop(root: string, task: string, spec: string, options:
     attempt = result.attempts + 1;
   }
 }
+
+/** Session limits for `workflow run`, from the environment. Invalid values stop before any session starts. */
+export function sessionOptions(env: NodeJS.ProcessEnv): ClaudeOptions {
+  const number = (name: string, max: number) => {
+    const value = env[name];
+    if (value === undefined || value === '') return undefined;
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed <= 0 || parsed > max) throw new Error(name + ' には 0 より大きく ' + max + ' 以下の数を指定してください。');
+    return parsed;
+  };
+  const minutes = number('AIDEV_SESSION_TIMEOUT_MIN', 180);
+  return {command:env.AIDEV_CLAUDE || undefined, budgetUsd:number('AIDEV_SESSION_BUDGET_USD', 100),
+    timeoutMs:minutes === undefined ? undefined : minutes * 60_000, model:env.AIDEV_MODEL || undefined};
+}

@@ -1,6 +1,7 @@
 /**
- * Minimal Gitea client for `aidev qa issue create` (phase 3).
- * It can read issues and the token's own user, and create an issue; nothing else (no comments, edits, closing, labels or branches).
+ * Minimal Gitea client for `aidev qa issue create` (phase 3) and the unattended runner.
+ * It can read issues, the token's own user and whether a branch exists, create an issue and open a pull request;
+ * nothing else (no comments, edits, closing, labels, merges or branch deletion).
  * The token travels only in the Authorization header. Error messages never contain the token or the URL.
  */
 export interface GiteaRequest {
@@ -102,6 +103,16 @@ function checkName(value: string, label: string): string {
   return encodeURIComponent(value);
 }
 
+// Conservative subset of git ref names: no "..", no leading "-" or "/", no trailing "/" or ".lock", no "//".
+const branchPattern = /^(?!-)(?!.*\.\.)(?!.*\/\/)(?!\/)(?!.*\/$)(?!.*\.lock$)[A-Za-z0-9._/-]{1,200}$/;
+
+export function checkBranch(value: string): string {
+  if (typeof value !== 'string' || !branchPattern.test(value) || value.split('/').some(part => /^\.+$/.test(part))) {
+    throw new GiteaError('ブランチ名の形式が不正です。');
+  }
+  return value;
+}
+
 function checkBaseUrl(baseUrl: string): string {
   let url: URL;
   try {
@@ -122,7 +133,8 @@ function checkToken(token: unknown): string {
   return token;
 }
 
-export function createGiteaClient(options: GiteaClientOptions) {
+/** Connection shared by the two clients below: checked address and token, transport, JSON requests. */
+function connect(options: GiteaClientOptions) {
   const root = checkBaseUrl(options.baseUrl);
   const token = checkToken(options.token);
   const transport = options.transport ?? fetchGiteaTransport;
@@ -148,8 +160,13 @@ export function createGiteaClient(options: GiteaClientOptions) {
   }
 
   const headers = (): Record<string, string> => ({Authorization: 'token ' + token, Accept: 'application/json'});
-  const issuesPath = (owner: string, repo: string) =>
-    root + '/api/v1/repos/' + checkName(owner, 'owner') + '/' + checkName(repo, 'repo') + '/issues';
+  const repoPath = (owner: string, repo: string) => root + '/api/v1/repos/' + checkName(owner, 'owner') + '/' + checkName(repo, 'repo');
+  return {root, transport, send, headers, repoPath};
+}
+
+export function createGiteaClient(options: GiteaClientOptions) {
+  const {root, send, headers, repoPath} = connect(options);
+  const issuesPath = (owner: string, repo: string) => repoPath(owner, repo) + '/issues';
 
   return Object.freeze({
     /** The token's own user (read only). Used to count only the worker's own issues as duplicates. */
@@ -190,6 +207,54 @@ export function createGiteaClient(options: GiteaClientOptions) {
       const json = await send(request, 201) as Record<string, unknown> | null;
       if (typeof json !== 'object' || json === null || typeof json.number !== 'number' || typeof json.html_url !== 'string' || !json.html_url) {
         throw new GiteaError('Gitea の応答に Issue 番号または URL がありません。');
+      }
+      return {number: json.number, html_url: json.html_url};
+    },
+  });
+}
+
+export type GiteaRunnerClient = ReturnType<typeof createGiteaRunnerClient>;
+
+/**
+ * Client of the unattended runner (docs/autonomous-runner-design.md 5.2, 5.5): whether a branch exists, and opening a
+ * pull request. Kept apart from createGiteaClient so the QA issue command cannot open pull requests.
+ */
+export function createGiteaRunnerClient(options: GiteaClientOptions) {
+  const {transport, send, headers, repoPath} = connect(options);
+  return Object.freeze({
+    /** Whether the branch exists (unattended runner, design 5.2). 404 means no; any other failure is an error. */
+    async branchExists(owner: string, repo: string, branch: string): Promise<boolean> {
+      const url = repoPath(owner, repo) + '/branches/' + checkBranch(branch).split('/').map(encodeURIComponent).join('/');
+      let response: GiteaResponse;
+      try {
+        response = await transport({method: 'GET', url, headers: headers()});
+      } catch (error) {
+        if (error instanceof GiteaError) throw error;
+        throw new GiteaError('Gitea に接続できません（UNKNOWN）');
+      }
+      if (response.status === 200) return true;
+      if (response.status === 404) return false;
+      throw new GiteaError('Gitea: ' + response.status + ' ブランチを確認できません');
+    },
+    /** Opens a pull request from `head` into `base` (unattended runner, design 5.5). Nothing is merged. */
+    async createPullRequest(owner: string, repo: string, pull: {head: string; base: string; title: string; body: string}):
+        Promise<{number: number; html_url: string}> {
+      const request: GiteaRequest = {method: 'POST', url: repoPath(owner, repo) + '/pulls',
+        headers: {...headers(), 'Content-Type': 'application/json'},
+        body: JSON.stringify({head: checkBranch(pull.head), base: checkBranch(pull.base), title: pull.title, body: pull.body})};
+      let json: Record<string, unknown> | null;
+      try {
+        json = await send(request, 201) as Record<string, unknown> | null;
+      } catch (error) {
+        if (!(error instanceof GiteaError)) throw error;
+        if (/HTTP 409/.test(error.message)) throw new GiteaError('Gitea: 409 同じブランチの PR がすでにあります');
+        // The shared 403/422 texts speak of issues.
+        if (/^Gitea: 403/.test(error.message)) throw new GiteaError('Gitea: 403 トークンの権限不足（リポジトリへの書き込み権限が必要）');
+        if (/^Gitea: 422/.test(error.message)) throw new GiteaError('Gitea: 422 PR の内容が受け付けられませんでした（ブランチ名や差分を確認してください）');
+        throw error;
+      }
+      if (typeof json !== 'object' || json === null || typeof json.number !== 'number' || typeof json.html_url !== 'string' || !json.html_url) {
+        throw new GiteaError('Gitea の応答に PR 番号または URL がありません。');
       }
       return {number: json.number, html_url: json.html_url};
     },

@@ -260,3 +260,27 @@ test('findIssues reads the author defensively', async () => {
   const client = createGiteaClient({baseUrl: BASE, token: TOKEN, transport: fakeGitea(() => ({status: 200, body: JSON.stringify(list)})).transport});
   assert.deepEqual((await client.findIssues('o', 'r', 'x')).map(issue => issue.user.login), ['a', '', '', '']);
 });
+
+test('the runner client only checks branches and opens pull requests, with the token in the header only', async () => {
+  const {createGiteaRunnerClient} = await import('../dist/gitea.js');
+  const fake = fakeGitea(request => request.method === 'GET'
+    ? {status: request.url.endsWith('/branches/aidev/task-1-abcd1234') ? 200 : 404, body: ''}
+    : {status: 201, body: JSON.stringify({number: 4, html_url: BASE + '/org/app/pulls/4'})});
+  const client = createGiteaRunnerClient({baseUrl: BASE, token: TOKEN, transport: fake.transport});
+  assert.deepEqual(Object.keys(client).sort(), ['branchExists', 'createPullRequest']);
+  assert.ok(Object.isFrozen(client));
+  assert.equal(await client.branchExists('org', 'app', 'aidev/task-1-abcd1234'), true);
+  assert.equal(await client.branchExists('org', 'app', 'aidev/other'), false);
+  await assert.rejects(client.branchExists('org', 'app', '../x'), /ブランチ名/);
+  const pull = await client.createPullRequest('org', 'app', {head: 'aidev/task-1-abcd1234', base: 'main', title: 't', body: 'b'});
+  assert.deepEqual(pull, {number: 4, html_url: BASE + '/org/app/pulls/4'});
+  const post = fake.calls.at(-1);
+  assert.equal(post.url, BASE + '/api/v1/repos/org/app/pulls');
+  assert.deepEqual(JSON.parse(post.body), {head: 'aidev/task-1-abcd1234', base: 'main', title: 't', body: 'b'});
+  assert.ok(fake.calls.every(call => call.headers.Authorization === 'token ' + TOKEN && !call.url.includes(TOKEN)));
+  for (const [status, pattern] of [[403, /リポジトリへの書き込み権限/], [409, /すでにあります/], [500, /HTTP 500/]]) {
+    const failing = createGiteaRunnerClient({baseUrl: BASE, token: TOKEN, transport: async () => ({status, body: TOKEN})});
+    await assert.rejects(failing.createPullRequest('org', 'app', {head: 'aidev/x', base: 'main', title: 't', body: 'b'}),
+      error => pattern.test(error.message) && !error.message.includes(TOKEN));
+  }
+});

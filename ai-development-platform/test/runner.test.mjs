@@ -20,7 +20,11 @@ test('decide applies the start conditions of 5.2', () => {
   const allowed = ['org/app'];
   assert.deepEqual(codes(decide(task('task-1', 351, template()), 'b', allowed)), []);
   assert.deepEqual(codes(decide(task('task-1', 351, ''), 'b', allowed)),
-    ['missing-repository', 'missing-base-branch', 'missing-acceptance']);
+    ['missing-repository', 'missing-base-branch', 'missing-acceptance', 'spec-missing-out-of-scope']);
+  // The specification check of `aidev spec check` is part of the start conditions.
+  assert.deepEqual(codes(decide(task('task-1', 351, template() + '\n判断待ち:\n- 0件の表示文言'), 'b', allowed)), ['spec-open-questions']);
+  assert.ok(codes(decide(task('task-1', 351, template('org/app', ['AC-001: 文言は ⚠要確認'])), 'b', allowed)).includes('spec-unconfirmed'));
+  assert.deepEqual(codes(decide(task('task-' + 'x'.repeat(51), 351, template()), 'b', allowed)), ['invalid-task-id']);
   assert.deepEqual(codes(decide(task('task-1', 351, template('org/other')), 'b', allowed)), ['repository-not-allowed']);
   assert.deepEqual(codes(decide(task('task-1', 351, template('../etc')), 'b', allowed)), ['invalid-repository']);
   assert.deepEqual(codes(decide(task('task-1', 351, template('org/app', [])), 'b', allowed)), ['missing-acceptance']);
@@ -51,7 +55,8 @@ test('dry-run reports decisions oldest first, sends GET only and never prints th
   const report = JSON.parse(output);
   assert.deepEqual(report.tasks.map(d => [d.id, d.eligible]), [['task-old', false], ['task-mid', true], ['task-new', true]]);
   assert.equal(report.next, 'task-mid');
-  assert.deepEqual(report.interrupted, [{id: 'task-run', board: 'テスト用ボード'}]);
+  assert.match(report.tasks[1].taskName, /^task-mid-[0-9a-f]{8}$/);
+  assert.deepEqual(report.interrupted, []);
   assert.deepEqual(report.boards.map(b => [b.name, b.found, b.readyCount]), [['テスト用ボード', true, 3], ['無いボード', false, 0]]);
   assert.ok(calls.length > 0 && calls.every(c => c.method === 'GET'));
   assert.ok(calls.some(c => c.url.endsWith('/tasks/task-old')), 'reads the single task for the description');

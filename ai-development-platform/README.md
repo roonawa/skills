@@ -225,12 +225,13 @@ CI は親リポジトリの .github/workflows/aidev.yml にある。依存監査
 ```json
 {
   "boards": ["tp-1794804787123-7gx3d"],
-  "sections": {"ready": "AI実装待ち", "running": "AI実行中", "needsHuman": "人の確認待ち"},
-  "allowedRepositories": ["org/app"]
+  "sections": {"ready": "AI実装待ち", "review": "人のレビュー待ち", "needsHuman": "人の確認待ち"},
+  "allowedRepositories": ["org/app"],
+  "stateDir": "D:/aidev-runner/state"
 }
 ```
 
-boards にはボード（プロジェクト）の ID（`tp-...`、C-HUB の URL の `projectId`）か名前を書く。ID のほうが名前の変更に影響されない。sections を省略すると上の名前を使う。API の呼び方は C-HUB の公開の API 定義（`https://chub.ailesys.co.jp/openapi.json`）に合わせている。実際の接続は未確認。
+boards にはボード（プロジェクト）の ID（`tp-...`、C-HUB の URL の `projectId`）か名前を書く。ID のほうが名前の変更に影響されない。sections を省略すると上の名前を使う。ランナーが読むのは ready だけで、review と needsHuman は通知の「カードを移す先」に使う。stateDir は実行記録を置くランナーのホスト上の絶対パスで、ジョブごとに作り直される作業フォルダの外にする。API の呼び方は C-HUB の公開の API 定義（`https://chub.ailesys.co.jp/openapi.json`）に合わせている。実際の接続は未確認。
 
 ### ランナーの dry-run
 
@@ -243,12 +244,47 @@ node dist/runner.js --dry-run --config runner.json
 
 |項目|内容|
 |---|---|
-|tasks[].eligible / reasons|着手の可否と理由。理由のコードは missing-repository、invalid-repository、repository-not-allowed、missing-base-branch、invalid-base-branch、missing-acceptance、invalid-task-id、section-changed|
-|next|次の起動で着手する予定のタスク（着手可能なうち最古）|
-|interrupted|「AI実行中」に残るタスク。段階1では表示だけ。2026-11-26 の設計改訂で C-HUB へは書き込まないことにしたため、段階2ではこの項目と running の設定をやめ、ランナーの手元の実行記録から中断を判定する|
+|tasks[].eligible / reasons|着手の可否と理由。理由のコードは missing-repository、invalid-repository、repository-not-allowed、missing-base-branch、invalid-base-branch、missing-acceptance、invalid-task-id、section-changed と、`aidev spec check` のエラーに `spec-` を付けたもの（spec-missing-out-of-scope、spec-open-questions など）。「やらないこと」の節も必須になる|
+|tasks[].taskName|aidev のタスク名 `<タスクID>-<本文の版>`。版は本文の SHA-256 の先頭8桁で、本文を直すと変わる|
+|tasks[].processed|stateDir に同じ版の実行記録があるか。処理済みの版は、カードが AI実装待ちのままでも再実行しない|
+|next|次の起動で着手する予定のタスク（着手可能で未処理のうち最古）|
+|interrupted|stateDir の実行記録のうち、開始だけで結果の無いもの（前回の実行が中断した）|
 |boards|ボードとセクションが見つかったか、件数|
 
-依頼テンプレートの必須項目は「対象リポジトリ」（org/repo）、「基準ブランチ」、「受け入れ条件」（`- AC-001: 説明` の行が1件以上）。「やらないこと」「参考」は判定に使わない。成功は終了コード 0、設定や通信の失敗は 1。
+依頼テンプレートの必須項目は「対象リポジトリ」（org/repo）、「基準ブランチ」、「受け入れ条件」（`- AC-001: 説明` の行が1件以上）、「やらないこと」。本文は `aidev spec check` と同じ検査も受けるため、⚠要確認や未解決の「判断待ち」があると着手しない。「参考」は判定に使わない。成功は終了コード 0、設定や通信の失敗は 1。
+
+### ランナーの本体（段階2）
+
+```powershell
+node dist/runner.js --once --config runner.json
+```
+
+`--once` は1回の起動分の処理を行い、結果を JSON で出す（`src/runner.ts` の `runOnce`）。処理の順番は次のとおり。
+
+1. stateDir の実行記録のうち結果の無いものを「中断」として閉じ、通知する。同じ版は再実行しない
+2. 未処理の版のうち着手条件を満たさないものを記録し、足りない項目を通知する
+3. 着手可能で未処理の最古の1件について、作業フォルダを用意し、本文を `.aidev/specs/<タスク名>.md` に書いて `aidev workflow run` と同じループを回す。結果（review・needs-human・実行不能）を記録し、PR の URL とカードを移す先を通知する
+
+C-HUB は読むだけで、カードは通知を見た人が移す。通知の本文はテンプレートからだけ作り、AI の出力や指摘の内容は入れない。実行不能のときは止まった段階（workspace・spec・loop・publish）だけを記録する。相棒への通知の送信はまだ無く、通知の本文は出力の `notifications` に出る。
+
+`--once` に要る設定は、dry-run の設定に次を足したもの。
+
+|設定|内容|
+|---|---|
+|stateDir|必須。実行記録の場所|
+|gitea.baseUrl（または環境変数 GITEA_URL）|Gitea の URL。リポジトリは `<baseUrl>/<org/repo>.git` から取得する|
+|GITEA_TOKEN（環境変数だけ）|Gitea の AI 専用アカウントのトークン。対象リポジトリへの書き込み権限だけを付ける。設定ファイルには書かない|
+|workDir|作業フォルダの場所（絶対パス）。省略すると `<stateDir>/work`|
+|gitea.author|コミットの作者（name・email）。省略すると aidev-runner|
+|gitea.noRevocationCheck|true にすると、Windows の git で証明書の失効確認を省く（社内の認証局で失効情報を取れない場合だけ）|
+
+Gitea での動き:
+
+- 基準ブランチを浅く取得し、package-lock.json があれば `npm ci --ignore-scripts` を実行する。npm と git には認証情報を外した環境を渡す
+- トークンは git コマンドごとの環境変数（`http.extraHeader`）でだけ渡し、作業フォルダの `.git/config` には書かない。資格情報の保存（credential.helper）とリダイレクトの追従は止める
+- 作業後の作業フォルダは信用しない。AI やゲートの npm scripts が `.git` を書き換えられるため、コミットと push は取得し直した別のフォルダで行い、ファイルだけを写す（`.git`・`node_modules`・シンボリックリンクは写さない）
+- push 先は `aidev/<タスク名>` だけで、強制 push はしない。PR は基準ブランチ向けに作り、needs-human のときは題名に `WIP: ` を付けて引継ぎ票を本文に載せる（引継ぎ票やその親フォルダがリンクになっていれば読まない。作業フォルダの外のファイルを PR に載せないため）。マージはしない
+- 同じ名前の作業ブランチが Gitea にあれば、実行記録が無くても処理済みとみなす
 
 ### 対話で C-HUB を読む（公式 MCP）
 
