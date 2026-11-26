@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
-import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { isAbsolute, join } from 'node:path';
 import { withoutCredentials } from './environment.js';
 import { stopTree } from './react.js';
 import { checkBranch, type GiteaRunnerClient } from './gitea.js';
@@ -60,20 +61,40 @@ function runProcess(command: string, args: string[], cwd: string, env: NodeJS.Pr
   });
 }
 
-/** Null device: a hooks path that can hold no hook, and an empty configuration file. */
-const nullDevice = process.platform === 'win32' ? 'NUL' : '/dev/null';
+/**
+ * Empty configuration file for GIT_CONFIG_GLOBAL. Git for Windows maps exactly "/dev/null" to the null device.
+ * It is not used as a hooks path on Windows: "/dev/null/pre-commit" would become C:\dev\null\pre-commit.
+ */
+const nullDevice = '/dev/null';
+
+/**
+ * Hooks directory for the runner's git: /dev/null elsewhere (no file can be created under it), and on Windows an
+ * absolute, runner-created empty directory that is checked to be still empty before every git command.
+ */
+export function createHooksDirectory(platform: NodeJS.Platform = process.platform): {path: string; check(): void} {
+  if (platform !== 'win32') return {path: nullDevice, check() {}};
+  const path = mkdtempSync(join(tmpdir(), 'aidev-nohooks-'));
+  return {path, check() {
+    const stat = lstatSync(path);
+    if (stat.isSymbolicLink() || !stat.isDirectory() || readdirSync(path).length) {
+      throw new WorkspaceError('git のフックを無効にするフォルダが書き換えられています。');
+    }
+  }};
+}
 
 /**
  * Environment for git: no credentials from the runner, no prompts, no stored credentials, the token as a header only.
  * Project code runs as the same user before git does, so the user's and the system's git configuration may have been
  * changed (url.*.insteadOf or http.proxy could send the token elsewhere). Neither is read; what git needs is set here.
+ * `hooksPath` must be absolute (see createHooksDirectory); a relative one is resolved inside the work tree.
  */
 export function gitEnvironment(remote: GitRemote, source: NodeJS.ProcessEnv = process.env,
-    platform: NodeJS.Platform = process.platform): NodeJS.ProcessEnv {
+    platform: NodeJS.Platform = process.platform, hooksPath = nullDevice): NodeJS.ProcessEnv {
+  if (!isAbsolute(hooksPath) && hooksPath !== nullDevice) throw new WorkspaceError('フックの場所は絶対パスにしてください。');
   const config: [string, string][] = [
     ['credential.helper', ''],
     ['core.fsmonitor', 'false'],
-    ['core.hooksPath', nullDevice],
+    ['core.hooksPath', hooksPath],
     // Refuse paths that Windows or macOS would map onto .git, whatever the platform's default.
     ['core.protectNTFS', 'true'],
     ['core.protectHFS', 'true'],
@@ -92,7 +113,9 @@ export function gitEnvironment(remote: GitRemote, source: NodeJS.ProcessEnv = pr
     GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: nullDevice, GIT_CONFIG_COUNT: String(config.length)};
   for (const name of Object.keys(env)) {
     // Settings injected through the environment (GIT_CONFIG_PARAMETERS, GIT_SSH_COMMAND, GIT_EXEC_PATH...) are dropped.
-    if (/^GIT_/.test(name) && !/^GIT_(TERMINAL_PROMPT|CONFIG_NOSYSTEM|CONFIG_GLOBAL|CONFIG_COUNT)$/.test(name)) delete env[name];
+    // Windows treats variable names without regard to case, so "Git_Exec_Path" is dropped too; only the exact
+    // upper-case names set above stay.
+    if (/^GIT_/i.test(name) && !/^GIT_(TERMINAL_PROMPT|CONFIG_NOSYSTEM|CONFIG_GLOBAL|CONFIG_COUNT)$/.test(name)) delete env[name];
   }
   config.forEach(([key, value], index) => {
     env['GIT_CONFIG_KEY_' + index] = key;
@@ -108,7 +131,10 @@ export function gitEnvironment(remote: GitRemote, source: NodeJS.ProcessEnv = pr
  */
 export function notCopied(name: string): boolean {
   const normalized = name.replace(/[. ]+$/, '').toLowerCase();
-  return normalized === '.git' || normalized === 'node_modules' || /^git~\d+$/.test(normalized) || name.includes(':') || normalized === '';
+  // Reserved device names (NUL, CON, COM1...) open the device whatever the folder or extension.
+  const device = /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])$/.test(normalized.split('.')[0].trim());
+  return normalized === '.git' || normalized === 'node_modules' || /^git~\d+$/.test(normalized) || name.includes(':') ||
+    normalized === '' || device;
 }
 
 /** Top-level directories with CI definitions. A change there could run code with the repository's Actions secrets. */
@@ -223,8 +249,10 @@ export function pullRequestBody(task: RunnerTask, result: LoopResult, root: stri
 
 export function createGiteaWorkspace(options: WorkspaceOptions) {
   const timeoutMs = options.timeoutMs ?? 15 * 60_000;
-  const env = gitEnvironment(options.remote);
+  const hooks = createHooksDirectory();
+  const env = gitEnvironment(options.remote, process.env, process.platform, hooks.path);
   const git = async (args: string[], cwd: string, step: string) => {
+    hooks.check();
     const status = await runProcess('git', args, cwd, env, timeoutMs);
     if (status !== 0) throw new WorkspaceError(step + ' に失敗しました（' + status + '）。');
   };

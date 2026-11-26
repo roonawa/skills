@@ -5,9 +5,9 @@ import test from 'node:test';
 import { spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { main } from '../dist/runner.js';
-import { gitEnvironment, notCopied } from '../dist/workspace.js';
+import { createHooksDirectory, gitEnvironment, notCopied } from '../dist/workspace.js';
 import { taskNameOf } from '../dist/run-records.js';
 import { env as chubEnv, fakeChub, task, template } from './chub-fake.mjs';
 import { BASE as GITEA, TOKEN as GITEA_TOKEN, fakeGitea } from './gitea-fake.mjs';
@@ -39,7 +39,7 @@ test('git gets the token only as a header, with no credentials from the runner a
 
 test('git reads neither the user nor the system configuration, nor git settings from the environment', () => {
   const source = {PATH: 'p', GIT_CONFIG_GLOBAL: '/home/u/evil.gitconfig', GIT_CONFIG_PARAMETERS: "'url.x.insteadof'='y'",
-    GIT_SSH_COMMAND: 'evil', GIT_EXEC_PATH: '/evil', GIT_CONFIG_KEY_9: 'url.x.insteadOf'};
+    GIT_SSH_COMMAND: 'evil', GIT_EXEC_PATH: '/evil', GIT_CONFIG_KEY_9: 'url.x.insteadOf', Git_Exec_Path: '/evil', git_config_global: 'x'};
   const windows = gitEnvironment({url: () => ''}, source, 'win32');
   const linux = gitEnvironment({url: () => ''}, source, 'linux');
   for (const env of [windows, linux]) {
@@ -49,14 +49,31 @@ test('git reads neither the user nor the system configuration, nor git settings 
     assert.equal(env.GIT_SSH_COMMAND, undefined);
     assert.equal(env.GIT_EXEC_PATH, undefined);
     assert.equal(env.GIT_CONFIG_KEY_9, undefined);
+    assert.deepEqual(Object.keys(env).filter(name => /^git_/i.test(name) && name !== name.toUpperCase()), [],
+      'Windows reads variable names without regard to case');
   }
+  assert.throws(() => gitEnvironment({url: () => ''}, {}, 'win32', 'hooks'), /絶対パス/);
   const values = env => Array.from({length: Number(env.GIT_CONFIG_COUNT)}, (_, i) => env['GIT_CONFIG_KEY_' + i] + '=' + env['GIT_CONFIG_VALUE_' + i]);
   assert.ok(values(windows).includes('http.sslBackend=schannel'), 'the Windows store holds the in-house CA');
   assert.ok(!values(linux).some(value => value.startsWith('http.sslBackend')));
 });
 
+test('on Windows the hooks folder is an absolute, empty, runner-created folder that is checked before each use', () => {
+  assert.equal(createHooksDirectory('linux').path, '/dev/null');
+  const hooks = createHooksDirectory('win32');
+  try {
+    assert.ok(isAbsolute(hooks.path));
+    hooks.check();
+    writeFileSync(join(hooks.path, 'pre-commit'), 'evil');
+    assert.throws(() => hooks.check(), /書き換えられています/);
+  } finally {
+    rmSync(hooks.path, {recursive: true, force: true});
+  }
+});
+
 test('names that Windows maps onto .git are never copied', () => {
-  for (const name of ['.git', '.GIT', '.git.', '.git ', '.Git. .', 'GIT~1', 'git~12', 'node_modules', 'Node_Modules.', 'a:b', '...']) {
+  for (const name of ['.git', '.GIT', '.git.', '.git ', '.Git. .', 'GIT~1', 'git~12', 'node_modules', 'Node_Modules.', 'a:b', '...',
+    'NUL', 'nul.txt', 'Con', 'com1.log', 'LPT9', 'aux.tar.gz']) {
     assert.ok(notCopied(name), name);
   }
   for (const name of ['.gitignore', '.github', 'git~', 'src', '.aidev']) assert.ok(!notCopied(name), name);
