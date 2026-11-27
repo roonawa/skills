@@ -7,7 +7,7 @@ import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFi
 import { tmpdir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import { main } from '../dist/runner.js';
-import { createHooksDirectory, gitEnvironment, notCopied } from '../dist/workspace.js';
+import { createHooksDirectory, gitEnvironment, notCopied, requiredSkills } from '../dist/workspace.js';
 import { taskNameOf } from '../dist/run-records.js';
 import { env as chubEnv, fakeChub, task, template } from './chub-fake.mjs';
 import { BASE as GITEA, TOKEN as GITEA_TOKEN, fakeGitea } from './gitea-fake.mjs';
@@ -81,7 +81,15 @@ test('names that Windows maps onto .git are never copied', () => {
   for (const name of ['.gitignore', '.github', 'git~', 'src', '.aidev']) assert.ok(!notCopied(name), name);
 });
 
-function setup(t, {branchExists = false} = {}) {
+/** The Skills the runner requires in the target repository. */
+function seedSkills(root) {
+  for (const name of requiredSkills) {
+    mkdirSync(join(root, '.claude', 'skills', name), {recursive: true});
+    writeFileSync(join(root, '.claude', 'skills', name, 'SKILL.md'), '# ' + name + '\n');
+  }
+}
+
+function setup(t, {branchExists = false, withSkills = true} = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'aidev-ws-'));
   t.after(() => rmSync(dir, {recursive: true, force: true}));
   // Origin: a bare repository whose main has README.md and src/keep.txt.
@@ -89,6 +97,7 @@ function setup(t, {branchExists = false} = {}) {
   mkdirSync(join(seed, 'src'), {recursive: true});
   writeFileSync(join(seed, 'README.md'), '# app\n');
   writeFileSync(join(seed, 'src', 'keep.txt'), 'keep\n');
+  if (withSkills) seedSkills(seed);
   git(dir, 'init', '--quiet', '--initial-branch=main', seed);
   git(seed, 'add', '-A');
   git(seed, '-c', 'user.name=seed', '-c', 'user.email=seed@localhost', 'commit', '--quiet', '-m', 'seed');
@@ -142,7 +151,7 @@ test('--once clones the base branch, runs the loop, commits in a fresh clone, pu
     git(other, '-c', 'user.name=o', '-c', 'user.email=o@localhost', 'commit', '--quiet', '-m', 'news');
     git(other, 'push', '--quiet', 'origin', 'HEAD:main');
     return {task: taskName, state: 'review', reason: 'checks-passed', attempts: 1, exitCode: 0, costUsd: 0, notes: ['0件の文言は仮'],
-      steps: [{attempt: 1, implementation: {ok: true, report: ''}, review: {ok: true}, state: 'review', reason: 'checks-passed'}]};
+      steps: [{attempt: 0, implementation: {ok: true, report: ''}, review: {ok: true}, state: 'review', reason: 'checks-passed'}]};
   };
   const {output, exitCode} = await main(['--once', '--config', s.file], env,
     {transport, sleep, giteaTransport: s.gitea.transport, remoteUrl: s.remoteUrl, runLoop, notify: async () => {}});
@@ -237,6 +246,18 @@ for (const ciDir of ['.gitea', '.GitHub']) test('a changed CI definition is not 
   assert.equal(s.pulls.length, 0);
   assert.equal(spawnSync('git', ['rev-parse', '--verify', '--quiet', 'aidev/' + taskNameOf('task-ci', template())], {cwd: s.origin}).status, 1,
     'no branch was pushed');
+});
+
+test('a repository without the aidev Skills goes to a person before any session starts', async t => {
+  const s = setup(t, {withSkills: false});
+  const {transport} = fakeChub({tasks: [task('task-sk', 351, template())]});
+  const {output, exitCode} = await main(['--once', '--config', s.file], env,
+    {transport, sleep, giteaTransport: s.gitea.transport, remoteUrl: s.remoteUrl, runLoop: async () => assert.fail('session started')});
+  const report = JSON.parse(output);
+  assert.equal(exitCode, 0, output);
+  assert.deepEqual(report.ran.result, {state: 'needs-human', reason: 'skills-missing'});
+  assert.match(report.notifications[0], /Skill がないため実装しませんでした.*aidev skill add/);
+  assert.equal(s.pulls.length, 0);
 });
 
 test('--once needs stateDir and the Gitea token from the environment; a failed clone is a runner error', async t => {

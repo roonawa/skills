@@ -30,7 +30,7 @@ function setup(t, tasks) {
     },
     runLoop: async (root, name, spec) => {
       loops.push({root, name, spec, text: readFileSync(join(root, spec), 'utf8')});
-      return {task: name, state: 'review', reason: 'checks-passed', attempts: 1, exitCode: 0, steps: [], costUsd: 0};
+      return {task: name, state: 'review', reason: 'checks-passed', attempts: 0, exitCode: 0, steps: [], costUsd: 0};
     },
     publish: async () => ({url: 'https://gitea.example.internal/org/app/pulls/5'}),
     notify: async messages => { if (messages.length) sent.push(messages); },
@@ -52,10 +52,10 @@ test('runOnce runs the oldest eligible task once, writes its specification and n
   assert.equal(first.exitCode, 0);
   const name = taskNameOf('task-a', template());
   assert.deepEqual(first.report.ran, {taskId: 'task-a', taskName: name,
-    result: {state: 'review', reason: 'checks-passed', attempts: 1, url: 'https://gitea.example.internal/org/app/pulls/5'}});
+    result: {state: 'review', reason: 'checks-passed', attempts: 0, url: 'https://gitea.example.internal/org/app/pulls/5'}});
   assert.deepEqual(loops.map(l => [l.name, l.spec, l.text]), [[name, '.aidev/specs/' + name + '.md', template()]]);
   assert.equal(sent.length, 1);
-  assert.ok(sent[0][0].startsWith('【review】タスク task-a（task-a）: 全ゲート合格（試行 1 回）。 PR: https://gitea'), sent[0][0]);
+  assert.ok(sent[0][0].startsWith('【review】タスク task-a（task-a）: 全ゲート合格（1 回目で判定、差し戻し 0 回）。 PR: https://gitea'), sent[0][0]);
   assert.ok(sent[0][0].endsWith('カードを「人のレビュー待ち」へ移してください。'), sent[0][0]);
   assert.equal(records.read(name).result.state, 'review');
   assert.ok(calls.every(c => c.method === 'GET'), 'C-HUB is only read');
@@ -73,7 +73,7 @@ test('needs-human is notified with the reason and where to move the card', async
   const {report, exitCode} = await runOnce(client, runnerConfig, deps);
   assert.equal(exitCode, 0);
   assert.equal(report.ran.result.state, 'needs-human');
-  assert.ok(sent[0][0].startsWith('【人の確認待ち】タスク task-n（task-n）: repeated-failure（試行 2 回）。'), sent[0][0]);
+  assert.ok(sent[0][0].startsWith('【人の確認待ち】タスク task-n（task-n）: repeated-failure（3 回目で判定、差し戻し 2 回）。'), sent[0][0]);
   assert.ok(sent[0][0].endsWith('カードを「人の確認待ち」へ移してください。'), sent[0][0]);
 });
 

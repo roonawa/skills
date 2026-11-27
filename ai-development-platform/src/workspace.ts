@@ -5,7 +5,7 @@ import { withoutCredentials } from './environment.js';
 import { stopTree } from './react.js';
 import { checkBranch, type GiteaRunnerClient } from './gitea.js';
 import type { LoopResult } from './loop.js';
-import type { TaskDecision } from './runner.js';
+import { tries, type TaskDecision } from './runner.js';
 
 /**
  * Working copies and publishing for the unattended runner (docs/autonomous-runner-design.md 5.4, 5.5).
@@ -208,6 +208,9 @@ function headCommit(dir: string): string {
 
 const maxHandoffChars = 60_000;
 
+/** Skills the implementation and review prompts refer to (src/loop.ts); the target repository must contain them. */
+export const requiredSkills = ['aidev-implementation', 'aidev-testing', 'aidev-repair-workflow', 'aidev-code-review'];
+
 /**
  * Reads a regular file inside the working copy, or returns undefined. Project code may have replaced the file or a
  * parent directory with a link to a file elsewhere on the runner host, so every component is checked with lstat and
@@ -237,10 +240,10 @@ export function pullRequestBody(task: RunnerTask, result: LoopResult, root: stri
   const lines = ['このPRは aidev の無人実行ランナーが作成しました。マージは人がレビューしてから行ってください。', '',
     '- C-HUB のタスク: ' + task.title + '（' + task.id + '、ボード ' + task.board + '）',
     '- aidev のタスク名: ' + task.taskName,
-    '- 結果: ' + result.state + '（' + result.reason + '、試行 ' + (result.attempts ?? '-') + ' 回）', '',
+    '- 結果: ' + result.state + '（' + result.reason + '、' + tries(result.attempts) + '）', '',
     '## 受け入れ条件', '', ...task.acceptanceIds.map(id => '- ' + id), '',
     '## 各回の結果', '', '| 回 | 実装 | レビュー | 判定 |', '|---|---|---|---|',
-    ...result.steps.map(step => '| ' + step.attempt + ' | ' + (step.implementation.ok ? '完了' : '失敗') + ' | ' +
+    ...result.steps.map(step => '| ' + (step.attempt + 1) + ' | ' + (step.implementation.ok ? '完了' : '失敗') + ' | ' +
       (step.review ? step.review.ok ? '完了' : '失敗' : '-') + ' | ' + (step.state ?? '-') + (step.reason ? '（' + step.reason + '）' : '') + ' |')];
   if (result.notes?.length) lines.push('', '## 確認事項（ゲートの合否には影響しない）', '', ...result.notes.map(note => '- ' + note));
   if (result.state === 'needs-human' && result.handoff) {
@@ -283,6 +286,11 @@ export function createGiteaWorkspace(options: WorkspaceOptions) {
       const dir = fresh(task.taskName);
       await clone(task, dir, true);
       bases.set(task.taskName, headCommit(dir));
+      // The sessions are told to follow these Skills; without them they would work from the prompt alone.
+      const missing = requiredSkills.filter(name => !existsSync(join(dir, '.claude', 'skills', name, 'SKILL.md')));
+      if (missing.length) {
+        throw new WorkspaceError('対象リポジトリに aidev の Skill がありません（' + missing.join('・') + '）。', 'skills-missing');
+      }
       if ((options.install ?? true) && existsSync(join(dir, 'package-lock.json'))) {
         const windows = process.platform === 'win32';
         // Fixed arguments only; the project's install scripts do not run, and no credentials reach npm.

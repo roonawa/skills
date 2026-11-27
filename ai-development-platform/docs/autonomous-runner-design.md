@@ -301,6 +301,7 @@ C-HUB・Gitea に接続しない部分を先に実装した。使い方は READM
 - `src/runner.ts` の `runOnce`: 5.2・5.5・5.6 の処理。中断の通知、着手条件不足の通知、最古の1件の実行、結果の記録、1回の起動につき1通の通知。dry-run も実行記録を見て processed と interrupted を出す。`AI実行中` の扱いと設定の `sections.running` は削除し、通知でカードを移す先を示すため `sections.review` を足した
 - 着手条件の変更: タスク本文に `aidev spec check` と同じ検査をかけ、エラーを `spec-` 付きの理由にした。これにより「やらないこと」は必須になった（段階1の解釈では任意としていた）。タスク ID は版を付けても64文字以内に収まるよう、55文字までとした
 - Gitea との連携（同日）: `src/workspace.ts` と `createGiteaRunnerClient`（`src/gitea.ts`）。`node dist/runner.js --once` で1件を実行して PR まで作る。トークンは git コマンドごとの環境変数でだけ渡し、作業フォルダには残さない。作業後の作業フォルダは AI やゲートのスクリプトが `.git` を書き換えられるため信用せず、コミットと push は取得し直した別のフォルダで行う。push 先は `aidev/<タスク名>` だけで強制 push はしない。QA の Issue 起票用のクライアントとは分け、そちらからは PR を作れないままにした。テストはローカルの bare リポジトリと偽の Gitea API で行い、実際の Gitea には接続していない
+- 実環境での最初の試行（2026-11-27）: テスト用ボードのタスク1件を `--once` で処理し、試行用リポジトリ `ailesys-dev-gitea/aidev-trial` に全ゲート合格の PR #1 を作った（約2分30秒）。C-HUB の実データの読み取り、Gitea からの取得、AI 専用アカウントのトークンでの push と PR の作成を確かめた。通知は切って行った。見つかった点: 通知と PR の本文で試行回数を 0 から数えて表示していた（直した）。試行用リポジトリに aidev の Skill が無く、指示だけで実装とレビューが進んだ（Skill が無いリポジトリは AI を動かさず needs-human にするようにした）。Node から Gitea の API を呼ぶには `NODE_OPTIONS=--use-system-ca` が要る。git は schannel で失効確認を省かずに接続できた
 - 相棒への通知（同日）: `src/notify.ts`。4章のとおり1日5通の上限を守り、超えた分と送れなかった分は stateDir の `notify.json` にためて次に送る。通知用の通信処理は `POST /api/plugin/sugar-forum/digest` しか送らない。送る形式 `{ content }` は隣の窓口からの推定で、8章の確認事項のまま。設定の `notify: false` で止められる
 - 通知の1日5通の上限への対処（4章）は、通知の送信と合わせて実装する。`runOnce` は1回の起動の通知を1通にまとめるところまで
 

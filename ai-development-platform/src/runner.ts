@@ -190,16 +190,25 @@ const label = (decision: TaskDecision) => decision.title + '（' + decision.id +
 const moveTo = (config: ChubConfig, state: string) =>
   ' カードを「' + (state === 'review' ? config.sections.review : config.sections.needsHuman) + '」へ移してください。';
 
+/** aidev counts attempts from 0, so the last attempt's number is also the number of repairs before it. */
+export const tries = (attempts: number | null | undefined) =>
+  typeof attempts === 'number' ? (attempts + 1) + ' 回目で判定、差し戻し ' + attempts + ' 回' : '試行回数は不明';
+
 /** Notification text comes from these templates only; AI output and review findings are never included (design 4). */
 function resultMessage(decision: TaskDecision, result: RunResult): string {
   const pr = result.url ? ' PR: ' + result.url : '';
-  if (result.state === 'review') return '【review】' + label(decision) + ': 全ゲート合格（試行 ' + result.attempts + ' 回）。' + pr;
+  if (result.state === 'review') return '【review】' + label(decision) + ': 全ゲート合格（' + tries(result.attempts) + '）。' + pr;
+  if (result.state === 'needs-human' && result.reason === 'skills-missing') {
+    return '【人の確認待ち】' + label(decision) + ': 対象リポジトリに aidev の Skill がないため実装しませんでした。' +
+      'リポジトリで aidev skill add（aidev-implementation・aidev-testing・aidev-repair-workflow・aidev-code-review）を実行してから、' +
+      '本文に「再実行: 2」のような行を足して戻してください。';
+  }
   if (result.state === 'needs-human' && result.reason === 'ci-config-changed') {
     return '【人の確認待ち】' + label(decision) + ': 実装が CI の設定（.gitea・.github・.forgejo）を変えたため push していません。' +
       '作業はランナーの作業フォルダに残っています。';
   }
   if (result.state === 'needs-human') {
-    return '【人の確認待ち】' + label(decision) + ': ' + result.reason + '（試行 ' + (result.attempts ?? '-') + ' 回）。引継ぎ票を確認してください。' + pr;
+    return '【人の確認待ち】' + label(decision) + ': ' + result.reason + '（' + tries(result.attempts) + '）。引継ぎ票を確認してください。' + pr;
   }
   return '【実行不能】' + label(decision) + ': ' + result.reason + ' で止まりました。';
 }

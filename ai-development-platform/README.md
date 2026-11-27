@@ -295,6 +295,7 @@ Gitea での動き:
 - 作業後の作業フォルダは信用しない。AI やゲートの npm scripts が `.git` を書き換えられるため、コミットと push は取得し直した別のフォルダで行い、ファイルだけを写す（`.git`・`node_modules`・シンボリックリンクは写さない）
 - push 先は `aidev/<タスク名>` だけで、強制 push はしない。PR は基準ブランチ向けに作り、needs-human のときは題名に `WIP: ` を付けて引継ぎ票を本文に載せる（引継ぎ票やその親フォルダがリンクになっていれば読まない。作業フォルダの外のファイルを PR に載せないため）。マージはしない
 - 同じ名前の作業ブランチが Gitea にあれば、実行記録が無くても処理済みとみなす
+- 対象リポジトリに aidev の Skill（aidev-implementation・aidev-testing・aidev-repair-workflow・aidev-code-review の `.claude/skills/<名前>/SKILL.md`）が無ければ、AI を動かさずに needs-human（skills-missing）にする。実装とレビューの指示がこれらの Skill を前提にしているため。リポジトリで `aidev skill add <名前>` を実行して入れる
 - Windows で `.git` と同じ場所を指す名前（`.git.`・`GIT~1` など）は写さない。予約されたデバイス名（NUL・CON・COM1 など）も写さない。ランナーの git は、フックを、ファイルの下でフォルダを作れない場所（`/dev/null`、Windows では `System32\kernel32.dll\nohooks`）に向け、`core.protectNTFS` を有効にする
 - ランナーの git は、ユーザーとシステムの git 設定（`~/.gitconfig` など）と、環境変数による git の設定を読まない。プロジェクトのコードが同じユーザーで先に動くため、`url.*.insteadOf` などでトークンの送り先を変えられないようにする。Windows では証明書に Windows の証明書ストア（`http.sslBackend=schannel`）を使う
 - 実装が CI の設定（`.gitea`・`.github`・`.forgejo`）を変えていたら push せず、needs-human（ci-config-changed）にする。push したブランチで、リポジトリの secrets を使うワークフローが動くのを防ぐため。実装担当はこれらのファイルを編集できない

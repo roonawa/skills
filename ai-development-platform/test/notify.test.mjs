@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createDigestNotifier, digestPath, fetchDigestTransport, japanDay, maxDigestChars } from '../dist/notify.js';
 import { main } from '../dist/runner.js';
+import { requiredSkills } from '../dist/workspace.js';
 import { BASE, TOKEN, env as chubEnv, fakeChub, task, template } from './chub-fake.mjs';
 
 function setup(t, start = '2026-11-26T00:30:00Z') {
@@ -93,6 +94,10 @@ test('--once sends the run messages to the buddy with the C-HUB key, and notify:
   const seed = join(dir, 'seed');
   mkdirSync(seed);
   writeFileSync(join(seed, 'README.md'), 'x\n');
+  for (const name of requiredSkills) {
+    mkdirSync(join(seed, '.claude', 'skills', name), {recursive: true});
+    writeFileSync(join(seed, '.claude', 'skills', name, 'SKILL.md'), '# ' + name + '\n');
+  }
   git(dir, 'init', '--quiet', '--initial-branch=main', seed);
   git(seed, 'add', '-A');
   git(seed, '-c', 'user.name=s', '-c', 'user.email=s@localhost', 'commit', '--quiet', '-m', 's');
