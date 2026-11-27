@@ -294,6 +294,7 @@ Gitea での動き:
 - トークンは git コマンドごとの環境変数（`http.extraHeader`）でだけ渡し、作業フォルダの `.git/config` には書かない。資格情報の保存（credential.helper）とリダイレクトの追従は止める
 - 作業後の作業フォルダは信用しない。AI やゲートの npm scripts が `.git` を書き換えられるため、コミットと push は取得し直した別のフォルダで行い、ファイルだけを写す（`.git`・`node_modules`・シンボリックリンクは写さない）
 - push 先は `aidev/<タスク名>` だけで、強制 push はしない。PR は基準ブランチ向けに作り、needs-human のときは題名に `WIP: ` を付けて引継ぎ票を本文に載せる（引継ぎ票やその親フォルダがリンクになっていれば読まない。作業フォルダの外のファイルを PR に載せないため）。マージはしない
+- review の PR には、そのタスクの記録（`.aidev/runs/<タスク名>`・`.aidev/reviews/<タスク名>-N.json`・`.aidev/specs/<タスク名>.md`）を含めない。マージしても基準ブランチに記録がたまらないようにするため。代わりに、各回の結果・確認事項・最後の回の実装の報告を PR の本文に載せる。needs-human の WIP の PR には、引継ぎ票のために記録を含める。基準ブランチにすでにある記録には手を付けない
 - 同じ名前の作業ブランチが Gitea にあれば、実行記録が無くても処理済みとみなす
 - 対象リポジトリに aidev の Skill（aidev-implementation・aidev-testing・aidev-repair-workflow・aidev-code-review の `.claude/skills/<名前>/SKILL.md`）が無ければ、AI を動かさずに needs-human（skills-missing）にする。実装とレビューの指示がこれらの Skill を前提にしているため。リポジトリで `aidev skill add <名前>` を実行して入れる
 - Windows で `.git` と同じ場所を指す名前（`.git.`・`GIT~1` など）は写さない。予約されたデバイス名（NUL・CON・COM1 など）も写さない。ランナーの git は、フックを、ファイルの下でフォルダを作れない場所（`/dev/null`、Windows では `System32\kernel32.dll\nohooks`）に向け、`core.protectNTFS` を有効にする

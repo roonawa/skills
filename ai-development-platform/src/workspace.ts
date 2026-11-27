@@ -166,21 +166,33 @@ function ciFiles(root: string): Map<string, string> {
 const sameFiles = (a: Map<string, string>, b: Map<string, string>) =>
   a.size === b.size && [...a].every(([path, content]) => b.has(path) && b.get(path) === content);
 
-/** Copies the working tree without .git, installed packages or symbolic links. */
-function copyTree(from: string, to: string): void {
+/** Copies the working tree without .git, installed packages, symbolic links or the paths `skip` names. */
+function copyTree(from: string, to: string, skip: (relative: string) => boolean = () => false, relative = ''): void {
   for (const entry of readdirSync(from, {withFileTypes: true})) {
     if (notCopied(entry.name)) continue;
+    const path = relative ? relative + '/' + entry.name : entry.name;
+    if (skip(path)) continue;
     const source = join(from, entry.name);
     const target = join(to, entry.name);
     const stat = lstatSync(source);
     if (stat.isSymbolicLink()) continue;
     if (stat.isDirectory()) {
       mkdirSync(target, {recursive: true});
-      copyTree(source, target);
+      copyTree(source, target, skip, path);
     } else if (stat.isFile()) {
       copyFileSync(source, target);
     }
   }
+}
+
+/**
+ * The run's own records: its run directory, review files and specification. A pull request for review leaves them
+ * out, so merging it does not add them to the base branch; the description carries what a reviewer needs.
+ * Records already in the base branch are other runs' and stay as they are.
+ */
+export function runRecord(taskName: string): (relative: string) => boolean {
+  const reviews = new RegExp('^\\.aidev/reviews/' + taskName + '-\\d+\\.json$');
+  return relative => relative === '.aidev/runs/' + taskName || relative === '.aidev/specs/' + taskName + '.md' || reviews.test(relative);
 }
 
 /** Removes everything but .git, so files deleted in the working copy are deleted in the commit too. */
@@ -207,6 +219,7 @@ function headCommit(dir: string): string {
 }
 
 const maxHandoffChars = 60_000;
+const maxReportChars = 20_000;
 
 /** Skills the implementation and review prompts refer to (src/loop.ts); the target repository must contain them. */
 export const requiredSkills = ['aidev-implementation', 'aidev-testing', 'aidev-repair-workflow', 'aidev-code-review'];
@@ -246,6 +259,14 @@ export function pullRequestBody(task: RunnerTask, result: LoopResult, root: stri
     ...result.steps.map(step => '| ' + (step.attempt + 1) + ' | ' + (step.implementation.ok ? '完了' : '失敗') + ' | ' +
       (step.review ? step.review.ok ? '完了' : '失敗' : '-') + ' | ' + (step.state ?? '-') + (step.reason ? '（' + step.reason + '）' : '') + ' |')];
   if (result.notes?.length) lines.push('', '## 確認事項（ゲートの合否には影響しない）', '', ...result.notes.map(note => '- ' + note));
+  if (result.state === 'review') {
+    // The run's records are not in this pull request (runRecord); the last implementation report stands in for them.
+    const last = result.steps.at(-1)?.implementation.report;
+    let report = last ? readUntrusted(root, last) : undefined;
+    if (report && report.length > maxReportChars) report = report.slice(0, maxReportChars) + '\n\n（長いため省略）';
+    lines.push('', '## 実装の報告（最後の回）', '', report?.trim() || '（報告を読めません）', '',
+      'ランナーの記録（.aidev/runs・.aidev/reviews・.aidev/specs のこのタスクの分）はこの PR に含めていません。');
+  }
   if (result.state === 'needs-human' && result.handoff) {
     let text = readUntrusted(root, result.handoff) ?? '（引継ぎ票を読めません。ブランチ上の ' + result.handoff + ' を見てください）';
     if (text.length > maxHandoffChars) text = text.slice(0, maxHandoffChars) + '\n\n（長いため省略。ブランチ上の ' + result.handoff + ' を見てください）';
@@ -314,7 +335,8 @@ export function createGiteaWorkspace(options: WorkspaceOptions) {
       // The check compares the base commit with the files as copied into this clone, i.e. what would be committed.
       const before = ciFiles(dir);
       clearTree(dir);
-      copyTree(root, dir);
+      // needs-human keeps the records on the work branch: the hand-off points at them and the work is not merged as is.
+      copyTree(root, dir, result.state === 'review' ? runRecord(task.taskName) : undefined);
       if (!sameFiles(before, ciFiles(dir))) {
         throw new WorkspaceError('CI の設定（.gitea・.github・.forgejo）が変わっているため push しません。', 'ci-config-changed');
       }

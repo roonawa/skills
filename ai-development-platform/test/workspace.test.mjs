@@ -97,6 +97,9 @@ function setup(t, {branchExists = false, withSkills = true} = {}) {
   mkdirSync(join(seed, 'src'), {recursive: true});
   writeFileSync(join(seed, 'README.md'), '# app\n');
   writeFileSync(join(seed, 'src', 'keep.txt'), 'keep\n');
+  // Records of an earlier run, merged into main before: they belong to the base branch and must stay.
+  mkdirSync(join(seed, '.aidev', 'runs', 'task-old-00000000'), {recursive: true});
+  writeFileSync(join(seed, '.aidev', 'runs', 'task-old-00000000', '0.json'), '{}');
   if (withSkills) seedSkills(seed);
   git(dir, 'init', '--quiet', '--initial-branch=main', seed);
   git(seed, 'add', '-A');
@@ -141,8 +144,11 @@ test('--once clones the base branch, runs the loop, commits in a fresh clone, pu
     writeFileSync(join(root, 'node_modules', 'x', 'index.js'), '');
     // Project code may tamper with the working copy's git configuration; it must not run during publishing.
     appendFileSync(join(root, '.git', 'config'), '\n[core]\n\tfsmonitor = node "' + s.script.replace(/\\/g, '/') + '"\n');
-    mkdirSync(join(root, '.aidev', 'runs', taskName), {recursive: true});
+    mkdirSync(join(root, '.aidev', 'runs', taskName, 'reports'), {recursive: true});
     writeFileSync(join(root, '.aidev', 'runs', taskName, 'state.json'), '{}');
+    writeFileSync(join(root, '.aidev', 'runs', taskName, 'reports', '0-implementation.md'), '## 仮定\n- 件数は全件で数える\n');
+    mkdirSync(join(root, '.aidev', 'reviews'), {recursive: true});
+    writeFileSync(join(root, '.aidev', 'reviews', taskName + '-0.json'), '{}');
     // Someone else adds a commit to main while the task runs.
     const other = join(s.dir, 'other');
     git(s.dir, 'clone', '--quiet', s.origin, other);
@@ -151,7 +157,8 @@ test('--once clones the base branch, runs the loop, commits in a fresh clone, pu
     git(other, '-c', 'user.name=o', '-c', 'user.email=o@localhost', 'commit', '--quiet', '-m', 'news');
     git(other, 'push', '--quiet', 'origin', 'HEAD:main');
     return {task: taskName, state: 'review', reason: 'checks-passed', attempts: 1, exitCode: 0, costUsd: 0, notes: ['0件の文言は仮'],
-      steps: [{attempt: 0, implementation: {ok: true, report: ''}, review: {ok: true}, state: 'review', reason: 'checks-passed'}]};
+      steps: [{attempt: 0, implementation: {ok: true, report: '.aidev/runs/' + taskName + '/reports/0-implementation.md'},
+        review: {ok: true}, state: 'review', reason: 'checks-passed'}]};
   };
   const {output, exitCode} = await main(['--once', '--config', s.file], env,
     {transport, sleep, giteaTransport: s.gitea.transport, remoteUrl: s.remoteUrl, runLoop, notify: async () => {}});
@@ -162,7 +169,11 @@ test('--once clones the base branch, runs the loop, commits in a fresh clone, pu
   // The branch in origin has the change, without node_modules, on top of main.
   const branch = 'aidev/' + name;
   const files = git(s.origin, 'ls-tree', '-r', '--name-only', branch).split('\n');
-  assert.ok(files.includes('src/count.js') && files.includes('src/keep.txt') && files.includes('.aidev/specs/' + name + '.md'), files.join(','));
+  assert.ok(files.includes('src/count.js') && files.includes('src/keep.txt'), files.join(','));
+  // A review PR leaves out this run's records; an earlier run's records already in main stay untouched.
+  assert.ok(!files.some(f => f.includes(name)), files.join(','));
+  assert.ok(files.includes('.aidev/runs/task-old-00000000/0.json'), files.join(','));
+  assert.equal(git(s.origin, 'diff', '--name-only', branch + '~1', branch).split('\n').filter(f => f.startsWith('.aidev/')).length, 0);
   assert.ok(!files.includes('README.md') && !files.some(f => f.startsWith('node_modules/')), files.join(','));
   assert.equal(git(s.origin, 'log', '-1', '--format=%an', branch), 'aidev-runner');
   // The work branch starts where the working copy started, so the commit added to main meanwhile is not undone.
@@ -176,6 +187,7 @@ test('--once clones the base branch, runs the loop, commits in a fresh clone, pu
   assert.equal(s.pulls[0].base, 'main');
   assert.equal(s.pulls[0].title, 'タスク task-a（task-a）');
   assert.match(s.pulls[0].body, /AC-001[\s\S]*AC-002[\s\S]*\| 1 \| 完了 \| 完了 \| review（checks-passed） \|[\s\S]*0件の文言は仮/);
+  assert.match(s.pulls[0].body, /## 実装の報告（最後の回）\n\n## 仮定\n- 件数は全件で数える\n\nランナーの記録.*含めていません/);
   // No token in any file the runner left on disk (working copies, run records).
   const leaks = [];
   const scan = path => {
@@ -204,6 +216,9 @@ test('needs-human opens a WIP pull request with the hand-off; an existing work b
   assert.equal(exitCode, 0, output);
   assert.match(s.pulls[0].title, /^WIP: /);
   assert.match(s.pulls[0].body, /## 引継ぎ票[\s\S]*同じ指摘が再発しました。/);
+  // needs-human keeps the run's records on the work branch: the hand-off points at them.
+  const wip = git(s.origin, 'ls-tree', '-r', '--name-only', 'aidev/' + taskNameOf('task-b', template())).split('\n');
+  assert.ok(wip.some(f => /^\.aidev\/runs\/task-b-[0-9a-f]{8}\/handoff\.md$/.test(f)), wip.join(','));
 
   // Project code links the hand-off's folder to a file elsewhere on the runner host: it must not reach the PR.
   const linked = setup(t);
