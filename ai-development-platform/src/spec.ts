@@ -24,6 +24,9 @@ const sectionNames = ['受け入れ条件', 'やらないこと', '判断待ち'
 type Section = typeof sectionNames[number] | 'other';
 const heading = /^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$/;
 const label = /^\s*(受け入れ条件|やらないこと|判断待ち)\s*[:：]\s*(.*)$/;
+// Other labels of the C-HUB request template (and the re-run marker) close the current section, so a line such as
+// "再実行: 2" written after 判断待ち is not counted as an open question.
+const otherLabel = /^\s*(対象リポジトリ|基準ブランチ|参考|再実行)\s*[:：]/;
 const criterion = /^\s*(?:[-*・]\s*)?(AC-\d{1,6})\s*[:：]\s*(.*)$/;
 const item = /^\s*(?:[-*・]|\d+[.)]|\|)\s*(.*)$/;
 const none = /^(?:なし|特になし|該当なし|ありません|none)[。.]?$/i;
@@ -52,6 +55,10 @@ export function checkSpecText(file: string, text: string): SpecReport {
     if (title) {
       section = sectionOf(title[1]);
       found.add(section);
+      return;
+    }
+    if (otherLabel.test(line)) {
+      section = 'other';
       return;
     }
     let rest = line;

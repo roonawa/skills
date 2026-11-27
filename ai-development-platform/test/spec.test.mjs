@@ -30,6 +30,15 @@ test('a well-formed specification passes and lists its criteria', () => {
   assert.deepEqual(checkSpecText('task', template).errors, []);
 });
 
+test('template labels and the re-run line after 判断待ち are not open questions', () => {
+  const rerun = good + '\n再実行: 2\n参考: docs/spec.md';
+  assert.deepEqual(checkSpecText('s', rerun).errors, []);
+  const after = good.replace('なし', 'なし\n再実行: 3\n- AC-009: 節の外の行');
+  assert.deepEqual([checkSpecText('s', after).errors, checkSpecText('s', after).acceptance], [[], ['AC-001', 'AC-002']]);
+  // A real open question before the re-run line still stops the run.
+  assert.deepEqual(checkSpecText('s', good.replace('なし', '- 改行の扱い\n再実行: 2')).errors.map(e => e.code), ['open-questions']);
+});
+
 test('missing parts and open questions stop the run', () => {
   assert.deepEqual(codes(checkSpecText('s', '# 仕様\n説明だけ').errors),
     ['missing-acceptance-section', 'no-criteria', 'missing-out-of-scope']);

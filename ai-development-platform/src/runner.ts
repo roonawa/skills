@@ -33,7 +33,7 @@ export interface TaskDecision {
   acceptanceIds: string[];
 }
 
-const keyPattern = /^\s*(対象リポジトリ|基準ブランチ|受け入れ条件|やらないこと|参考)\s*[:：]\s*(.*)$/;
+const keyPattern = /^\s*(対象リポジトリ|基準ブランチ|受け入れ条件|やらないこと|参考|再実行)\s*[:：]\s*(.*)$/;
 const acPattern = /^\s*[-*・]\s*(AC-\d{1,6})\s*[:：]\s*\S/;
 
 /** Reads the request template (5.3) from a task description. The text is data; nothing in it is executed. */
