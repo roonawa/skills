@@ -1,0 +1,15 @@
+{
+  "chub": {
+    "baseUrl": "https://chub.ailesys.co.jp"
+  },
+  "boards": ["tp-1794804787123-7gx3d"],
+  "sections": {"ready": "AI実装待ち", "review": "人のレビュー待ち", "needsHuman": "人の確認待ち"},
+  "allowedRepositories": ["ailesys-dev-gitea/aidev-trial"],
+  "stateDir": "/srv/aidev-runner/state",
+  "workDir": "/srv/aidev-runner/work",
+  "gitea": {
+    "baseUrl": "https://ailegit-srv",
+    "author": {"name": "aidev-runner", "email": "aidev-runner@localhost"}
+  },
+  "notify": false
+}

@@ -276,6 +276,8 @@ C-HUB は読むだけで、カードは通知を見た人が移す。通知の�
 - 通知用の通信処理は、この1つの窓口への POST しか送らない。タスクを読む通信処理は GET だけのまま
 - 設定の `notify` を false にすると送らない（キーに `sugar-forum:digest` が付くまでの間など）
 
+Gitea Actions で動かすためのワークフローと設定の見本は [examples/runner](examples/runner/README.md) にある。
+
 `--once` に要る設定は、dry-run の設定に次を足したもの。
 
 |設定|内容|

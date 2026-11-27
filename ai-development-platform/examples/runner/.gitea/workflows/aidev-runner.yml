@@ -1,0 +1,53 @@
+# aidev の無人実行ランナー（docs/autonomous-runner-design.md 5.1）の Gitea Actions ワークフローの見本。
+# ランナー専用のリポジトリ（例: aidev-runner）の .gitea/workflows/ に置く。
+#
+# 要確認（設計書8章）: ランナーの OS、actions/checkout の取得元、Gitea 1.23.8 で schedule・timeout-minutes・secrets が動くか。
+# 段階2の間は手動起動（workflow_dispatch）だけにする。段階3で schedule のコメントを外す。
+name: aidev-runner
+
+on:
+  workflow_dispatch:
+  # 段階3（夜間・休日の定期実行）で有効にする。時刻は UTC。例は平日 19:00〜翌 7:00（日本時間）と土日の 15 分ごと。
+  # schedule:
+  #   - cron: '*/15 10-21 * * 1-5'
+  #   - cron: '*/15 * * * 0,6'
+
+jobs:
+  run:
+    # 無人実行専用のランナーのラベル。他のジョブを載せない。act_runner はホストで動かす（コンテナでは stateDir が残らない）。
+    # act_runner の設定で capacity: 1 にし、同時に1件しか動かないようにする。
+    runs-on: aidev
+    timeout-minutes: 180
+    defaults:
+      run:
+        # Windows のホストでも Git for Windows の bash を使う。PowerShell にする場合は下の run を書き換える。
+        shell: bash
+    env:
+      # 社内の認証局の証明書を Node に信頼させる（Gitea の API の呼び出しに要る。2026-11-27 の試行で確認）
+      NODE_OPTIONS: --use-system-ca
+      # aidev（ai-development-platform）をランナーのホストに置いた場所。npm ci と npm run build を済ませておく
+      AIDEV_HOME: ${{ vars.AIDEV_HOME }}
+      # 1セッションの上限（README「実装ループを自動で回す」）
+      AIDEV_SESSION_BUDGET_USD: '5'
+      AIDEV_SESSION_TIMEOUT_MIN: '30'
+    steps:
+      # ランナーの設定（runner.json、秘密情報は入れない）を取り出す。actions/checkout を取得できない場合は
+      # 下の「git で取り出す」に置き換える（設計書8章）。
+      - uses: actions/checkout@v4
+
+      - name: 前提の確認
+        run: |
+          node --version
+          claude --version
+          test -f "$AIDEV_HOME/dist/runner.js"
+
+      - name: 1件を処理する
+        env:
+          # C-HUB: task-manager:read（通知するなら sugar-forum:digest も）だけを付けたキー
+          CHUB_TOKEN: ${{ secrets.CHUB_TOKEN }}
+          # Gitea: AI 専用アカウントの、対象リポジトリへの書き込みだけのトークン
+          GITEA_TOKEN: ${{ secrets.GITEA_TOKEN }}
+          # Claude Code の認証。方式は設計書8章で決める（API キーを secrets に置く案）
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        # 結果は1行の JSON。トークンは出力から伏せられる。終了コード 1 は実行不能（記録と通知あり）
+        run: node "$AIDEV_HOME/dist/runner.js" --once --config runner.json
